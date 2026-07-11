@@ -11,15 +11,10 @@ import { db } from "@/lib/db";
 import type { CallAgentRequest } from "@/lib/interpreter";
 import { executeAgentTurn, executeMcpTool, UUID } from "@/lib/runner.server";
 import { requireUser } from "@/lib/subscription";
-import { isWorkflowGraph } from "@/lib/workflow";
+import { isWorkflowGraph, MAX_EDGES, MAX_GRAPH_JSON, MAX_NODES } from "@/lib/workflow";
 
 // actions are public POST endpoints — re-check the session here
 
-const MAX_NODES = 300;
-const MAX_EDGES = 600;
-// caps total payload, and with it every config string — node/edge counts
-// alone would still admit multi-MB config values
-const MAX_GRAPH_JSON = 262_144;
 const MAX_AGENT_PAYLOAD = 131_072; // serialized transcript cap
 
 export async function saveWorkflow(id: string, graph: unknown) {

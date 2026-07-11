@@ -209,18 +209,37 @@ export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
 }
 
 // executes one claimed workflow and persists its workflow_run row. Catches
-// everything — nothing may reject out of the tick. The 'trigger' column
-// stays at its 'cron' default.
+// everything — nothing may reject out of the tick.
 async function runOne(wf: ClaimedWorkflow): Promise<void> {
+    await executeWorkflowRun(wf, { trigger: "cron" });
+}
+
+export type WorkflowRunResult = {
+    runId: string | null; // null when even the run row couldn't be recorded
+    status: "success" | "error";
+    error: string;
+    log: ConsoleLine[];
+};
+
+// shared execution core: records a workflow_run, executes the graph with the
+// owner's registry catalog and the server hooks, persists status/log, prunes
+// history. Never rejects — the cron tick (trigger 'cron') and the MCP
+// server's run_workflow tool (trigger 'manual') both consume errors as values.
+export async function executeWorkflowRun(
+    wf: { id: string; user_id: string; graph: WorkflowGraph },
+    opts: { trigger: "cron" | "manual"; timeoutMs?: number },
+): Promise<WorkflowRunResult> {
+    const timeoutMs = Math.min(opts.timeoutMs ?? RUN_TIMEOUT_MS, RUN_TIMEOUT_MS);
     let runId: string;
     try {
         const { rows } = await db.query<{ id: string }>(
-            `insert into workflow_run (workflow_id) values ($1) returning id`,
-            [wf.id],
+            `insert into workflow_run (workflow_id, trigger) values ($1, $2) returning id`,
+            [wf.id, opts.trigger],
         );
         runId = rows[0].id;
     } catch {
-        return; // couldn't even record the run — skip; the claim already spent this slot
+        // couldn't even record the run — skip; a cron claim already spent this slot
+        return { runId: null, status: "error", error: "could not record the run", log: [] };
     }
 
     try {
@@ -254,7 +273,7 @@ async function runOne(wf: ClaimedWorkflow): Promise<void> {
         };
 
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), RUN_TIMEOUT_MS);
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
         let thrown: string | null = null;
         try {
             await runWorkflow(wf.graph, byKey, {
@@ -275,16 +294,13 @@ async function runOne(wf: ClaimedWorkflow): Promise<void> {
         // the interpreter *returns* after emitting "no start node"/"run
         // aborted" error lines, so sawError (not just throw/abort) decides
         const failed = thrown !== null || controller.signal.aborted || sawError;
+        const status = failed ? "error" : "success";
+        const error = failed ? (thrown ?? (lastError || "run failed")) : "";
         await db.query(
             `update workflow_run
                 set status = $2, error = $3, log = $4, finished_at = now()
               where id = $1`,
-            [
-                runId,
-                failed ? "error" : "success",
-                failed ? (thrown ?? (lastError || "run failed")) : "",
-                JSON.stringify(log),
-            ],
+            [runId, status, error, JSON.stringify(log)],
         );
 
         // prune per-completion — cheap, and spares a global retention job
@@ -297,8 +313,10 @@ async function runOne(wf: ClaimedWorkflow): Promise<void> {
                      limit $2)`,
             [wf.id, RUNS_KEPT_PER_WORKFLOW],
         );
+        return { runId, status, error, log };
     } catch {
         // persistence itself failed — the janitor sweeps the orphaned
         // 'running' row next tick
+        return { runId, status: "error", error: "run persistence failed", log: [] };
     }
 }

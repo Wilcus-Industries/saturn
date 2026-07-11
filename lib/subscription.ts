@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { cronMinIntervalMinutes } from "@/lib/cron";
 import { db } from "@/lib/db";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -36,6 +37,20 @@ export const PLAN_LIMITS = {
 
 // not-yet-activated users get free limits
 export const limitsFor = (level: ActivationLevel | null) => PLAN_LIMITS[level ?? "free"];
+
+const floorLabel = (m: number) =>
+    m === 1 ? "every minute" : m === 60 ? "hourly" : `every ${m} minutes`;
+
+// tier cron floor — schedules tighter than the plan allows are rejected at save.
+// Shared by the workflow server actions and the MCP server tools.
+export function assertCronFloor(cron: string, level: ActivationLevel | null) {
+    const floor = limitsFor(level).cronFloorMinutes;
+    if (cronMinIntervalMinutes(cron) < floor) {
+        throw new Error(
+            `Your plan allows schedules down to ${floorLabel(floor)} — upgrade for tighter schedules`,
+        );
+    }
+}
 
 const NONE: Activation = { level: null, status: null, pendingCancel: false, periodEnd: null };
 

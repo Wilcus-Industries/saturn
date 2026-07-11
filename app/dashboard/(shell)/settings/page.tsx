@@ -7,7 +7,7 @@ import ActionButton from "@/app/dashboard/actionButton";
 import { faviconDomain } from "@/lib/registry";
 import { hasOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
-import { getActivationDetails } from "@/lib/subscription";
+import { baseUrl, getActivationDetails } from "@/lib/subscription";
 import { discoverMcpTools, saveOpenrouterKey } from "./actions";
 import DeleteEntryButton from "./deleteEntryButton";
 import McpEntryModal from "./mcpEntryModal";
@@ -273,6 +273,22 @@ export default async function Settings({
                 ))}
 
                 <SkillModal />
+            </section>
+
+            {/* hosted MCP server at /mcp — auth is the OAuth flow Claude Code
+                runs itself, so this is purely a pointer */}
+            <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
+                <h2 className={"font-mono text-xl"}>Connect Claude Code</h2>
+                <p className={"font-mono text-sm text-gray-400"}>
+                    edit and test-run your workflows agentically — add Saturn as an
+                    MCP server, then authenticate in the browser when prompted
+                </p>
+                <code
+                    className={`overflow-x-auto border border-foreground/15 bg-foreground/5 p-3
+                        font-mono text-sm whitespace-nowrap`}
+                >
+                    claude mcp add --transport http saturn {baseUrl}/mcp
+                </code>
             </section>
         </div>
     );

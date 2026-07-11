@@ -1,5 +1,5 @@
 import { betterAuth } from "better-auth";
-import { jwt, bearer } from "better-auth/plugins";
+import { jwt, bearer, mcp } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { stripe } from "@better-auth/stripe";
 import Stripe from "stripe";
@@ -35,6 +35,14 @@ export const auth = betterAuth({
                     { name: "max", priceId: process.env.STRIPE_PRICE_MAX },
                 ],
             },
+        }),
+        // OAuth 2.1 authorization server for the hosted workflow-editor MCP
+        // server at /mcp (dynamic client registration + PKCE); unauthenticated
+        // authorize requests bounce through /onboard and resume after Google
+        // sign-in sets the session cookie.
+        mcp({
+            loginPage: "/onboard",
+            resource: `${process.env.BETTER_AUTH_URL}/mcp`,
         }),
         nextCookies(),
     ], // nextCookies must stay last

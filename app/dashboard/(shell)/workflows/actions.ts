@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { cronMinIntervalMinutes, isValidCron } from "@/lib/cron";
+import { isValidCron } from "@/lib/cron";
 import { db } from "@/lib/db";
-import { type ActivationLevel, getActivation, limitsFor, requireUser } from "@/lib/subscription";
+import { assertCronFloor, getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,19 +23,6 @@ function parseWorkflowFields(formData: FormData) {
     if (!isValidCron(cron)) throw new Error("Invalid cron expression");
 
     return { name, emoji, description, cron };
-}
-
-const floorLabel = (m: number) =>
-    m === 1 ? "every minute" : m === 60 ? "hourly" : `every ${m} minutes`;
-
-// tier cron floor — schedules tighter than the plan allows are rejected at save
-function assertCronFloor(cron: string, level: ActivationLevel | null) {
-    const floor = limitsFor(level).cronFloorMinutes;
-    if (cronMinIntervalMinutes(cron) < floor) {
-        throw new Error(
-            `Your plan allows schedules down to ${floorLabel(floor)} — upgrade for tighter schedules`,
-        );
-    }
 }
 
 export async function createWorkflow(formData: FormData) {

@@ -1,6 +1,8 @@
 // Workflow designer data model: node catalog, graph types, validation and
 // connection rules. Shared by the designer canvas and server actions.
 
+import { parseSkillGrants, parseToolGrants } from "@/lib/agent";
+
 export type PortKind = "flow" | "value";
 export type NodeCategory = "main" | "mcp" | "skill" | "saturn";
 
@@ -185,6 +187,13 @@ export const CATALOG_BY_KEY: Record<string, CatalogEntry> = Object.fromEntries(
 // "mcp:<uuid>:<toolName>" = 41 chars + tool name (names capped at 60)
 export const MAX_NODE_TYPE_LENGTH = 128;
 
+// graph persistence caps, shared by the designer's saveWorkflow action and
+// the MCP server's save_graph/validate_graph tools. The JSON cap bounds every
+// config string too — node/edge counts alone would still admit multi-MB values
+export const MAX_NODES = 300;
+export const MAX_EDGES = 600;
+export const MAX_GRAPH_JSON = 262_144;
+
 // header-only placeholder for a node whose catalog entry no longer exists
 // (deleted registry entry, or a node type removed from the static catalog);
 // no ports/config, so nodeHeight stays consistent with geometry.ts
@@ -300,6 +309,110 @@ export function canConnect(
             e.to.nodeId === to.nodeId && e.to.portId === to.portId,
     );
     return !duplicate;
+}
+
+// deep validation for graphs authored without the designer's UI guardrails
+// (the MCP server's validate_graph/save_graph tools). Assumes the graph
+// already passed isWorkflowGraph. Errors are states the canvas can't produce
+// (bad ports, kind mismatches, duplicate edges, fan-in on single-edge value
+// inputs); warnings are legal-but-probably-unintended states (unknown node
+// types resolve as inert "(deleted)" placeholders, missing start node means
+// the workflow never runs, agent grants that don't match a registry entry
+// are rejected at execution time).
+export function validateGraphStrict(
+    graph: WorkflowGraph,
+    byKey: Record<string, CatalogEntry>,
+): { errors: string[]; warnings: string[] } {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    const known = (node: WorkflowNode) => {
+        const entry = byKey[node.type];
+        return entry && !entry.missing ? entry : null;
+    };
+    for (const node of graph.nodes) {
+        if (!known(node)) {
+            warnings.push(
+                `node "${node.id}" has unknown type "${node.type}" — it renders as an inert (deleted) placeholder`,
+            );
+        }
+    }
+    if (!graph.nodes.some((n) => n.type === "start")) {
+        warnings.push("no start node — the workflow can never run");
+    }
+
+    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+    const seen = new Set<string>();
+    const valueInDegree = new Map<string, number>();
+    for (const edge of graph.edges) {
+        const fromNode = nodeById.get(edge.from.nodeId)!;
+        const toNode = nodeById.get(edge.to.nodeId)!;
+        const label = `edge "${edge.id}" (${edge.from.nodeId}.${edge.from.portId} → ${edge.to.nodeId}.${edge.to.portId})`;
+
+        if (edge.from.nodeId === edge.to.nodeId) {
+            errors.push(`${label}: a node cannot connect to itself`);
+            continue;
+        }
+        const dupKey = `${edge.from.nodeId}.${edge.from.portId}>${edge.to.nodeId}.${edge.to.portId}`;
+        if (seen.has(dupKey)) {
+            errors.push(`${label}: duplicate edge`);
+            continue;
+        }
+        seen.add(dupKey);
+
+        // edges anchored on unknown-type nodes can't be port-checked
+        // (placeholders have no ports) — the unknown-type warning covers them
+        const fromEntry = known(fromNode);
+        const toEntry = known(toNode);
+        if (!fromEntry || !toEntry) continue;
+
+        const fromPort = fromEntry.outputs.find((p) => p.id === edge.from.portId);
+        const toPort = toEntry.inputs.find((p) => p.id === edge.to.portId);
+        if (!fromPort) {
+            errors.push(`${label}: "${fromNode.type}" has no output port "${edge.from.portId}"`);
+            continue;
+        }
+        if (!toPort) {
+            errors.push(`${label}: "${toNode.type}" has no input port "${edge.to.portId}"`);
+            continue;
+        }
+        if (fromPort.kind !== toPort.kind || edge.kind !== fromPort.kind) {
+            errors.push(`${label}: port kinds don't match (${fromPort.kind} output → ${toPort.kind} input, edge kind "${edge.kind}")`);
+            continue;
+        }
+        if (toPort.kind === "value" && !toPort.multi) {
+            const inKey = `${edge.to.nodeId}.${edge.to.portId}`;
+            const count = (valueInDegree.get(inKey) ?? 0) + 1;
+            valueInDegree.set(inKey, count);
+            if (count === 2) {
+                errors.push(
+                    `input ${inKey} has multiple incoming value edges — value inputs accept one edge (only await.values is multi)`,
+                );
+            }
+        }
+    }
+
+    // agent grant references — execution rejects grants that don't resolve
+    // against the owner's registry, so flag them at authoring time
+    for (const node of graph.nodes) {
+        if (node.type !== "agent") continue;
+        for (const ref of parseToolGrants(node.config.tools ?? "")) {
+            if (!byKey[`mcp:${ref.entryId}:${ref.toolName}`]) {
+                warnings.push(
+                    `agent "${node.id}" grants tool "${ref.entryId}:${ref.toolName}" which doesn't match any registered MCP tool node`,
+                );
+            }
+        }
+        for (const skillId of parseSkillGrants(node.config.skills ?? "")) {
+            if (!byKey[`skill:${skillId}`]) {
+                warnings.push(
+                    `agent "${node.id}" grants skill "${skillId}" which doesn't match any registered skill`,
+                );
+            }
+        }
+    }
+
+    return { errors, warnings };
 }
 
 // edges that must be deleted before adding from→to, to keep value inputs at
