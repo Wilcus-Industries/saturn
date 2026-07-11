@@ -123,6 +123,10 @@ export default function Designer({
 
     // test-run output; null = console hidden (never run, or closed)
     const [consoleLines, setConsoleLines] = useState<ConsoleLine[] | null>(null);
+    // console panel height, drag-resized via its top edge; lives here (not in
+    // ConsolePanel) so it survives close/reopen but dies with the page —
+    // deliberately never persisted
+    const [consoleHeight, setConsoleHeight] = useState(160);
     const [running, setRunning] = useState(false);
     // per-port values from the last test run, for the extract path picker.
     // A ref: nothing renders from these until a picker opens (which snapshots
@@ -540,6 +544,8 @@ export default function Designer({
             {consoleLines !== null && (
                 <ConsolePanel
                     lines={consoleLines}
+                    height={consoleHeight}
+                    onResize={setConsoleHeight}
                     onClear={() => setConsoleLines([])}
                     onClose={() => setConsoleLines(null)}
                 />
