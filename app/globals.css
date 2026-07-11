@@ -10,6 +10,9 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-mozilla-headline: var(--font-mozilla-headline);
+  --font-pixel: var(--font-geist-pixel-square);
+  --font-inter: var(--font-inter);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,5 +25,135 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* hero "learn more" anchor glides instead of jumping; its glyph nods toward
+   the landing body. Both sit still under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+@keyframes learn-more-nudge {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3px); }
+}
+.learn-more-nudge {
+  display: inline-block;
+  animation: learn-more-nudge 2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .learn-more-nudge { animation: none; }
+}
+
+/* route transitions — activated by <PageTransition> via Link transitionTypes.
+   Forward navs lift content up and away; back navs sink it down. */
+@keyframes vt-page-out-up {
+  to { opacity: 0; translate: 0 -14px; }
+}
+@keyframes vt-page-in-up {
+  from { opacity: 0; translate: 0 14px; }
+}
+@keyframes vt-page-out-down {
+  to { opacity: 0; translate: 0 14px; }
+}
+@keyframes vt-page-in-down {
+  from { opacity: 0; translate: 0 -14px; }
+}
+
+::view-transition-old(.vt-page-exit-forward) {
+  animation: vt-page-out-up 160ms ease-in both;
+}
+::view-transition-new(.vt-page-enter-forward) {
+  animation: vt-page-in-up 320ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
+}
+::view-transition-old(.vt-page-exit-back) {
+  animation: vt-page-out-down 160ms ease-in both;
+}
+::view-transition-new(.vt-page-enter-back) {
+  animation: vt-page-in-down 320ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
+}
+
+/* the saturn scene is named so it stays live during route transitions instead
+   of being snapshotted — otherwise the ascii animation would freeze mid-swap */
+::view-transition-group(saturn-scene) {
+  animation: none;
+}
+::view-transition-old(saturn-scene) {
+  display: none;
+}
+::view-transition-new(saturn-scene) {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
+
+/* landing features graph — the dashed spine draws top-to-bottom and node
+   cards rise in once <Reveal> tags the block `landing-revealed` on first
+   scroll into view. Declared after the Tailwind import so these transition
+   lists win over utility transitions on the same elements. */
+.landing-spine {
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.landing-reveal-item {
+  opacity: 0;
+  translate: 0 8px;
+  transition: opacity 500ms ease-out, translate 500ms ease-out;
+}
+.landing-revealed .landing-spine {
+  transform: none;
+}
+.landing-revealed .landing-reveal-item {
+  opacity: 1;
+  translate: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-spine,
+  .landing-reveal-item {
+    transition: none;
+    transform: none;
+    opacity: 1;
+    translate: none;
+  }
+}
+
+/* Pro tier — subtle deep-yellow glow, quieter sibling of the Max enchant. */
+.pro-glow {
+  border-color: #ca8a04 !important;
+  box-shadow: 0 0 10px 2px rgba(202, 138, 4, 0.55),
+              0 0 22px 4px rgba(161, 98, 7, 0.3),
+              inset 0 0 10px rgba(234, 179, 8, 0.22);
+}
+
+/* Max tier — Minecraft-style "enchantment" glow: a pulsing dark-violet halo. */
+@keyframes enchant-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px 1px rgba(126, 34, 206, 0.55),
+                0 0 20px 2px rgba(76, 29, 149, 0.4),
+                inset 0 0 10px rgba(147, 51, 234, 0.22);
+  }
+  50% {
+    box-shadow: 0 0 16px 3px rgba(147, 51, 234, 0.85),
+                0 0 34px 7px rgba(91, 33, 182, 0.55),
+                inset 0 0 16px rgba(168, 85, 247, 0.38);
+  }
+}
+.enchant-glow {
+  border-color: #7e22ce !important;
+  /* static base glow so the effect still reads with reduced motion */
+  box-shadow: 0 0 12px 2px rgba(126, 34, 206, 0.6),
+              inset 0 0 12px rgba(147, 51, 234, 0.28);
+  animation: enchant-pulse 2.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .enchant-glow { animation: none; }
 }

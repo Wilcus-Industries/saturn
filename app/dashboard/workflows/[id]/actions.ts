@@ -1,0 +1,114 @@
+"use server";
+
+import {
+    type AgentMessage,
+    type AgentModelResult,
+    type AgentToolRef,
+    MAX_AGENT_MESSAGES,
+    type McpCallResult,
+} from "@/lib/agent";
+import { db } from "@/lib/db";
+import type { CallAgentRequest } from "@/lib/interpreter";
+import { executeAgentTurn, executeMcpTool, UUID } from "@/lib/runner.server";
+import { requireUser } from "@/lib/subscription";
+import { isWorkflowGraph } from "@/lib/workflow";
+
+// actions are public POST endpoints — re-check the session here
+
+const MAX_NODES = 300;
+const MAX_EDGES = 600;
+// caps total payload, and with it every config string — node/edge counts
+// alone would still admit multi-MB config values
+const MAX_GRAPH_JSON = 262_144;
+const MAX_AGENT_PAYLOAD = 131_072; // serialized transcript cap
+
+export async function saveWorkflow(id: string, graph: unknown) {
+    const { session } = await requireUser();
+    if (!UUID.test(id)) throw new Error("Invalid workflow id");
+    if (!isWorkflowGraph(graph)) throw new Error("Invalid graph");
+    if (graph.nodes.length > MAX_NODES || graph.edges.length > MAX_EDGES) {
+        throw new Error("Graph too large");
+    }
+    const json = JSON.stringify(graph);
+    if (json.length > MAX_GRAPH_JSON) throw new Error("Graph too large");
+
+    const { rowCount } = await db.query(
+        "update workflow set graph = $1, updated_at = now() where id = $2 and user_id = $3",
+        [json, id, session.user.id],
+    );
+    if (!rowCount) throw new Error("Not found");
+}
+
+// executes one MCP tool for a designer test run. Returns errors as values
+// (not throws) so the client console can render them. Validation and the
+// call live in executeMcpTool (lib/runner.server.ts), shared with the
+// scheduled runner.
+export async function callMcpTool(
+    entryId: string,
+    toolName: string,
+    input: string,
+): Promise<McpCallResult> {
+    const { session } = await requireUser();
+    return executeMcpTool(session.user.id, entryId, toolName, input);
+}
+
+const isRecord = (x: unknown): x is Record<string, unknown> =>
+    typeof x === "object" && x !== null && !Array.isArray(x);
+
+// the transcript arrives from the browser — shape-check every message before
+// replaying it to the model
+function isAgentMessage(x: unknown): x is AgentMessage {
+    if (!isRecord(x) || typeof x.content !== "string") return false;
+    if (x.role === "user") return true;
+    if (x.role === "tool") return typeof x.toolCallId === "string";
+    if (x.role !== "assistant") return false;
+    if (x.toolCalls === undefined) return true;
+    return (
+        Array.isArray(x.toolCalls) &&
+        x.toolCalls.every(
+            (c) =>
+                isRecord(c) &&
+                typeof c.id === "string" &&
+                typeof c.entryId === "string" &&
+                typeof c.toolName === "string" &&
+                typeof c.arguments === "string",
+        )
+    );
+}
+
+const isToolRef = (x: unknown): x is AgentToolRef =>
+    isRecord(x) &&
+    typeof x.entryId === "string" &&
+    UUID.test(x.entryId) &&
+    typeof x.toolName === "string" &&
+    x.toolName.length > 0 &&
+    x.toolName.length <= 60;
+
+// one LLM turn of an agent node's loop. The interpreter (browser) drives
+// the loop and executes tool calls via callMcpTool; this action shape-checks
+// the browser-built transcript, then delegates to executeAgentTurn
+// (lib/runner.server.ts, shared with the scheduled runner), which resolves
+// grants/skills against the registry and talks to OpenRouter so the key
+// never leaves the server. Errors return as values for the designer console.
+export async function callAgentModel(req: CallAgentRequest): Promise<AgentModelResult> {
+    // outside any try: requireUser signals its redirect by throwing
+    const { session } = await requireUser();
+
+    if (!isRecord(req)) return { error: "invalid request" };
+    if (!Array.isArray(req.tools) || !req.tools.every(isToolRef)) {
+        return { error: "invalid tool grant" };
+    }
+    if (
+        !Array.isArray(req.messages) ||
+        req.messages.length === 0 ||
+        req.messages.length > MAX_AGENT_MESSAGES ||
+        !req.messages.every(isAgentMessage)
+    ) {
+        return { error: "invalid transcript" };
+    }
+    if (JSON.stringify(req.messages).length > MAX_AGENT_PAYLOAD) {
+        return { error: "transcript too large" };
+    }
+
+    return executeAgentTurn(session.user.id, req);
+}

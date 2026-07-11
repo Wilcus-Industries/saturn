@@ -1,0 +1,320 @@
+// Workflow designer data model: node catalog, graph types, validation and
+// connection rules. Shared by the designer canvas and server actions.
+
+export type PortKind = "flow" | "value";
+export type NodeCategory = "main" | "mcp" | "skill" | "saturn";
+
+// one tool argument, derived from the MCP tool's inputSchema at discovery
+// (lib/mcp.ts deriveParams) and stored on the registry's McpTool entries.
+// Defined here — the lowest layer — so client-safe registry code and the
+// server-only mcp client can both import it.
+export type McpToolParamType = "string" | "number" | "boolean" | "array" | "object";
+export type McpToolParam = {
+    name: string;
+    type: McpToolParamType;
+    required: boolean;
+    description?: string;
+};
+
+// multi: value input that accepts many incoming edges (await "values" —
+// everywhere else value inputs stay single-edge via edgesToReplace)
+export type PortSpec = { id: string; label: string; kind: PortKind; multi?: boolean };
+
+export type ConfigField = {
+    id: string;
+    label: string;
+    input: "text" | "number" | "select" | "textarea";
+    options?: readonly string[];
+    placeholder?: string;
+    // json-path: config row gets a pick-from-sample button; tools/skills:
+    // the row is a button opening the grant picker (value is a JSON string
+    // array — Record<string,string> config still holds)
+    picker?: "json-path" | "tools" | "skills";
+    // input port that takes precedence when connected — the designer dims
+    // the field so a literal never looks live while an edge overrides it
+    overriddenBy?: string;
+};
+
+export type CatalogEntry = {
+    key: string;
+    category: NodeCategory;
+    label: string;
+    inputs: PortSpec[];
+    outputs: PortSpec[];
+    config?: ConfigField[];
+    emoji?: string; // user skill icon
+    logoDomain?: string; // user mcp favicon host
+    missing?: boolean; // placeholder for a deleted registry entry
+    group?: string; // toolbox subheader (per-tool mcp node: the server name)
+    legacy?: boolean; // resolvable for saved graphs but hidden from the toolbox
+    toolName?: string; // per-tool mcp node: the tool this node calls
+    params?: McpToolParam[]; // per-tool mcp node: arg spec (absent = raw-JSON input port)
+};
+
+export type WorkflowNode = {
+    id: string;
+    type: string; // CatalogEntry key
+    x: number;
+    y: number;
+    config: Record<string, string>;
+};
+
+export type WorkflowEdge = {
+    id: string;
+    from: { nodeId: string; portId: string }; // output port
+    to: { nodeId: string; portId: string }; // input port
+    kind: PortKind;
+};
+
+export type WorkflowGraph = { nodes: WorkflowNode[]; edges: WorkflowEdge[] };
+
+// row shape of the workflow table (db/setup.sql)
+export type WorkflowRow = {
+    id: string;
+    user_id: string;
+    name: string;
+    emoji: string;
+    description: string;
+    cron: string;
+    graph: WorkflowGraph;
+    created_at: Date;
+    updated_at: Date;
+};
+
+export const IF_OPERATORS = ["==", "!=", "<", ">", "<=", ">=", "contains"] as const;
+
+export const flowIn: PortSpec = { id: "in", label: "in", kind: "flow" };
+export const flowOut: PortSpec = { id: "out", label: "out", kind: "flow" };
+export const valuePort = (id: string, label = id): PortSpec => ({ id, label, kind: "value" });
+const v = valuePort;
+const text = (id: string, label = id): ConfigField => ({ id, label, input: "text" });
+
+export const CATALOG: CatalogEntry[] = [
+    // main
+    {
+        key: "start", category: "main", label: "start",
+        inputs: [], outputs: [flowOut],
+    },
+    {
+        key: "if", category: "main", label: "if",
+        inputs: [flowIn, v("a"), v("b")],
+        outputs: [
+            { id: "true", label: "true", kind: "flow" },
+            { id: "false", label: "false", kind: "flow" },
+        ],
+        config: [
+            { id: "operator", label: "operator", input: "select", options: IF_OPERATORS },
+            { ...text("b_literal", "b (literal)"), overriddenBy: "b" },
+        ],
+    },
+    {
+        key: "loop", category: "main", label: "loop",
+        inputs: [flowIn, v("items")],
+        outputs: [
+            { id: "body", label: "body", kind: "flow" },
+            { id: "done", label: "done", kind: "flow" },
+            v("item"),
+        ],
+    },
+    {
+        key: "and", category: "main", label: "and",
+        inputs: [v("a"), v("b")], outputs: [v("out")],
+    },
+    {
+        key: "or", category: "main", label: "or",
+        inputs: [v("a"), v("b")], outputs: [v("out")],
+    },
+    {
+        key: "not", category: "main", label: "not",
+        inputs: [v("in")], outputs: [v("out")],
+    },
+    {
+        key: "literal", category: "main", label: "literal",
+        inputs: [], outputs: [v("out")],
+        config: [
+            { id: "valueType", label: "type", input: "select", options: ["string", "number"] },
+            text("value"),
+        ],
+    },
+    {
+        key: "print", category: "main", label: "print",
+        inputs: [flowIn, v("value")], outputs: [flowOut],
+        config: [text("message")],
+    },
+    {
+        // pull one field out of a JSON value (e.g. an MCP tool result);
+        // path is dot-separated, numbers index arrays: "data.results.0.price"
+        key: "extract", category: "main", label: "extract",
+        inputs: [v("value")], outputs: [v("out")],
+        config: [{ ...text("path"), picker: "json-path" }],
+    },
+    {
+        // join barrier for parallel branches: runs once every incoming flow
+        // edge has arrived; "results" is a JSON array of the "values" edges'
+        // values in edge order
+        key: "await", category: "main", label: "await",
+        inputs: [flowIn, { ...v("values"), multi: true }],
+        outputs: [flowOut, v("results")],
+    },
+
+    // saturn — LLM agent blocks, executed by the test-run interpreter via the
+    // callAgentModel server action (BYO OpenRouter key). "tools"/"skills"
+    // config values are JSON string arrays written by the grant picker.
+    {
+        key: "agent", category: "saturn", label: "agent",
+        inputs: [flowIn, v("prompt")],
+        // "result" is always the final text; "plan" carries the validated
+        // task-list JSON when output=plan (empty otherwise)
+        outputs: [flowOut, v("result"), v("plan")],
+        config: [
+            { id: "system", label: "system", input: "textarea" },
+            { id: "model", label: "model", input: "text", placeholder: "openai/gpt-4o-mini" },
+            { id: "output", label: "output", input: "select", options: ["text", "plan"] },
+            { id: "tools", label: "tools", input: "text", picker: "tools" },
+            { id: "skills", label: "skills", input: "text", picker: "skills" },
+        ],
+    },
+];
+// mcp and skill nodes come exclusively from the user registry (lib/registry.ts)
+
+export const CATALOG_BY_KEY: Record<string, CatalogEntry> = Object.fromEntries(
+    CATALOG.map((entry) => [entry.key, entry]),
+);
+
+// longest node type the save action accepts — per-tool mcp keys are
+// "mcp:<uuid>:<toolName>" = 41 chars + tool name (names capped at 60)
+export const MAX_NODE_TYPE_LENGTH = 128;
+
+// header-only placeholder for a node whose catalog entry no longer exists
+// (deleted registry entry, or a node type removed from the static catalog);
+// no ports/config, so nodeHeight stays consistent with geometry.ts
+export function missingEntry(type: string): CatalogEntry {
+    const prefix = type.split(":")[0];
+    const category: NodeCategory =
+        prefix === "mcp" || prefix === "skill" ? prefix : "main";
+    return { key: type, category, label: "(deleted)", inputs: [], outputs: [], missing: true };
+}
+
+// literal Tailwind class strings (JIT can't see computed names) + raw hex for SVG edge strokes
+export const CATEGORY_STYLES = {
+    main: {
+        borderL: "border-l-yellow-500",
+        headerBg: "bg-yellow-500/10",
+        text: "text-yellow-600 dark:text-yellow-400",
+        edge: "#eab308",
+    },
+    mcp: {
+        borderL: "border-l-purple-500",
+        headerBg: "bg-purple-500/10",
+        text: "text-purple-600 dark:text-purple-400",
+        edge: "#a855f7",
+    },
+    skill: {
+        borderL: "border-l-green-500",
+        headerBg: "bg-green-500/10",
+        text: "text-green-600 dark:text-green-400",
+        edge: "#22c55e",
+    },
+    saturn: {
+        borderL: "border-l-cyan-500",
+        headerBg: "bg-cyan-500/10",
+        text: "text-cyan-600 dark:text-cyan-400",
+        edge: "#06b6d4",
+    },
+} as const satisfies Record<NodeCategory, { borderL: string; headerBg: string; text: string; edge: string }>;
+
+type PortRef = { nodeId: string; portId: string };
+
+const isRecord = (x: unknown): x is Record<string, unknown> =>
+    typeof x === "object" && x !== null && !Array.isArray(x);
+
+const isPortRef = (x: unknown): x is PortRef =>
+    isRecord(x) && typeof x.nodeId === "string" && typeof x.portId === "string";
+
+// shape + integrity validation for graphs arriving from the client (save
+// action): unique node ids, at most one start node, edges anchored to nodes
+// that exist. Port ids aren't checked — registry node types resolve per-owner
+// at read time, so the server can't know their port lists.
+export function isWorkflowGraph(g: unknown): g is WorkflowGraph {
+    if (!isRecord(g) || !Array.isArray(g.nodes) || !Array.isArray(g.edges)) return false;
+
+    const nodeIds = new Set<string>();
+    let startCount = 0;
+    for (const n of g.nodes) {
+        if (!isRecord(n)) return false;
+        if (typeof n.id !== "string" || nodeIds.has(n.id)) return false;
+        nodeIds.add(n.id);
+        // unknown types are allowed — they render as inert "(deleted)"
+        // placeholders (user registry entries resolve per-owner at read time,
+        // and removed static catalog entries must not brick saved graphs)
+        if (typeof n.type !== "string" || n.type.length > MAX_NODE_TYPE_LENGTH) return false;
+        if (n.type === "start" && ++startCount > 1) return false;
+        if (typeof n.x !== "number" || !Number.isFinite(n.x)) return false;
+        if (typeof n.y !== "number" || !Number.isFinite(n.y)) return false;
+        if (!isRecord(n.config)) return false;
+        if (Object.values(n.config).some((val) => typeof val !== "string")) return false;
+    }
+
+    for (const e of g.edges) {
+        if (!isRecord(e)) return false;
+        if (typeof e.id !== "string") return false;
+        if (!isPortRef(e.from) || !isPortRef(e.to)) return false;
+        if (!nodeIds.has(e.from.nodeId) || !nodeIds.has(e.to.nodeId)) return false;
+        if (e.kind !== "flow" && e.kind !== "value") return false;
+    }
+
+    return true;
+}
+
+function findPort(
+    graph: WorkflowGraph,
+    ref: PortRef,
+    dir: "inputs" | "outputs",
+    byKey: Record<string, CatalogEntry> = CATALOG_BY_KEY,
+): PortSpec | null {
+    const node = graph.nodes.find((n) => n.id === ref.nodeId);
+    if (!node) return null;
+    const entry = byKey[node.type];
+    if (!entry) return null;
+    return entry[dir].find((p) => p.id === ref.portId) ?? null;
+}
+
+// hard connection rules only — the value-input single-edge limit is handled
+// by the canvas replacing the old edge via edgesToReplace
+export function canConnect(
+    graph: WorkflowGraph,
+    from: PortRef,
+    to: PortRef,
+    byKey: Record<string, CatalogEntry> = CATALOG_BY_KEY,
+): boolean {
+    if (from.nodeId === to.nodeId) return false;
+
+    const fromPort = findPort(graph, from, "outputs", byKey);
+    const toPort = findPort(graph, to, "inputs", byKey);
+    if (!fromPort || !toPort) return false;
+    if (fromPort.kind !== toPort.kind) return false;
+
+    const duplicate = graph.edges.some(
+        (e) =>
+            e.from.nodeId === from.nodeId && e.from.portId === from.portId &&
+            e.to.nodeId === to.nodeId && e.to.portId === to.portId,
+    );
+    return !duplicate;
+}
+
+// edges that must be deleted before adding from→to, to keep value inputs at
+// max 1 incoming edge (unless the port is multi). Flow outputs may fan out —
+// the interpreter runs each downstream chain concurrently.
+export function edgesToReplace(
+    graph: WorkflowGraph,
+    from: PortRef,
+    to: PortRef,
+    byKey: Record<string, CatalogEntry> = CATALOG_BY_KEY,
+): string[] {
+    const kind = findPort(graph, from, "outputs", byKey)?.kind;
+    const toPort = findPort(graph, to, "inputs", byKey);
+    if (kind !== "value" || toPort?.multi) return [];
+    return graph.edges
+        .filter((e) => e.to.nodeId === to.nodeId && e.to.portId === to.portId)
+        .map((e) => e.id);
+}
