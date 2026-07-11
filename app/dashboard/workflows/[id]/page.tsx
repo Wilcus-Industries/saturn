@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { hasOpenrouterKey, listOpenrouterModels } from "@/lib/openrouter.server";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import type { WorkflowRow } from "@/lib/workflow";
@@ -30,7 +31,12 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     const row = rows[0] as WorkflowRow;
 
     // user-registered mcp servers/skills join the static catalog as nodes
-    const userCatalog = buildUserCatalog(await getUserRegistry(session.user.id));
+    const [userCatalog, keyed] = await Promise.all([
+        getUserRegistry(session.user.id).then(buildUserCatalog),
+        hasOpenrouterKey(session.user.id),
+    ]);
+    // null = no key (toolbox hints at settings); [] = key set but fetch failed
+    const openrouterModels = keyed ? await listOpenrouterModels() : null;
 
-    return <Designer workflow={row} userCatalog={userCatalog} />;
+    return <Designer workflow={row} userCatalog={userCatalog} openrouterModels={openrouterModels} />;
 }

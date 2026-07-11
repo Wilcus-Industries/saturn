@@ -95,9 +95,9 @@ export async function chatComplete(
         system: string;
         messages: AgentMessage[];
         tools: AgentToolSpec[];
-        jsonMode?: boolean;
+        outputImage?: boolean;
     },
-): Promise<{ content: string; toolCalls: AgentToolCall[] }> {
+): Promise<{ content: string; toolCalls: AgentToolCall[]; images: string[] }> {
     const { defs, byWireName, wireNameOf } = buildToolDefs(req.tools);
 
     const wire: WireMessage[] = [{ role: "system", content: req.system }];
@@ -141,7 +141,7 @@ export async function chatComplete(
             messages: wire,
             max_tokens: MAX_COMPLETION_TOKENS,
             ...(defs.length ? { tools: defs } : {}),
-            ...(req.jsonMode ? { response_format: { type: "json_object" } } : {}),
+            ...(req.outputImage ? { modalities: ["image", "text"] } : {}),
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -163,6 +163,15 @@ export async function chatComplete(
     if (!message) throw new Error("model call failed: malformed response");
 
     const content = typeof message.content === "string" ? message.content : "";
+    // image-output models return generated images as data URLs on
+    // message.images — keep only well-formed ones
+    const images: string[] = [];
+    if (Array.isArray(message.images)) {
+        for (const raw of message.images as unknown[]) {
+            const url = record(record(raw)?.image_url)?.url;
+            if (typeof url === "string" && url.startsWith("data:image/")) images.push(url);
+        }
+    }
     const toolCalls: AgentToolCall[] = [];
     if (Array.isArray(message.tool_calls)) {
         for (const raw of message.tool_calls as WireToolCall[]) {
@@ -177,5 +186,5 @@ export async function chatComplete(
             });
         }
     }
-    return { content, toolCalls };
+    return { content, toolCalls, images };
 }

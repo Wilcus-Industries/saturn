@@ -12,7 +12,7 @@ const FEATURES = [
     {
         name: "agent",
         accent: "bg-cyan-400",
-        desc: "An LLM loop with a system prompt and scoped tool grants. Returns text, or a validated plan.",
+        desc: "An LLM loop with a system prompt and scoped tool grants. Returns text, or a generated image.",
     },
     {
         name: "mcp",

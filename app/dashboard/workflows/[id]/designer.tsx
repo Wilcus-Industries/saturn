@@ -22,13 +22,16 @@ import {
 } from "@/lib/workflow";
 import { parseGrantIds } from "@/lib/agent";
 import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
+// type-only import — compile-erased, safe in a client component
+import type { OpenrouterModel } from "@/lib/openrouter.server";
 import { callAgentModel, callMcpTool, saveWorkflow } from "./actions";
 import Canvas, { type CanvasHandle } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
 import EntryIcon from "./entryIcon";
 import GrantPicker from "./grantPicker";
-import { GRID, HEADER_H, NODE_W } from "./geometry";
+import { GRID, HEADER_H, isModelEntry, MODEL_D, NODE_W, nodeWidth } from "./geometry";
+import ModelLogo from "./modelLogo";
 import { graphReducer, initHistory } from "./graphReducer";
 import type { OpenPickerHandler, PortPointerDownHandler } from "./node";
 import PathPicker, { type PickerSample } from "./pathPicker";
@@ -80,9 +83,12 @@ function useWindowDrag(
 export default function Designer({
     workflow,
     userCatalog,
+    openrouterModels,
 }: {
     workflow: WorkflowRow;
     userCatalog: CatalogEntry[];
+    // null = no OpenRouter key saved; [] = key set but the list fetch failed
+    openrouterModels: OpenrouterModel[] | null;
 }) {
     const [history, dispatch] = useReducer(graphReducer, workflow.graph, initHistory);
     const present = history.present;
@@ -98,6 +104,12 @@ export default function Designer({
         }
         return map;
     }, [userCatalog, present.nodes]);
+
+    // slug → output modalities, driving the agent node's output select
+    const modelModalities = useMemo(
+        () => new Map((openrouterModels ?? []).map((m) => [m.id, m.outputModalities])),
+        [openrouterModels],
+    );
 
     // selection lives outside history so undo/redo doesn't thrash it
     const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -158,26 +170,41 @@ export default function Designer({
     // hands us the key; a ghost chip follows the pointer (fixed, client
     // coords) and pointerup inside the canvas adds the node at the world point
     const canvasRef = useRef<CanvasHandle>(null);
-    const [spawn, setSpawn] = useState<{ key: string; x: number; y: number } | null>(null);
+    const [spawn, setSpawn] = useState<{
+        key: string;
+        x: number;
+        y: number;
+        // preset from the toolbox chip (openrouter model chips prefill
+        // config.model and show the model's display name on the ghost)
+        config?: Record<string, string>;
+        label?: string;
+    } | null>(null);
     const spawnEntry = spawn ? byKey[spawn.key] : null;
 
     const spawnKey = spawn?.key ?? null;
     useWindowDrag(spawnKey !== null, {
         onMove: (e) => setSpawn((s) => (s ? { ...s, x: e.clientX, y: e.clientY } : s)),
         onUp: (e) => {
+            const preset = spawn?.config;
             setSpawn(null);
             const point = canvasRef.current?.clientToWorld(e.clientX, e.clientY);
             if (!point || !spawnKey) return; // dropped outside the canvas — cancel
             // same grid as the canvas dots and drag-end snapping
             const snap = (value: number) => Math.round(value / GRID) * GRID;
+            // rectangles drop with the header centered under the pointer;
+            // model circles center the circle itself
+            const entry = byKey[spawnKey];
+            const w = entry ? nodeWidth(entry) : NODE_W;
+            const dy = entry && isModelEntry(entry) ? MODEL_D / 2 : HEADER_H / 2;
             dispatch({
                 type: "addNode",
                 node: {
                     id: crypto.randomUUID(),
                     type: spawnKey,
-                    x: snap(point.x - NODE_W / 2),
-                    y: snap(point.y - HEADER_H / 2),
-                    config: {},
+                    x: snap(point.x - w / 2),
+                    y: snap(point.y - dy),
+                    // fresh object per spawn — never share a mutable config
+                    config: { ...(preset ?? {}) },
                 },
             });
         },
@@ -489,7 +516,10 @@ export default function Designer({
                 <Toolbox
                     graph={present}
                     userCatalog={userCatalog}
-                    onSpawnStart={(key, x, y) => setSpawn({ key, x, y })}
+                    openrouterModels={openrouterModels}
+                    onSpawnStart={(key, x, y, preset) =>
+                        setSpawn({ key, x, y, config: preset?.config, label: preset?.label })
+                    }
                 />
                 <Canvas
                     ref={canvasRef}
@@ -501,6 +531,7 @@ export default function Designer({
                     setSelection={setSelection}
                     dispatch={dispatch}
                     pending={pendingEdge}
+                    modelModalities={modelModalities}
                     onPortPointerDown={startEdgeDrag}
                     onOpenPicker={openPicker}
                 />
@@ -542,8 +573,16 @@ export default function Designer({
                         CATEGORY_STYLES[spawnEntry.category].borderL
                     }`}
                 >
-                    <EntryIcon entry={spawnEntry} />
-                    <span>{spawnEntry.label}</span>
+                    {isModelEntry(spawnEntry) ? (
+                        <ModelLogo
+                            slug={spawn.config?.model ?? ""}
+                            name={spawn.label ?? spawnEntry.label}
+                            size={16}
+                        />
+                    ) : (
+                        <EntryIcon entry={spawnEntry} />
+                    )}
+                    <span>{spawn.label ?? spawnEntry.label}</span>
                 </div>
             )}
         </div>

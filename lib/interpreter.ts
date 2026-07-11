@@ -14,7 +14,6 @@ import {
     MAX_AGENT_TURNS,
     MAX_TOOL_CALLS_PER_TURN,
     type McpCallResult,
-    parsePlan,
     parseSkillGrants,
     parseToolGrants,
 } from "@/lib/agent";
@@ -26,7 +25,9 @@ import type {
     WorkflowNode,
 } from "@/lib/workflow";
 
-export type ConsoleLine = { kind: "print" | "info" | "warn" | "error"; text: string };
+// kind "image": text is a data:image/… URL — the designer console renders
+// it inline; the cron runner persists a describeImage placeholder instead
+export type ConsoleLine = { kind: "print" | "info" | "warn" | "error" | "image"; text: string };
 
 export type CallAgentRequest = {
     model: string;
@@ -34,8 +35,17 @@ export type CallAgentRequest = {
     skillIds: string[];
     tools: AgentToolRef[];
     messages: AgentMessage[];
-    jsonPlan?: boolean;
+    outputImage?: boolean;
 };
+
+// "[image · image/png · 154 KB]" — log-safe stand-in for a data URL
+export function describeImage(dataUrl: string): string {
+    const semi = dataUrl.indexOf(";");
+    const mime = semi > 5 ? dataUrl.slice(5, semi) : "image";
+    const comma = dataUrl.indexOf(",");
+    const kb = Math.round(((dataUrl.length - comma - 1) * 3) / 4 / 1024);
+    return `[image · ${mime} · ${kb} KB]`;
+}
 
 export type RunHooks = {
     emit: (line: ConsoleLine) => void;
@@ -255,6 +265,8 @@ export async function runWorkflow(
                     }
                     return n;
                 }
+                case "model":
+                    return (node.config.model ?? "").trim();
                 case "and":
                     return truthy(evalInput(node, "a", ctx)) && truthy(evalInput(node, "b", ctx));
                 case "or":
@@ -339,7 +351,7 @@ export async function runWorkflow(
         toolRefs: AgentToolRef[];
         skillIds: string[];
         userText: string;
-        jsonPlan: boolean;
+        outputImage: boolean;
     }): Promise<string> {
         if (!opts.model) fail(`${opts.prefix}: no model set`);
         const messages: AgentMessage[] = [
@@ -355,7 +367,7 @@ export async function runWorkflow(
                 skillIds: opts.skillIds,
                 tools: opts.toolRefs,
                 messages,
-                jsonPlan: opts.jsonPlan,
+                outputImage: opts.outputImage,
             });
             if ("error" in res) fail(`${opts.prefix}: ${res.error}`);
             content = "content" in res ? res.content : "";
@@ -367,6 +379,15 @@ export async function runWorkflow(
                 );
             }
             if (!calls.length) {
+                if (opts.outputImage) {
+                    const image = "image" in res ? res.image : undefined;
+                    if (image) {
+                        // the data URL never goes through truncate — return it whole
+                        emit({ kind: "info", text: `${opts.prefix} → ${describeImage(image)}` });
+                        return image;
+                    }
+                    warn(`${opts.prefix}: model returned no image — falling back to text`);
+                }
                 emit({ kind: "info", text: truncate(`${opts.prefix} → ${content || "(empty)"}`) });
                 return content;
             }
@@ -479,8 +500,13 @@ export async function runWorkflow(
                     const msg = node.config.message ?? "";
                     const hasValue = !!incomingValueEdge(node.id, "value");
                     const value = hasValue ? fmt(evalInput(node, "value", ctx)) : "";
-                    const text = msg && hasValue ? `${msg} ${value}` : msg || value;
-                    emit({ kind: "print", text });
+                    if (hasValue && value.startsWith("data:image/")) {
+                        if (msg) emit({ kind: "print", text: msg });
+                        emit({ kind: "image", text: value });
+                    } else {
+                        const text = msg && hasValue ? `${msg} ${value}` : msg || value;
+                        emit({ kind: "print", text });
+                    }
                     next = "out";
                     break;
                 }
@@ -537,29 +563,30 @@ export async function runWorkflow(
                     next = "out"; // only reachable via a flow cycle
                     break;
                 case "agent": {
-                    const jsonPlan = node.config.output === "plan";
+                    // anything other than "image" (incl. legacy "plan") runs as text
+                    const outputImage = node.config.output === "image";
+                    const toolRefs = parseToolGrants(node.config.tools ?? "");
+                    if (outputImage && toolRefs.length) {
+                        warn("agent: image output doesn't support tools — grants ignored for this run");
+                    }
+                    const userText = fmt(evalInput(node, "prompt", ctx));
+                    if (userText.startsWith("data:image/")) {
+                        warn("agent: prompt is image data — image inputs aren't supported");
+                    }
                     const result = await runAgentLoop({
                         prefix: "agent",
                         system: node.config.system ?? "",
-                        model: (node.config.model ?? "").trim(),
-                        toolRefs: parseToolGrants(node.config.tools ?? ""),
+                        // connected model node wins over the config literal
+                        model: incomingValueEdge(node.id, "model")
+                            ? fmt(evalInput(node, "model", ctx)).trim()
+                            : (node.config.model ?? "").trim(),
+                        toolRefs: outputImage ? [] : toolRefs,
                         skillIds: parseSkillGrants(node.config.skills ?? ""),
-                        userText: fmt(evalInput(node, "prompt", ctx)),
-                        jsonPlan,
+                        userText,
+                        outputImage,
                     });
                     saturnResults.set(`${node.id}:result`, result);
                     onValue?.(node.id, "result", result);
-                    if (jsonPlan) {
-                        const tasks = parsePlan(result);
-                        if (tasks) {
-                            const planJson = JSON.stringify(tasks);
-                            saturnResults.set(`${node.id}:plan`, planJson);
-                            onValue?.(node.id, "plan", planJson);
-                        } else {
-                            warn(`agent: output is not a valid plan — "plan" port empty`);
-                            saturnResults.set(`${node.id}:plan`, "");
-                        }
-                    }
                     next = "out";
                     break;
                 }

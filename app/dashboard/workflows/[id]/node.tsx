@@ -17,8 +17,9 @@ import {
     type WorkflowNode,
 } from "@/lib/workflow";
 import EntryIcon from "./entryIcon";
-import { GRID } from "./geometry";
+import { GRID, isModelEntry } from "./geometry";
 import type { GraphAction } from "./graphReducer";
+import ModelLogo from "./modelLogo";
 
 // a press on a port starts an edge drag (owned by the designer); the port
 // button takes pointer capture so the drop is resolved via elementFromPoint
@@ -41,7 +42,8 @@ export type OpenPickerHandler = (
 // renders to the geometry.ts metrics exactly: w-44 = NODE_W 176, h-8 header
 // = HEADER_H 32, h-6 port rows = PORT_ROW_H 24, h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
-// bottom pad. Change sizes only via geometry.ts.
+// bottom pad. Model nodes render circular: h-18 w-18 = MODEL_D 72 plus an
+// h-6 name strip = MODEL_LABEL_H 24. Change sizes only via geometry.ts.
 
 // selection count for a grant-picker field's JSON string array value
 function grantCount(raw: string): number {
@@ -80,6 +82,7 @@ export default memo(function Node({
     dispatch,
     zoom,
     overriddenIds,
+    outputOptions,
     pendingKind,
     onPortPointerDown,
     onOpenPicker,
@@ -95,6 +98,10 @@ export default memo(function Node({
     // comma-joined config field ids currently overridden by a connected
     // port (computed by the canvas so this memo prop is a comparable string)
     overriddenIds: string;
+    // comma-joined options for a dynamicOptions select (the agent output
+    // field) — "" means the resolved model's modalities are unknown, so
+    // nothing is selectable. Same canvas-computed-string pattern as above.
+    outputOptions: string;
     // kind of the in-flight edge drag (null when none, or when it started on
     // this node) — matching ports scale up as a drop affordance
     pendingKind: PortKind | null;
@@ -204,7 +211,13 @@ export default memo(function Node({
     // stopPropagation keeps a port press from starting a node drag; the
     // designer owns the edge drag from here on (middle button still bubbles
     // so the canvas can pan)
-    const port = (spec: PortSpec, dir: "in" | "out") => (
+    const port = (
+        spec: PortSpec,
+        dir: "in" | "out",
+        // rectangular rows straddle the node edge via a negative margin; the
+        // circular model branch positions the port itself and passes ""
+        marginClass = dir === "in" ? "-ml-1.5" : "-mr-1.5",
+    ) => (
         <button
             type={"button"}
             data-port={"true"}
@@ -218,15 +231,94 @@ export default memo(function Node({
                 e.currentTarget.setPointerCapture(e.pointerId);
                 onPortPointerDown(e, node.id, spec.id, spec.kind, dir);
             }}
-            className={`shrink-0 cursor-crosshair text-[10px] leading-none transition-transform ${
-                dir === "in" ? "-ml-1.5" : "-mr-1.5"
-            } ${spec.kind === "flow" ? "text-foreground" : styles.text} ${
+            className={`shrink-0 cursor-crosshair text-[10px] leading-none transition-transform ${marginClass} ${
+                spec.kind === "flow" ? "text-foreground" : styles.text
+            } ${
                 pendingKind === spec.kind ? "scale-125" : ""
             }`}
         >
             {spec.kind === "flow" ? "▶" : "○"}
         </button>
     );
+
+    // model nodes render as a circle (h-18 w-18 = MODEL_D 72, h-6 name strip
+    // = MODEL_LABEL_H 24) — the single value output anchors on the circle's
+    // right-edge midpoint per geometry.ts. Nodes spawned from a per-model
+    // toolbox chip carry config.preset = "1" and show a read-only name;
+    // without it (blank chip, legacy graphs) the slug stays editable.
+    if (isModelEntry(entry)) {
+        const output = entry.outputs[0];
+        const readOnly = node.config.preset === "1";
+        const name = node.config.model || entry.label;
+        // the author prefix ("openai/…") eats the narrow strip — show only
+        // the model segment; the full slug stays in the title tooltip
+        const shortName = name.slice(name.indexOf("/") + 1);
+        return (
+            <div
+                data-node-id={node.id}
+                style={{ left: node.x, top: node.y }}
+                className={"absolute w-18 font-mono text-xs"}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+            >
+                <div
+                    className={`relative flex h-18 w-18 cursor-grab items-center justify-center rounded-full border border-foreground/25 bg-background ${styles.headerBg} ${
+                        selected ? "outline outline-1 outline-foreground" : ""
+                    }`}
+                >
+                    {/* logo fills the circle; clip here (not on the circle
+                        div) so the edge-straddling port isn't cut off */}
+                    <span className={"flex h-18 w-18 overflow-hidden rounded-full"}>
+                        <ModelLogo slug={node.config.model ?? ""} name={name} size={72} />
+                    </span>
+                    {output && (
+                        <span
+                            className={
+                                "absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/2"
+                            }
+                        >
+                            {port(output, "out", "")}
+                        </span>
+                    )}
+                </div>
+                <div className={"flex h-6 w-18 items-center justify-center"}>
+                    {readOnly ? (
+                        <span
+                            // two 12px lines fill the h-6 strip exactly —
+                            // MODEL_LABEL_H stays 24, geometry untouched
+                            className={
+                                "line-clamp-2 max-w-full break-words text-center text-[10px] leading-3"
+                            }
+                            title={name}
+                        >
+                            {shortName}
+                        </span>
+                    ) : (
+                        <input
+                            value={node.config.model ?? ""}
+                            placeholder={entry.config?.[0]?.placeholder}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onFocus={onConfigFocus}
+                            onBlur={onConfigBlur}
+                            onChange={(e) =>
+                                dispatch({
+                                    type: "setConfig",
+                                    nodeId: node.id,
+                                    field: "model",
+                                    value: e.target.value,
+                                })
+                            }
+                            className={
+                                "w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 text-center font-mono text-[10px]"
+                            }
+                        />
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     const rowCount = Math.max(entry.inputs.length, entry.outputs.length);
     const rows = Array.from({ length: rowCount }, (_, i) => ({
@@ -331,14 +423,33 @@ export default memo(function Node({
                             {" selected"}
                         </button>
                     ) : field.input === "select" ? (
-                        <select {...shared} onChange={onChange}>
-                            <option value={""} hidden />
-                            {field.options?.map((opt) => (
-                                <option key={opt} value={opt}>
-                                    {opt}
-                                </option>
-                            ))}
-                        </select>
+                        (() => {
+                            const options = field.dynamicOptions
+                                ? outputOptions
+                                    ? outputOptions.split(",")
+                                    : []
+                                : (field.options ?? []);
+                            const locked = field.dynamicOptions && options.length === 0;
+                            return (
+                                <select
+                                    {...shared}
+                                    disabled={shared.disabled || locked}
+                                    title={
+                                        locked
+                                            ? "output modalities unknown — set a model from the OpenRouter list"
+                                            : shared.title
+                                    }
+                                    onChange={onChange}
+                                >
+                                    <option value={""} hidden />
+                                    {options.map((opt) => (
+                                        <option key={opt} value={opt}>
+                                            {opt}
+                                        </option>
+                                    ))}
+                                </select>
+                            );
+                        })()
                     ) : field.input === "textarea" ? (
                         <textarea
                             {...shared}

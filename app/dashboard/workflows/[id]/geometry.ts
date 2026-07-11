@@ -11,6 +11,19 @@ export const PORT_ROW_H = 24;
 export const CONFIG_ROW_H = 36;
 export const TEXTAREA_ROW_H = 72; // h-[72px] textarea config rows
 
+// model nodes render as a circle (h-18 w-18) with a name strip (h-6) below;
+// node.tsx's circular branch must match these exactly too
+export const MODEL_D = 72;
+export const MODEL_LABEL_H = 24;
+
+// missingEntry placeholders map to category "main", so this is only ever
+// true for the real model catalog entry
+export const isModelEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "model" && !entry.missing;
+
+export const nodeWidth = (entry: CatalogEntry): number =>
+    isModelEntry(entry) ? MODEL_D : NODE_W;
+
 export const configRowHeight = (field: ConfigField): number =>
     field.input === "textarea" ? TEXTAREA_ROW_H : CONFIG_ROW_H;
 
@@ -19,6 +32,7 @@ const portRows = (entry: CatalogEntry): number =>
     Math.max(entry.inputs.length, entry.outputs.length);
 
 export function nodeHeight(entry: CatalogEntry): number {
+    if (isModelEntry(entry)) return MODEL_D + MODEL_LABEL_H;
     return (
         HEADER_H +
         portRows(entry) * PORT_ROW_H +
@@ -34,6 +48,15 @@ export function portPosition(
     entry: CatalogEntry,
     portId: string,
 ): { x: number; y: number } {
+    // model circle: ports anchor on the horizontal midline (output on the
+    // right edge; no inputs exist, the left branch is defensive)
+    if (isModelEntry(entry)) {
+        const y = node.y + MODEL_D / 2;
+        return entry.inputs.some((p) => p.id === portId)
+            ? { x: node.x, y }
+            : { x: node.x + MODEL_D, y };
+    }
+
     const rowY = (row: number) => node.y + HEADER_H + row * PORT_ROW_H + PORT_ROW_H / 2;
 
     const inputRow = entry.inputs.findIndex((p) => p.id === portId);

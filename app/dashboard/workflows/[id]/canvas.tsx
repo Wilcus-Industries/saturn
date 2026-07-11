@@ -11,9 +11,9 @@ import {
     useRef,
     useState,
 } from "react";
-import type { CatalogEntry, WorkflowGraph } from "@/lib/workflow";
+import type { CatalogEntry, WorkflowGraph, WorkflowNode } from "@/lib/workflow";
 import Edges, { type PendingEdge } from "./edges";
-import { GRID, NODE_W, nodeHeight } from "./geometry";
+import { GRID, nodeHeight, nodeWidth } from "./geometry";
 import type { GraphAction } from "./graphReducer";
 import Node, { type OpenPickerHandler, type PortPointerDownHandler } from "./node";
 
@@ -29,6 +29,31 @@ const CLICK_SLOP = 4; // px of movement below which a gesture counts as a click
 
 // gesture state lives in a ref: rect and start coords are cached at
 // pointerdown (never re-measured per move)
+// options for a dynamicOptions select (the agent's "output" field): the
+// resolved model's output modalities. Mirrors the interpreter's model
+// resolution — a connected model node wins over the config literal. Unknown
+// slug / empty model / non-model upstream → "" (nothing selectable).
+function agentOutputOptions(
+    graph: WorkflowGraph,
+    node: WorkflowNode,
+    modalities: Map<string, string[]>,
+): string {
+    const edge = graph.edges.find(
+        (e) => e.kind === "value" && e.to.nodeId === node.id && e.to.portId === "model",
+    );
+    let slug: string;
+    if (edge) {
+        const src = graph.nodes.find((n) => n.id === edge.from.nodeId);
+        if (src?.type !== "model") return ""; // dynamic upstream — modality unknown
+        slug = (src.config.model ?? "").trim();
+    } else {
+        slug = (node.config.model ?? "").trim();
+    }
+    const mods = slug ? modalities.get(slug) : undefined;
+    if (!mods) return "";
+    return ["text", "image"].filter((m) => mods.includes(m)).join(",");
+}
+
 type Gesture =
     | {
           mode: "pan";
@@ -50,6 +75,7 @@ export default function Canvas({
     setSelection,
     dispatch,
     pending,
+    modelModalities,
     onPortPointerDown,
     onOpenPicker,
     ref,
@@ -64,6 +90,8 @@ export default function Canvas({
     setSelection: Dispatch<SetStateAction<Set<string>>>;
     dispatch: Dispatch<GraphAction>;
     pending: PendingEdge | null;
+    // OpenRouter model slug → output modalities, for dynamicOptions fields
+    modelModalities: Map<string, string[]>;
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     ref?: Ref<CanvasHandle>;
@@ -99,7 +127,7 @@ export default function Canvas({
             if (!entry) continue;
             minX = Math.min(minX, n.x);
             minY = Math.min(minY, n.y);
-            maxX = Math.max(maxX, n.x + NODE_W);
+            maxX = Math.max(maxX, n.x + nodeWidth(entry));
             maxY = Math.max(maxY, n.y + nodeHeight(entry));
         }
         if (minX === Infinity) return;
@@ -251,7 +279,7 @@ export default function Canvas({
                     if (!entry) return false;
                     return (
                         n.x < mx + mw &&
-                        n.x + NODE_W > mx &&
+                        n.x + nodeWidth(entry) > mx &&
                         n.y < my + mh &&
                         n.y + nodeHeight(entry) > my
                     );
@@ -311,6 +339,9 @@ export default function Canvas({
                             )
                             .map((f) => f.id)
                             .join(",") ?? "";
+                    const outputOptions = entry.config?.some((f) => f.dynamicOptions)
+                        ? agentOutputOptions(graph, node, modelModalities)
+                        : "";
                     return (
                         <Node
                             key={node.id}
@@ -323,6 +354,7 @@ export default function Canvas({
                             dispatch={dispatch}
                             zoom={view.zoom}
                             overriddenIds={overriddenIds}
+                            outputOptions={outputOptions}
                             pendingKind={
                                 pending && pending.from.nodeId !== node.id ? pending.kind : null
                             }

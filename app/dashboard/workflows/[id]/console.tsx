@@ -8,6 +8,7 @@ const LINE_STYLES: Record<ConsoleLine["kind"], string> = {
     info: "text-gray-400",
     warn: "text-yellow-600 dark:text-yellow-400",
     error: "text-red-500",
+    image: "text-foreground",
 };
 
 // output panel for designer test runs; named ConsolePanel to avoid
@@ -64,14 +65,26 @@ export default function ConsolePanel({
                 className={"min-h-0 flex-1 overflow-y-auto px-3 py-1"}
             >
                 {lines.length === 0 && <div className={"text-gray-400"}>(no output)</div>}
-                {lines.map((line, i) => (
-                    <div
-                        key={i}
-                        className={`whitespace-pre-wrap break-words ${LINE_STYLES[line.kind]}`}
-                    >
-                        {line.text}
-                    </div>
-                ))}
+                {lines.map((line, i) =>
+                    line.kind === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- data URL, not an optimizable asset
+                        <img
+                            key={i}
+                            src={line.text}
+                            alt={"output image"}
+                            className={
+                                "my-1 max-h-32 max-w-full border border-foreground/15 object-contain"
+                            }
+                        />
+                    ) : (
+                        <div
+                            key={i}
+                            className={`whitespace-pre-wrap break-words ${LINE_STYLES[line.kind]}`}
+                        >
+                            {line.text}
+                        </div>
+                    ),
+                )}
             </div>
         </section>
     );

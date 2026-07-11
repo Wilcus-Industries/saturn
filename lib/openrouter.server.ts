@@ -19,3 +19,44 @@ export async function hasOpenrouterKey(userId: string): Promise<boolean> {
     );
     return rows.length > 0;
 }
+
+// outputModalities is architecture.output_modalities filtered to the values
+// the designer understands — it drives the agent node's output select
+export type OpenrouterModel = { id: string; name: string; outputModalities: string[] };
+
+// public endpoint, deliberately unauthenticated: the response is the same
+// for every user, so the shared Next data cache (1h revalidate) is safe.
+// Failure degrades to [] — the toolbox falls back to the blank model chip
+export async function listOpenrouterModels(): Promise<OpenrouterModel[]> {
+    try {
+        const res = await fetch("https://openrouter.ai/api/v1/models", {
+            next: { revalidate: 3600 },
+        });
+        if (!res.ok) return [];
+        const body: unknown = await res.json();
+        const data =
+            typeof body === "object" && body !== null && Array.isArray((body as { data?: unknown }).data)
+                ? ((body as { data: unknown[] }).data as {
+                      id?: unknown;
+                      name?: unknown;
+                      architecture?: { output_modalities?: unknown };
+                  }[])
+                : [];
+        return data
+            // 128 = the runner's MODEL_ID length cap
+            .filter((m) => typeof m?.id === "string" && m.id.length > 0 && m.id.length <= 128)
+            .slice(0, 1000)
+            .map((m) => ({
+                id: m.id as string,
+                name: typeof m.name === "string" && m.name ? m.name : (m.id as string),
+                outputModalities: Array.isArray(m.architecture?.output_modalities)
+                    ? m.architecture.output_modalities.filter(
+                          (x): x is string => x === "text" || x === "image",
+                      )
+                    : [],
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+        return [];
+    }
+}

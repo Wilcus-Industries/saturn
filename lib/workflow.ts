@@ -4,7 +4,7 @@
 import { parseSkillGrants, parseToolGrants } from "@/lib/agent";
 
 export type PortKind = "flow" | "value";
-export type NodeCategory = "main" | "mcp" | "skill" | "saturn";
+export type NodeCategory = "main" | "mcp" | "skill" | "saturn" | "model";
 
 // one tool argument, derived from the MCP tool's inputSchema at discovery
 // (lib/mcp.ts deriveParams) and stored on the registry's McpTool entries.
@@ -35,6 +35,10 @@ export type ConfigField = {
     // input port that takes precedence when connected — the designer dims
     // the field so a literal never looks live while an edge overrides it
     overriddenBy?: string;
+    // the designer computes this select's options per node (agent output
+    // modalities); the static `options` list is the full universe, kept as
+    // documentation for MCP get_catalog consumers
+    dynamicOptions?: boolean;
 };
 
 export type CatalogEntry = {
@@ -164,17 +168,28 @@ export const CATALOG: CatalogEntry[] = [
     // config values are JSON string arrays written by the grant picker.
     {
         key: "agent", category: "saturn", label: "agent",
-        inputs: [flowIn, v("prompt")],
-        // "result" is always the final text; "plan" carries the validated
-        // task-list JSON when output=plan (empty otherwise)
-        outputs: [flowOut, v("result"), v("plan")],
+        inputs: [flowIn, v("prompt"), v("model")],
+        // "result" carries the final text, or the generated image as a
+        // data:image/… URL when output=image
+        outputs: [flowOut, v("result")],
         config: [
             { id: "system", label: "system", input: "textarea" },
-            { id: "model", label: "model", input: "text", placeholder: "openai/gpt-4o-mini" },
-            { id: "output", label: "output", input: "select", options: ["text", "plan"] },
+            { id: "model", label: "model", input: "text", placeholder: "openai/gpt-4o-mini", overriddenBy: "model" },
+            { id: "output", label: "output", input: "select", options: ["text", "image"], dynamicOptions: true },
             { id: "tools", label: "tools", input: "text", picker: "tools" },
             { id: "skills", label: "skills", input: "text", picker: "skills" },
         ],
+    },
+
+    // model — pure-value node emitting an OpenRouter model slug; connect its
+    // output to an agent's "model" input to override the agent's config.
+    // Always one static node type: toolbox chips for fetched OpenRouter
+    // models just prefill config.model, so graphs never reference per-model
+    // keys that could disappear when the list changes
+    {
+        key: "model", category: "model", label: "model",
+        inputs: [], outputs: [v("model")],
+        config: [{ id: "model", label: "model", input: "text", placeholder: "openai/gpt-4o-mini" }],
     },
 ];
 // mcp and skill nodes come exclusively from the user registry (lib/registry.ts)
@@ -229,6 +244,12 @@ export const CATEGORY_STYLES = {
         headerBg: "bg-cyan-500/10",
         text: "text-cyan-600 dark:text-cyan-400",
         edge: "#06b6d4",
+    },
+    model: {
+        borderL: "border-l-rose-500",
+        headerBg: "bg-rose-500/10",
+        text: "text-rose-600 dark:text-rose-400",
+        edge: "#f43f5e",
     },
 } as const satisfies Record<NodeCategory, { borderL: string; headerBg: string; text: string; edge: string }>;
 
@@ -396,6 +417,12 @@ export function validateGraphStrict(
     // against the owner's registry, so flag them at authoring time
     for (const node of graph.nodes) {
         if (node.type !== "agent") continue;
+        const hasModelEdge = graph.edges.some(
+            (e) => e.to.nodeId === node.id && e.to.portId === "model" && e.kind === "value",
+        );
+        if (!hasModelEdge && !(node.config.model ?? "").trim()) {
+            warnings.push(`agent "${node.id}" has no model — the run will fail`);
+        }
         for (const ref of parseToolGrants(node.config.tools ?? "")) {
             if (!byKey[`mcp:${ref.entryId}:${ref.toolName}`]) {
                 warnings.push(

@@ -3,16 +3,6 @@
 // code (OpenRouter client, prompt assembly) lives in lib/agent.server.ts —
 // same layering split as lib/registry.ts / lib/registry.server.ts.
 
-// one task of a manager agent's structured plan (the agent node's
-// output=plan port)
-export type PlanTask = {
-    id: string;
-    title: string;
-    instructions: string;
-    complexity: "low" | "medium" | "high";
-    input?: string;
-};
-
 // a granted MCP tool, resolved to its registry entry — the wire-format
 // function names OpenRouter sees never leave the server
 export type AgentToolRef = { entryId: string; toolName: string };
@@ -35,57 +25,15 @@ export type AgentMessage =
 // core) — errors return as values so consoles and run logs can render them
 export type McpCallResult = { text: string } | { error: string };
 
-// result of one LLM turn (callAgentModel action / executeAgentTurn core)
+// result of one LLM turn (callAgentModel action / executeAgentTurn core);
+// image is a data:image/… URL, set only for output=image agent turns
 export type AgentModelResult =
-    | { content: string; toolCalls: AgentToolCall[] }
+    | { content: string; toolCalls: AgentToolCall[]; image?: string }
     | { error: string };
 
 export const MAX_AGENT_TURNS = 8; // LLM calls per agent loop
 export const MAX_AGENT_MESSAGES = 60; // transcript length cap per model call
 export const MAX_TOOL_CALLS_PER_TURN = 5;
-
-export const PLAN_SCHEMA_PROMPT =
-    'Respond with only JSON matching {"tasks":[{"id":string,"title":string,' +
-    '"instructions":string,"complexity":"low"|"medium"|"high"}]}. ' +
-    "Set each task's complexity to how hard it is, so it runs on a fittingly capable model.";
-
-const isRecord = (x: unknown): x is Record<string, unknown> =>
-    typeof x === "object" && x !== null && !Array.isArray(x);
-
-const COMPLEXITIES = ["low", "medium", "high"] as const;
-
-// normalize one raw task; null when it lacks the required shape
-function parseTask(x: unknown, index: number): PlanTask | null {
-    if (!isRecord(x) || typeof x.instructions !== "string" || !x.instructions) return null;
-    const complexity = COMPLEXITIES.includes(x.complexity as PlanTask["complexity"])
-        ? (x.complexity as PlanTask["complexity"])
-        : "medium";
-    return {
-        id: typeof x.id === "string" && x.id ? x.id : `task-${index + 1}`,
-        title: typeof x.title === "string" ? x.title : "",
-        instructions: x.instructions,
-        complexity,
-        ...(typeof x.input === "string" && x.input ? { input: x.input } : {}),
-    };
-}
-
-// parse a plan out of model output — a bare array or {tasks:[...]}
-// (json_object response_format forces an object wrapper). Invalid tasks are
-// dropped; null when nothing usable remains.
-export function parsePlan(text: string): PlanTask[] | null {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(text);
-    } catch {
-        return null;
-    }
-    const list = Array.isArray(parsed) ? parsed : isRecord(parsed) ? parsed.tasks : null;
-    if (!Array.isArray(list)) return null;
-    const tasks = list
-        .map((task, i) => parseTask(task, i))
-        .filter((t): t is PlanTask => t !== null);
-    return tasks.length > 0 ? tasks : null;
-}
 
 // grant-picker config values are JSON string arrays; "" or junk → []
 export function parseGrantIds(raw: string): string[] {

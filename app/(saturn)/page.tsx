@@ -27,8 +27,7 @@ export default function Home() {
                     Agentic automations, anywhere and anytime.
                 </p>
                 <p className={"w-full max-w-100 font-sans"}>
-                    Orchestrate automations using the node designer, or guide
-                    your agent to our MCP.
+                    Orchestrate automations using the Saturn node designer.
                 </p>
                 <p className={"w-full max-w-100 font-sans"}>
                     Transparent pricing through us (300+ models), or bring your own keys.

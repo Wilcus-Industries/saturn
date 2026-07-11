@@ -4,11 +4,16 @@
 // checks live here — graph/agent-derived input is untrusted even
 // server-side; shape validation of browser-built transcripts stays in the
 // actions.
-import { type AgentModelResult, type McpCallResult, PLAN_SCHEMA_PROMPT } from "@/lib/agent";
+import type { AgentModelResult, McpCallResult } from "@/lib/agent";
 import { type AgentToolSpec, chatComplete } from "@/lib/agent.server";
 import { cronMatches } from "@/lib/cron";
 import { db } from "@/lib/db";
-import { type CallAgentRequest, type ConsoleLine, runWorkflow } from "@/lib/interpreter";
+import {
+    type CallAgentRequest,
+    type ConsoleLine,
+    describeImage,
+    runWorkflow,
+} from "@/lib/interpreter";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { buildUserCatalog, canCallTool } from "@/lib/registry";
@@ -24,6 +29,7 @@ const MAX_SYSTEM_PROMPT = 8192;
 const MAX_GRANTED_TOOLS = 20;
 const MAX_GRANTED_SKILLS = 10;
 const MAX_MODEL_CONTENT = 20_000; // model output returned per turn
+const MAX_IMAGE_DATA_URL = 4_194_304; // generated-image data URL (~3 MB decoded)
 
 // executes one MCP tool call for a workflow run. Returns errors as values
 // (not throws) so consoles and run logs can render them.
@@ -121,20 +127,29 @@ export async function executeAgentTurn(
         if (!row) return { error: "skill not found" };
         system += `\n\n## Skill: ${row.name}\n${row.description}`;
     }
-    if (req.jsonPlan) system += `\n\n${PLAN_SCHEMA_PROMPT}`;
-
     const apiKey = await getOpenrouterKey(userId);
     if (!apiKey) return { error: "no OpenRouter key — add one in settings" };
 
     try {
-        const { content, toolCalls } = await chatComplete(apiKey, {
+        const { content, toolCalls, images } = await chatComplete(apiKey, {
             model: req.model,
             system,
             messages: req.messages,
             tools: specs,
-            jsonMode: req.jsonPlan,
+            outputImage: req.outputImage === true,
         });
-        return { content: content.slice(0, MAX_MODEL_CONTENT), toolCalls };
+        // the image rides its own field so the content slice never touches
+        // the data URL; oversized images are dropped (interpreter falls back
+        // to text with a warning)
+        const image =
+            req.outputImage === true
+                ? images.find((u) => u.length <= MAX_IMAGE_DATA_URL)
+                : undefined;
+        return {
+            content: content.slice(0, MAX_MODEL_CONTENT),
+            toolCalls,
+            ...(image ? { image } : {}),
+        };
     } catch (err) {
         return { error: err instanceof Error ? err.message : "model call failed" };
     }
@@ -259,7 +274,13 @@ export async function executeWorkflowRun(
         let dropped = 0;
         let sawError = false;
         let lastError = "";
-        const emit = (line: ConsoleLine) => {
+        const emit = (rawLine: ConsoleLine) => {
+            // never persist image data URLs — the char cap would corrupt the
+            // base64 and bloat workflow_run.log; store a placeholder instead
+            const line: ConsoleLine =
+                rawLine.kind === "image"
+                    ? { kind: "info", text: describeImage(rawLine.text) }
+                    : rawLine;
             const text = line.text.slice(0, MAX_LOG_LINE_CHARS);
             if (line.kind === "error") {
                 sawError = true;

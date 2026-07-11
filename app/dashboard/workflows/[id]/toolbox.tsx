@@ -2,34 +2,84 @@
 
 import { useState } from "react";
 import McpLogo from "@/app/dashboard/mcpLogo";
+// type-only import — compile-erased, safe in a client component
+import type { OpenrouterModel } from "@/lib/openrouter.server";
 import {
     CATALOG,
+    CATALOG_BY_KEY,
     CATEGORY_STYLES,
     type CatalogEntry,
     type NodeCategory,
     type WorkflowGraph,
 } from "@/lib/workflow";
 import EntryIcon from "./entryIcon";
+import ModelLogo from "./modelLogo";
 
 const SECTIONS: { category: NodeCategory; heading: string }[] = [
     { category: "main", heading: "main functions" },
     { category: "saturn", heading: "agents" },
     { category: "mcp", heading: "mcp servers" },
     { category: "skill", heading: "skills" },
+    { category: "model", heading: "openrouter models" },
 ];
 
-type SpawnStart = (key: string, clientX: number, clientY: number) => void;
+// preset: chip-supplied initial node config + ghost label (openrouter model
+// chips spawn a "model" node with config.model prefilled; preset: "1" marks
+// the spawned node's name read-only)
+type SpawnPreset = { config: Record<string, string>; label?: string };
+type SpawnStart = (key: string, clientX: number, clientY: number, preset?: SpawnPreset) => void;
+
+// grid cell for one openrouter model: 48px logo circle over a truncated name
+function ModelChip({
+    model,
+    onSpawnStart,
+}: {
+    model: OpenrouterModel;
+    onSpawnStart: SpawnStart;
+}) {
+    // openrouter display names lead with the company ("OpenAI: GPT-4o") —
+    // the logo already says it, so show only the model part in the cell
+    const shortName = model.name.slice(model.name.indexOf(":") + 1).trim();
+    return (
+        <div
+            title={model.name}
+            className={
+                "flex touch-none cursor-grab flex-col items-center gap-1 py-1 transition-colors duration-200 hover:bg-foreground/5"
+            }
+            onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                onSpawnStart("model", e.clientX, e.clientY, {
+                    config: { model: model.id, preset: "1" },
+                    label: model.name,
+                });
+            }}
+        >
+            <span
+                className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-foreground/15 ${CATEGORY_STYLES.model.headerBg}`}
+            >
+                <ModelLogo slug={model.id} name={model.name} size={48} />
+            </span>
+            <span className={"line-clamp-2 w-full break-words text-center text-[10px] leading-tight"}>
+                {shortName}
+            </span>
+        </div>
+    );
+}
 
 function Chip({
     entry,
     enabled,
     borderL,
     onSpawnStart,
+    preset,
 }: {
     entry: CatalogEntry;
     enabled: boolean;
     borderL: string;
     onSpawnStart: SpawnStart;
+    preset?: SpawnPreset;
 }) {
     return (
         <div
@@ -47,7 +97,7 @@ function Chip({
                           if (e.button !== 0) return;
                           e.preventDefault();
                           e.currentTarget.setPointerCapture(e.pointerId);
-                          onSpawnStart(entry.key, e.clientX, e.clientY);
+                          onSpawnStart(entry.key, e.clientX, e.clientY, preset);
                       }
                     : undefined
             }
@@ -61,10 +111,13 @@ function Chip({
 export default function Toolbox({
     graph,
     userCatalog,
+    openrouterModels,
     onSpawnStart,
 }: {
     graph: WorkflowGraph;
     userCatalog: CatalogEntry[];
+    // null = no OpenRouter key saved; [] = key set but the list fetch failed
+    openrouterModels: OpenrouterModel[] | null;
     onSpawnStart: SpawnStart;
 }) {
     const hasStart = graph.nodes.some((n) => n.type === "start");
@@ -77,6 +130,12 @@ export default function Toolbox({
         !q ||
         entry.label.toLowerCase().includes(q) ||
         (entry.group ?? "").toLowerCase().includes(q);
+
+    // one grid cell per openrouter model, all spawning the single static
+    // "model" node type with config prefilled; searchable by name and slug
+    const models = (openrouterModels ?? []).filter(
+        (m) => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
+    );
 
     return (
         <aside
@@ -133,7 +192,7 @@ export default function Toolbox({
                                         )}
                                         <span className={"truncate"}>{server}</span>
                                     </div>
-                                    <div className={"flex flex-col gap-1 pl-3"}>
+                                    <div className={"flex flex-col gap-1"}>
                                         {entries.map((entry) => (
                                             <Chip
                                                 key={entry.key}
@@ -146,6 +205,45 @@ export default function Toolbox({
                                     </div>
                                 </div>
                             ))}
+                        </section>
+                    );
+                }
+
+                // models: the static blank chip (editable custom slug), then
+                // a grid of circular cells, one per fetched openrouter model
+                if (category === "model") {
+                    const blank = CATALOG_BY_KEY.model;
+                    return (
+                        <section key={category} className={"flex flex-col gap-1.5"}>
+                            <h2 className={"text-[10px] uppercase tracking-wider text-gray-400"}>
+                                {heading}
+                            </h2>
+                            {matches(blank) && (
+                                <Chip
+                                    entry={blank}
+                                    enabled
+                                    borderL={styles.borderL}
+                                    onSpawnStart={onSpawnStart}
+                                />
+                            )}
+                            {openrouterModels === null && (
+                                <p className={"text-[10px] text-gray-400"}>
+                                    add an OpenRouter key in settings to list models
+                                </p>
+                            )}
+                            {openrouterModels !== null && openrouterModels.length === 0 && (
+                                <p className={"text-[10px] text-gray-400"}>
+                                    couldn&apos;t load models
+                                </p>
+                            )}
+                            {models.length === 0 && (openrouterModels?.length ?? 0) > 0 && q && (
+                                <p className={"text-[10px] text-gray-400"}>no matches</p>
+                            )}
+                            <div className={"grid grid-cols-3 gap-1"}>
+                                {models.map((m) => (
+                                    <ModelChip key={m.id} model={m} onSpawnStart={onSpawnStart} />
+                                ))}
+                            </div>
                         </section>
                     );
                 }
