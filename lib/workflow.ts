@@ -219,6 +219,7 @@ export const CATALOG: CatalogEntry[] = [
         outputs: [flowOut, v("result")],
         config: [
             { id: "output", label: "output", input: "select", options: ["text", "image"], dynamicOptions: true },
+            { id: "reasoning", label: "reasoning", input: "select", options: ["off", "low", "medium", "high"], dynamicOptions: true },
         ],
     },
 

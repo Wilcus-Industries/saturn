@@ -29,30 +29,49 @@ const CLICK_SLOP = 4; // px of movement below which a gesture counts as a click
 
 // gesture state lives in a ref: rect and start coords are cached at
 // pointerdown (never re-measured per move)
-// options for a dynamicOptions select (the agent's "output" field): the
-// resolved model's output modalities. Mirrors the interpreter's model
-// resolution — a connected model node wins; config.model is a legacy-only
-// fallback. Unknown slug / empty model / non-model upstream → "" (nothing
-// selectable).
+// resolve an agent node's effective model slug. Mirrors the interpreter's
+// model resolution — a connected model node wins; config.model is a
+// legacy-only fallback. Returns "" when a value edge feeds the model port
+// from a non-model (dynamic) upstream, or no slug is set.
+function resolveAgentModelSlug(graph: WorkflowGraph, node: WorkflowNode): string {
+    const edge = graph.edges.find(
+        (e) => e.kind === "value" && e.to.nodeId === node.id && e.to.portId === "model",
+    );
+    if (edge) {
+        const src = graph.nodes.find((n) => n.id === edge.from.nodeId);
+        if (src?.type !== "model") return ""; // dynamic upstream — slug unknown
+        return (src.config.model ?? "").trim();
+    }
+    return (node.config.model ?? "").trim();
+}
+
+// options for the agent's "output" dynamicOptions select: the resolved
+// model's output modalities. Unknown slug / non-model upstream → "".
 function agentOutputOptions(
     graph: WorkflowGraph,
     node: WorkflowNode,
     modalities: Map<string, string[]>,
 ): string {
-    const edge = graph.edges.find(
-        (e) => e.kind === "value" && e.to.nodeId === node.id && e.to.portId === "model",
-    );
-    let slug: string;
-    if (edge) {
-        const src = graph.nodes.find((n) => n.id === edge.from.nodeId);
-        if (src?.type !== "model") return ""; // dynamic upstream — modality unknown
-        slug = (src.config.model ?? "").trim();
-    } else {
-        slug = (node.config.model ?? "").trim();
-    }
+    const slug = resolveAgentModelSlug(graph, node);
     const mods = slug ? modalities.get(slug) : undefined;
     if (!mods) return "";
     return ["text", "image"].filter((m) => mods.includes(m)).join(",");
+}
+
+// options for the agent's "reasoning" dynamicOptions select, gated on the
+// resolved model's reasoning capability. Supports reasoning → full effort
+// set; known non-reasoning model → "off" only; unknown/unset slug → ""
+// (locked, mirrors output).
+function agentReasoningOptions(
+    graph: WorkflowGraph,
+    node: WorkflowNode,
+    reasoning: Map<string, boolean>,
+): string {
+    const slug = resolveAgentModelSlug(graph, node);
+    if (!slug) return "";
+    const supports = reasoning.get(slug);
+    if (supports === undefined) return ""; // model not in the list — capability unknown
+    return supports ? "off,low,medium,high" : "off";
 }
 
 type Gesture =
@@ -77,6 +96,7 @@ export default function Canvas({
     dispatch,
     pending,
     modelModalities,
+    modelReasoning,
     onPortPointerDown,
     onOpenPicker,
     ref,
@@ -93,6 +113,8 @@ export default function Canvas({
     pending: PendingEdge | null;
     // OpenRouter model slug → output modalities, for dynamicOptions fields
     modelModalities: Map<string, string[]>;
+    // OpenRouter model slug → reasoning capability, for the reasoning select
+    modelReasoning: Map<string, boolean>;
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     ref?: Ref<CanvasHandle>;
@@ -340,8 +362,15 @@ export default function Canvas({
                             )
                             .map((f) => f.id)
                             .join(",") ?? "";
-                    const outputOptions = entry.config?.some((f) => f.dynamicOptions)
+                    const outputOptions = entry.config?.some(
+                        (f) => f.id === "output" && f.dynamicOptions,
+                    )
                         ? agentOutputOptions(graph, node, modelModalities)
+                        : "";
+                    const reasoningOptions = entry.config?.some(
+                        (f) => f.id === "reasoning" && f.dynamicOptions,
+                    )
+                        ? agentReasoningOptions(graph, node, modelReasoning)
                         : "";
                     return (
                         <Node
@@ -356,6 +385,7 @@ export default function Canvas({
                             zoom={view.zoom}
                             overriddenIds={overriddenIds}
                             outputOptions={outputOptions}
+                            reasoningOptions={reasoningOptions}
                             pendingKind={
                                 pending && pending.from.nodeId !== node.id ? pending.kind : null
                             }
