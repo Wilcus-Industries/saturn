@@ -131,7 +131,7 @@ export default async function Settings({
                 </form>
             </section>
 
-            {/* built-in credits (paid tiers) + BYO OpenRouter key fallback */}
+            {/* built-in credits (activated tiers) + BYO OpenRouter key fallback */}
             <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
                 <h2 className={"font-mono text-xl"}>Models</h2>
                 <p className={"font-mono text-sm text-gray-400"}>
@@ -150,7 +150,7 @@ export default async function Settings({
                                 {" / "}
                                 {credits.allowance.toLocaleString("en-US")} credits used
                             </span>
-                            {credits.periodEnd && (
+                            {credits.periodEnd ? (
                                 <span className={"text-xs text-gray-400"}>
                                     resets{" "}
                                     {credits.periodEnd.toLocaleDateString("en-US", {
@@ -158,6 +158,9 @@ export default async function Settings({
                                         day: "numeric",
                                     })}
                                 </span>
+                            ) : (
+                                // free tier: rolling 30-day window, no fixed reset
+                                <span className={"text-xs text-gray-400"}>past 30 days</span>
                             )}
                         </div>
                         <div className={"h-1 w-full bg-foreground/15"}>

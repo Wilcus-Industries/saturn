@@ -12,6 +12,7 @@ const TIERS = {
             "3 workflows",
             "1 MCP server connection",
             "Hourly schedules",
+            "1,000 model credits/mo",
             "All features of Saturn, with the flexibility of your own keys.",
         ],
     },

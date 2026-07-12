@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { hasOpenrouterKey, listOpenrouterModels } from "@/lib/openrouter.server";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
-import { getActivation, isPaidPlan } from "@/lib/subscription";
+import { getActivation, limitsFor } from "@/lib/subscription";
 import type { WorkflowRow } from "@/lib/workflow";
 import Designer from "./designer";
 
@@ -37,10 +37,13 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
         hasOpenrouterKey(session.user.id),
         getActivation(requestHeaders),
     ]);
-    // models list unlocks with built-in credits (paid tier) or a BYOK key.
+    // models list unlocks with built-in credits (any activated tier with an
+    // allowance — level null gets none, matching getCreditUsage) or a BYOK key.
     // null = neither (toolbox hints at settings); [] = unlocked but fetch failed
     const openrouterModels =
-        keyed || (level !== null && isPaidPlan(level)) ? await listOpenrouterModels() : null;
+        keyed || (level !== null && limitsFor(level).modelCredits > 0)
+            ? await listOpenrouterModels()
+            : null;
 
     return <Designer workflow={row} userCatalog={userCatalog} openrouterModels={openrouterModels} />;
 }

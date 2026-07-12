@@ -26,10 +26,13 @@ export const baseUrl = process.env.BETTER_AUTH_URL as string;
 // in server actions (createWorkflow, saveMcpServer); tierCard.tsx copy must
 // stay in sync with these numbers. cronFloorMinutes is the tightest cron
 // schedule a tier may run (free hourly, pro every 5 min, max every minute).
-// modelCredits is the built-in model allowance per billing period
-// (1,000 credits = $1 of model cost; spent via lib/credits.server.ts).
+// modelCredits is the built-in model allowance (1,000 credits = $1 of model
+// cost; spent via lib/credits.server.ts) — per Stripe billing period on paid
+// tiers, rolling 30-day window on free. Only an explicitly activated level
+// gets it: getCreditUsage zeroes the allowance for level=null, unlike the
+// other limits (limitsFor treats null as free).
 export const PLAN_LIMITS = {
-    free: { workflows: 3, mcpServers: 1, cronFloorMinutes: 60, modelCredits: 0 },
+    free: { workflows: 3, mcpServers: 1, cronFloorMinutes: 60, modelCredits: 1_000 },
     pro: { workflows: 20, mcpServers: 10, cronFloorMinutes: 5, modelCredits: 15_000 },
     max: { workflows: 100, mcpServers: 50, cronFloorMinutes: 1, modelCredits: 60_000 },
 } as const satisfies Record<

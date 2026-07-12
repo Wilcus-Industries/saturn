@@ -1,8 +1,11 @@
 // Built-in model credits (server-only). Source of truth is the model_usage
 // ledger (db/setup.sql): balance is derived as tier allowance minus the sum of
 // credits spent since the current Stripe billing period started — no balance
-// column, no reset job. 1,000 credits = $1 of OpenRouter cost; each
-// platform-billed turn debits ceil(cost * 1000).
+// column, no reset job. Free tier (no subscription, so no period) uses the
+// same 30-day-lookback fallback as its window: a rolling month, credits free
+// up as old usage ages out. Not-activated users (level null) get no allowance
+// even though limitsFor(null) returns free limits. 1,000 credits = $1 of
+// OpenRouter cost; each platform-billed turn debits ceil(cost * 1000).
 //
 // The check-then-call-then-record sequence in executeAgentTurn is deliberately
 // non-transactional: concurrent in-flight turns can each pass the balance
@@ -54,7 +57,9 @@ export async function getCreditUsage(userId: string): Promise<CreditUsage> {
             : row?.user_plan === "free"
               ? "free"
               : null;
-    const allowance = limitsFor(level).modelCredits;
+    // level null (signed in, never activated) gets no credits — don't fall
+    // through to limitsFor's null→free mapping here
+    const allowance = level ? limitsFor(level).modelCredits : 0;
     const periodStart = (row?.sub_plan != null && row.period_start) || null;
     const periodEnd = (row?.sub_plan != null && row.period_end) || null;
     if (allowance === 0) return { level, allowance, used: 0, periodStart, periodEnd };

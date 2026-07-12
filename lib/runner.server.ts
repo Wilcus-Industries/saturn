@@ -148,7 +148,7 @@ export async function executeAgentTurn(
         return {
             error:
                 credits.allowance > 0
-                    ? "out of model credits until your billing period resets — add an OpenRouter key in settings to keep running"
+                    ? "out of built-in model credits for now — add an OpenRouter key in settings to keep running"
                     : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
         };
     }
