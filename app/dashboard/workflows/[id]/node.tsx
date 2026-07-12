@@ -17,9 +17,13 @@ import {
     type WorkflowNode,
 } from "@/lib/workflow";
 import EntryIcon from "./entryIcon";
-import { GRID, isModelEntry } from "./geometry";
+import { GRID, isEventEntry, isLiteralEntry, isModelEntry, nodeHeight, nodeWidth } from "./geometry";
 import type { GraphAction } from "./graphReducer";
 import ModelLogo from "./modelLogo";
+
+// generic single-io labels ("in"/"out") add no signal over the port marker
+// (▶/○) and its side, so they're hidden — named ports (a/b/prompt/true…) stay
+const isGenericLabel = (label: string) => label === "in" || label === "out";
 
 // a press on a port starts an edge drag (owned by the designer); the port
 // button takes pointer capture so the drop is resolved via elementFromPoint
@@ -43,7 +47,9 @@ export type OpenPickerHandler = (
 // = HEADER_H 32, h-6 port rows = PORT_ROW_H 24, h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
 // bottom pad. Model nodes render circular: h-18 w-18 = MODEL_D 72 plus an
-// h-6 name strip = MODEL_LABEL_H 24. Change sizes only via geometry.ts.
+// h-6 name strip = MODEL_LABEL_H 24. Event nodes render as a curved-left block:
+// h-12 w-14 = EVENT_H 48 × EVENT_W 56 plus an h-6 label strip = EVENT_LABEL_H
+// 24. Change sizes only via geometry.ts.
 
 // selection count for a grant-picker field's JSON string array value
 function grantCount(raw: string): number {
@@ -111,6 +117,9 @@ export default memo(function Node({
     const styles = CATEGORY_STYLES[entry.category];
     const dragRef = useRef<DragState | null>(null);
     const configBeforeRef = useRef<WorkflowGraph | null>(null);
+    // literal box: a click (press with no drag) focuses the value field so
+    // the whole box is both draggable and editable — see its branch below
+    const literalFieldRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
 
     // Escape mid-drag restores the pre-gesture positions (no history entry).
     // The handler lives in a ref: drags re-render, so removeEventListener
@@ -320,6 +329,150 @@ export default memo(function Node({
         );
     }
 
+    // event nodes render as a curved-left block (h-20 w-24 = EVENT_H × EVENT_W,
+    // h-6 label strip = EVENT_LABEL_H) with the icon centered and the label
+    // floated underneath — the single flow output anchors on the block's
+    // right-edge midpoint per geometry.ts, mirroring the model branch above.
+    if (isEventEntry(entry)) {
+        const output = entry.outputs[0];
+        return (
+            <div
+                data-node-id={node.id}
+                style={{ left: node.x, top: node.y }}
+                className={"absolute w-14 font-mono text-xs"}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+            >
+                <div
+                    // border tinted to the category color (same hex the edges
+                    // use); no Tailwind full-border class exists in the styles
+                    style={{ borderColor: styles.edge }}
+                    className={`relative flex h-12 w-14 cursor-grab items-center justify-center rounded-l-full rounded-r-xl border bg-background ${styles.headerBg} ${
+                        selected ? "outline outline-1 outline-foreground" : ""
+                    }`}
+                >
+                    {entry.emoji ? (
+                        <span className={"translate-x-1 text-2xl leading-none"}>{entry.emoji}</span>
+                    ) : (
+                        <span className={`translate-x-1 text-2xl leading-none ${styles.text}`}>
+                            {"▶"}
+                        </span>
+                    )}
+                    {output && (
+                        <span
+                            className={
+                                "absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/2"
+                            }
+                        >
+                            {port(output, "out", "")}
+                        </span>
+                    )}
+                </div>
+                <div className={"flex h-6 w-14 items-center justify-center"}>
+                    <span
+                        className={
+                            "line-clamp-2 max-w-full break-words text-center text-[10px] leading-3"
+                        }
+                        title={entry.label}
+                    >
+                        {entry.label}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
+    // literal value nodes (string/number): a bare header-less box holding the
+    // editable value, one value output on the right edge (geometry.ts
+    // isLiteralEntry). The string box grows with its content. The whole box
+    // drags; a press that never becomes a drag focuses the field, so it stays
+    // editable without a separate drag handle.
+    if (isLiteralEntry(entry)) {
+        const output = entry.outputs[0];
+        const isNumber = entry.key === "number";
+        const value = node.config.value ?? "";
+        const width = nodeWidth(entry, node);
+        const height = nodeHeight(entry, node);
+
+        // a press that stayed under the drag threshold is a click → focus
+        const literalEndDrag = () => {
+            const wasClick = !!dragRef.current && !dragRef.current.active;
+            endDrag();
+            if (wasClick) literalFieldRef.current?.focus();
+        };
+        // once focused, the field owns the pointer (caret + text selection);
+        // otherwise the press bubbles to the box for drag/click-to-focus
+        const fieldPointerDown = (e: ReactPointerEvent) => {
+            if (document.activeElement === e.currentTarget) e.stopPropagation();
+        };
+        const onChange = (e: { target: { value: string } }) =>
+            dispatch({ type: "setConfig", nodeId: node.id, field: "value", value: e.target.value });
+        const fieldClass =
+            "min-w-0 flex-1 bg-transparent leading-[18px] text-foreground outline-none placeholder:text-gray-500";
+
+        return (
+            <div
+                data-node-id={node.id}
+                style={{ left: node.x, top: node.y, width }}
+                className={"absolute font-mono text-xs"}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={literalEndDrag}
+                onPointerCancel={endDrag}
+            >
+                <div
+                    style={{ height }}
+                    className={`relative flex cursor-grab items-stretch rounded border border-foreground/25 bg-background px-2 py-1.5 ${
+                        selected ? "outline outline-1 outline-foreground" : ""
+                    }`}
+                >
+                    {isNumber ? (
+                        <input
+                            ref={(el) => {
+                                literalFieldRef.current = el;
+                            }}
+                            type={"number"}
+                            value={value}
+                            placeholder={"0"}
+                            onPointerDown={fieldPointerDown}
+                            onFocus={onConfigFocus}
+                            onBlur={onConfigBlur}
+                            onChange={onChange}
+                            // hide the native spin buttons — keep it a bare box
+                            className={`${fieldClass} [appearance:textfield] [&::-webkit-inner-spin-button]:[appearance:none] [&::-webkit-outer-spin-button]:[appearance:none]`}
+                        />
+                    ) : (
+                        <textarea
+                            ref={(el) => {
+                                literalFieldRef.current = el;
+                            }}
+                            value={value}
+                            wrap={"off"}
+                            maxLength={4000}
+                            placeholder={"value"}
+                            onPointerDown={fieldPointerDown}
+                            onFocus={onConfigFocus}
+                            onBlur={onConfigBlur}
+                            onChange={onChange}
+                            className={`${fieldClass} resize-none overflow-hidden whitespace-pre`}
+                        />
+                    )}
+                    {output && (
+                        <span
+                            className={
+                                "absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/2"
+                            }
+                        >
+                            {port(output, "out", "")}
+                        </span>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
     const rowCount = Math.max(entry.inputs.length, entry.outputs.length);
     const rows = Array.from({ length: rowCount }, (_, i) => ({
         input: entry.inputs[i],
@@ -353,18 +506,22 @@ export default memo(function Node({
                         {input && (
                             <>
                                 {port(input, "in")}
-                                <span className={"truncate text-[10px] text-gray-400"}>
-                                    {input.label}
-                                </span>
+                                {!isGenericLabel(input.label) && (
+                                    <span className={"truncate text-[10px] text-gray-400"}>
+                                        {input.label}
+                                    </span>
+                                )}
                             </>
                         )}
                     </span>
                     <span className={"flex min-w-0 items-center gap-1"}>
                         {output && (
                             <>
-                                <span className={"truncate text-[10px] text-gray-400"}>
-                                    {output.label}
-                                </span>
+                                {!isGenericLabel(output.label) && (
+                                    <span className={"truncate text-[10px] text-gray-400"}>
+                                        {output.label}
+                                    </span>
+                                )}
                                 {port(output, "out")}
                             </>
                         )}

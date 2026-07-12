@@ -78,13 +78,13 @@ export default function Home() {
                     Orchestrate automations using the Saturn node designer.
                 </p>
                 <p className={"w-full max-w-100 font-sans"}>
-                    Transparent pricing through us (300+ models), or bring your own keys.
-                </p>
-                <p className={"w-full max-w-100 font-sans"}>
                     Fully open-source on <a href={"https://github.com/Wilcus-Industries/saturn"}
                        className={"underline underline-offset-4 hover:text-gray-400 transition-colors"}>
                         GitHub
                     </a>.
+                </p>
+                <p className={"w-full max-w-100 font-sans"}>
+                    Get started for free today with 1000 free credits to use with 300+ models.
                 </p>
                 <div className={"flex flex-row gap-2"}>
                     <GetStartedLink className={`text-background bg-foreground w-30

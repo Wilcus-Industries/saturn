@@ -16,13 +16,58 @@ export const TEXTAREA_ROW_H = 72; // h-[72px] textarea config rows
 export const MODEL_D = 72;
 export const MODEL_LABEL_H = 24;
 
-// missingEntry placeholders map to category "logic", so this is only ever
-// true for the real model catalog entry
+// event nodes render as a curved-left block (h-12 w-14) with a label strip
+// (h-6) below; node.tsx's event branch must match these exactly too
+export const EVENT_W = 56; // w-14
+export const EVENT_H = 48; // h-12
+export const EVENT_LABEL_H = 24; // h-6 name strip below (like MODEL_LABEL_H)
+
+// literal value nodes (string/number): a bare header-less box holding the
+// editable value with one output port on the right edge. The string box
+// grows with its content — width from the longest line, height from the line
+// count. Deterministic from node.config.value (mono font, no soft-wrap), so
+// node.tsx and edge anchors match without measuring the DOM. number is a
+// fixed compact single-line box.
+export const LIT_MIN_W = 80;
+export const LIT_MAX_W = 260;
+export const LIT_PAD_X = 18; // box h-padding + right-edge port clearance
+export const LIT_LINE_H = 18; // textarea leading-[18px]
+export const LIT_PAD_Y = 12; // py-1.5 top+bottom
+export const LIT_CHAR_W = 7.2; // Geist Mono advance at text-xs (12px)
+export const NUM_W = 80;
+
 export const isModelEntry = (entry: CatalogEntry): boolean =>
     entry.category === "model" && !entry.missing;
 
-export const nodeWidth = (entry: CatalogEntry): number =>
-    isModelEntry(entry) ? MODEL_D : NODE_W;
+export const isEventEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "events" && !entry.missing;
+
+// missingEntry placeholders map to category "logic", so these are only ever
+// true for the real model / event / literal catalog entries
+export const isLiteralEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "data" &&
+    (entry.key === "string" || entry.key === "number") &&
+    !entry.missing;
+
+// string box grows with content; height counts explicit lines only (the box
+// never soft-wraps — long lines scroll inside the max-width cap)
+function literalMetrics(value: string): { width: number; height: number } {
+    const lines = value.length ? value.split("\n") : [""];
+    const widest = lines.reduce((m, l) => Math.max(m, l.length), 1);
+    const width = Math.min(LIT_MAX_W, Math.max(LIT_MIN_W, Math.ceil(widest * LIT_CHAR_W) + LIT_PAD_X));
+    return { width, height: lines.length * LIT_LINE_H + LIT_PAD_Y };
+}
+
+export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number =>
+    isModelEntry(entry)
+        ? MODEL_D
+        : isEventEntry(entry)
+          ? EVENT_W
+          : isLiteralEntry(entry)
+            ? entry.key === "number"
+                ? NUM_W
+                : literalMetrics(node?.config.value ?? "").width
+            : NODE_W;
 
 export const configRowHeight = (field: ConfigField): number =>
     field.input === "textarea" ? TEXTAREA_ROW_H : CONFIG_ROW_H;
@@ -31,8 +76,13 @@ export const configRowHeight = (field: ConfigField): number =>
 const portRows = (entry: CatalogEntry): number =>
     Math.max(entry.inputs.length, entry.outputs.length);
 
-export function nodeHeight(entry: CatalogEntry): number {
+export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
     if (isModelEntry(entry)) return MODEL_D + MODEL_LABEL_H;
+    if (isEventEntry(entry)) return EVENT_H + EVENT_LABEL_H;
+    if (isLiteralEntry(entry))
+        return entry.key === "number"
+            ? LIT_LINE_H + LIT_PAD_Y
+            : literalMetrics(node?.config.value ?? "").height;
     return (
         HEADER_H +
         portRows(entry) * PORT_ROW_H +
@@ -55,6 +105,24 @@ export function portPosition(
         return entry.inputs.some((p) => p.id === portId)
             ? { x: node.x, y }
             : { x: node.x + MODEL_D, y };
+    }
+
+    // event block: output anchors on the right-edge midline (start has one
+    // output, no inputs — the left branch is defensive)
+    if (isEventEntry(entry)) {
+        const y = node.y + EVENT_H / 2;
+        return entry.inputs.some((p) => p.id === portId)
+            ? { x: node.x, y }
+            : { x: node.x + EVENT_W, y };
+    }
+
+    // literal box: only a value output, on the right edge at the box midline
+    // (width/height derive from its content)
+    if (isLiteralEntry(entry)) {
+        const y = node.y + nodeHeight(entry, node) / 2;
+        return entry.inputs.some((p) => p.id === portId)
+            ? { x: node.x, y }
+            : { x: node.x + nodeWidth(entry, node), y };
     }
 
     const rowY = (row: number) => node.y + HEADER_H + row * PORT_ROW_H + PORT_ROW_H / 2;

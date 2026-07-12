@@ -266,6 +266,18 @@ export async function runWorkflow(
         try {
             const entry = byKey[node.type];
             switch (node.type) {
+                case "string":
+                    return node.config.value ?? "";
+                case "number": {
+                    const value = (node.config.value ?? "").trim();
+                    if (value === "") return 0;
+                    const n = Number(value);
+                    if (Number.isNaN(n)) {
+                        warn(`number "${value}" is not a number — using 0`);
+                        return 0;
+                    }
+                    return n;
+                }
                 case "literal": {
                     const value = node.config.value ?? "";
                     if (node.config.valueType !== "number") return value;

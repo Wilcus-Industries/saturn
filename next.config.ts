@@ -7,7 +7,9 @@ import type { NextConfig } from "next";
 //   - script/style 'unsafe-inline': Next injects inline bootstrap scripts and
 //     the designer sets many inline style attributes; no nonce pipeline here.
 //   - img: 'self' + data: (console data-URL images, avatars) + Google s2
-//     favicons (MCP/model logos) + the Google avatar host.
+//     favicons (MCP/model logos) + the Google avatar host. s2/favicons now
+//     301-redirects to t*.gstatic.com/faviconV2, so gstatic must be allowed
+//     too or the redirected image load is CSP-blocked (silent broken logos).
 //   - connect 'self': the OpenRouter/model calls are all server-side; the
 //     browser only talks to our own origin.
 // Dev needs looser script/connect rules (React Fast Refresh evals modules, HMR
@@ -21,7 +23,7 @@ function securityHeaders() {
         "object-src 'none'",
         "frame-ancestors 'none'",
         "form-action 'self'",
-        "img-src 'self' data: https://www.google.com https://*.googleusercontent.com",
+        "img-src 'self' data: https://www.google.com https://*.gstatic.com https://*.googleusercontent.com",
         "font-src 'self' data:",
         "style-src 'self' 'unsafe-inline'",
         `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,

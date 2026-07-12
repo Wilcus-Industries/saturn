@@ -152,7 +152,21 @@ export const CATALOG: CatalogEntry[] = [
         inputs: [v("in")], outputs: [v("out")],
     },
     {
-        key: "literal", category: "data", label: "literal",
+        // bare header-less value boxes; the box grows with its content and
+        // exposes a single value output (rendered by node.tsx's literal branch)
+        key: "string", category: "data", label: "string",
+        inputs: [], outputs: [v("out")],
+        config: [text("value")],
+    },
+    {
+        key: "number", category: "data", label: "number",
+        inputs: [], outputs: [v("out")],
+        config: [{ id: "value", label: "value", input: "number" }],
+    },
+    {
+        // legacy pre-split "literal" (config.valueType picks string/number) —
+        // still resolves + runs saved graphs, hidden from the toolbox
+        key: "literal", category: "data", label: "literal", legacy: true,
         inputs: [], outputs: [v("out")],
         config: [
             { id: "valueType", label: "type", input: "select", options: ["string", "number"] },

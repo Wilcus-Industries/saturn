@@ -2,18 +2,17 @@ import { db } from "@/lib/db";
 import type { WorkflowGraph } from "@/lib/workflow";
 
 // Starter graph seeded for every new user: start → agent → print, with a
-// literal feeding the prompt and a model node feeding the model port.
+// string node feeding the prompt and a model node feeding the model port.
 // Static catalog nodes only — no user-registry dependency.
 const EXAMPLE_GRAPH: WorkflowGraph = {
     nodes: [
         { id: "start", type: "start", x: 48, y: 120, config: {} },
         {
             id: "prompt",
-            type: "literal",
+            type: "string",
             x: 48,
             y: 288,
             config: {
-                valueType: "string",
                 value: "Write a haiku about the morning sky over Saturn.",
             },
         },

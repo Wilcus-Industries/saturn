@@ -252,7 +252,7 @@ export default function Toolbox({
                 }
 
                 const entries = [
-                    ...CATALOG.filter((entry) => entry.category === category),
+                    ...CATALOG.filter((entry) => entry.category === category && !entry.legacy),
                     // user registry entries follow the static ones
                     ...userCatalog.filter((entry) => entry.category === category),
                 ].filter(matches);

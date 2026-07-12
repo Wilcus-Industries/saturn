@@ -127,8 +127,8 @@ export default function Canvas({
             if (!entry) continue;
             minX = Math.min(minX, n.x);
             minY = Math.min(minY, n.y);
-            maxX = Math.max(maxX, n.x + nodeWidth(entry));
-            maxY = Math.max(maxY, n.y + nodeHeight(entry));
+            maxX = Math.max(maxX, n.x + nodeWidth(entry, n));
+            maxY = Math.max(maxY, n.y + nodeHeight(entry, n));
         }
         if (minX === Infinity) return;
         const rect = el.getBoundingClientRect();
@@ -279,9 +279,9 @@ export default function Canvas({
                     if (!entry) return false;
                     return (
                         n.x < mx + mw &&
-                        n.x + nodeWidth(entry) > mx &&
+                        n.x + nodeWidth(entry, n) > mx &&
                         n.y < my + mh &&
-                        n.y + nodeHeight(entry) > my
+                        n.y + nodeHeight(entry, n) > my
                     );
                 })
                 .map((n) => n.id);

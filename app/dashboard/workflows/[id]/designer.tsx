@@ -30,7 +30,16 @@ import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
 import EntryIcon from "./entryIcon";
 import GrantPicker from "./grantPicker";
-import { GRID, HEADER_H, isModelEntry, MODEL_D, NODE_W, nodeWidth } from "./geometry";
+import {
+    EVENT_H,
+    GRID,
+    HEADER_H,
+    isEventEntry,
+    isModelEntry,
+    MODEL_D,
+    NODE_W,
+    nodeWidth,
+} from "./geometry";
 import ModelLogo from "./modelLogo";
 import { graphReducer, initHistory } from "./graphReducer";
 import type { OpenPickerHandler, PortPointerDownHandler } from "./node";
@@ -197,10 +206,15 @@ export default function Designer({
             // same grid as the canvas dots and drag-end snapping
             const snap = (value: number) => Math.round(value / GRID) * GRID;
             // rectangles drop with the header centered under the pointer;
-            // model circles center the circle itself
+            // model circles / event blocks center the block itself
             const entry = byKey[spawnKey];
             const w = entry ? nodeWidth(entry) : NODE_W;
-            const dy = entry && isModelEntry(entry) ? MODEL_D / 2 : HEADER_H / 2;
+            const dy =
+                entry && isModelEntry(entry)
+                    ? MODEL_D / 2
+                    : entry && isEventEntry(entry)
+                      ? EVENT_H / 2
+                      : HEADER_H / 2;
             dispatch({
                 type: "addNode",
                 node: {
