@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import {Geist, Geist_Mono, Inter} from "next/font/google";
 import {GeistPixelSquare} from "geist/font/pixel";
+import {Analytics} from "@vercel/analytics/next";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,7 +33,10 @@ export default function RootLayout({
         <html
             lang="en"
             className={`${geistSans.variable} ${geistMono.variable} ${GeistPixelSquare.variable} ${inter.variable} h-full antialiased`}>
-            <body className="min-h-full flex flex-col">{children}</body>
+            <body className="min-h-full flex flex-col">
+                {children}
+                <Analytics />
+            </body>
         </html>
     );
 }
