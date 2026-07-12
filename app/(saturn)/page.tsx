@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import PageTransition from "./pageTransition";
 import GetStartedLink from "./getStartedLink";
 import DemoWindow from "./demoWindow";
@@ -155,6 +156,16 @@ export default function Home() {
                                className={"underline underline-offset-4 hover:text-foreground transition-colors"}>
                                 GitHub
                             </a>
+                            <span aria-hidden>·</span>
+                            <Link href={"/terms"}
+                                  className={"underline underline-offset-4 hover:text-foreground transition-colors"}>
+                                Terms
+                            </Link>
+                            <span aria-hidden>·</span>
+                            <Link href={"/privacy"}
+                                  className={"underline underline-offset-4 hover:text-foreground transition-colors"}>
+                                Privacy
+                            </Link>
                             <span aria-hidden>·</span>
                             <span>© 2026 Wilcus Industries.</span>
                         </div>

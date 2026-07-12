@@ -60,6 +60,18 @@ export default function Connect() {
                     <h1>Continue with GitHub</h1>
                     <small className={"ml-auto font-mono"}>soon</small>
                 </button>
+                <p className={"w-full max-w-100 font-mono text-xs text-gray-400"}>
+                    By continuing you agree to the{" "}
+                    <Link href={"/terms"}
+                          className={"underline underline-offset-4 hover:text-foreground transition-colors"}>
+                        Terms of Service
+                    </Link>
+                    {" "}and{" "}
+                    <Link href={"/privacy"}
+                          className={"underline underline-offset-4 hover:text-foreground transition-colors"}>
+                        Privacy Policy
+                    </Link>.
+                </p>
                 <Link href={"/"} transitionTypes={["nav-back"]} className={"text-blue-400 font-sans"}>
                     Back
                 </Link>
