@@ -18,6 +18,7 @@ import ModelLogo from "./modelLogo";
 const SECTIONS: { category: NodeCategory; heading: string }[] = [
     { category: "main", heading: "main functions" },
     { category: "saturn", heading: "agents" },
+    { category: "integration", heading: "integrations" },
     { category: "mcp", heading: "mcp servers" },
     { category: "skill", heading: "skills" },
     { category: "model", heading: "openrouter models" },

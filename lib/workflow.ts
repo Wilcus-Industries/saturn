@@ -2,9 +2,16 @@
 // connection rules. Shared by the designer canvas and server actions.
 
 import { parseSkillGrants, parseToolGrants } from "@/lib/agent";
+import {
+    INTEGRATION_PREFIX,
+    INTEGRATIONS,
+    INTEGRATIONS_BY_ID,
+    integrationKey,
+    integrationProviderId,
+} from "@/lib/integrations";
 
 export type PortKind = "flow" | "value";
-export type NodeCategory = "main" | "mcp" | "skill" | "saturn" | "model";
+export type NodeCategory = "main" | "mcp" | "skill" | "saturn" | "model" | "integration";
 
 // one tool argument, derived from the MCP tool's inputSchema at discovery
 // (lib/mcp.ts deriveParams) and stored on the registry's McpTool entries.
@@ -193,6 +200,16 @@ export const CATALOG: CatalogEntry[] = [
         inputs: [], outputs: [v("model")],
         config: [{ id: "model", label: "model", input: "text", placeholder: "openai/gpt-4o-mini" }],
     },
+
+    // integration — outbound message nodes generated from the provider
+    // descriptors in lib/integrations.ts; sends execute server-side in
+    // lib/integrations.server.ts via the interpreter's callIntegration hook
+    ...INTEGRATIONS.map((p): CatalogEntry => ({
+        key: integrationKey(p.id), category: "integration", label: p.label,
+        logoDomain: p.logoDomain,
+        inputs: [flowIn, v("message")], outputs: [flowOut],
+        config: p.config,
+    })),
 ];
 // mcp and skill nodes come exclusively from the user registry (lib/registry.ts)
 
@@ -217,7 +234,7 @@ export const MAX_GRAPH_JSON = 262_144;
 export function missingEntry(type: string): CatalogEntry {
     const prefix = type.split(":")[0];
     const category: NodeCategory =
-        prefix === "mcp" || prefix === "skill" ? prefix : "main";
+        prefix === "mcp" || prefix === "skill" || prefix === "integration" ? prefix : "main";
     return { key: type, category, label: "(deleted)", inputs: [], outputs: [], missing: true };
 }
 
@@ -252,6 +269,12 @@ export const CATEGORY_STYLES = {
         headerBg: "bg-rose-500/10",
         text: "text-rose-600 dark:text-rose-400",
         edge: "#f43f5e",
+    },
+    integration: {
+        borderL: "border-l-orange-500",
+        headerBg: "bg-orange-500/10",
+        text: "text-orange-600 dark:text-orange-400",
+        edge: "#f97316",
     },
 } as const satisfies Record<NodeCategory, { borderL: string; headerBg: string; text: string; edge: string }>;
 
@@ -436,6 +459,20 @@ export function validateGraphStrict(
             if (!byKey[`skill:${skillId}`]) {
                 warnings.push(
                     `agent "${node.id}" grants skill "${skillId}" which doesn't match any registered skill`,
+                );
+            }
+        }
+    }
+
+    // integration nodes fail at run time without their required config
+    for (const node of graph.nodes) {
+        if (!node.type.startsWith(INTEGRATION_PREFIX)) continue;
+        const provider = INTEGRATIONS_BY_ID[integrationProviderId(node.type)];
+        if (!provider) continue; // unknown-type warning already covers it
+        for (const field of provider.requiredConfig) {
+            if (!(node.config[field] ?? "").trim()) {
+                warnings.push(
+                    `${provider.label} "${node.id}" has no ${field} — the run will fail`,
                 );
             }
         }

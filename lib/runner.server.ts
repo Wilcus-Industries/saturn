@@ -15,6 +15,7 @@ import {
     runWorkflow,
 } from "@/lib/interpreter";
 import { getCreditUsage, platformKey, recordUsage } from "@/lib/credits.server";
+import { executeIntegration } from "@/lib/integrations.server";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { buildUserCatalog, canCallTool } from "@/lib/registry";
@@ -328,6 +329,8 @@ export async function executeWorkflowRun(
                 emit,
                 callMcp: (entryId, toolName, input) =>
                     executeMcpTool(wf.user_id, entryId, toolName, input),
+                callIntegration: (providerId, config, message) =>
+                    executeIntegration(wf.user_id, providerId, config, message),
                 callAgent: (req) => executeAgentTurn(wf.user_id, req, opts.trigger),
                 signal: controller.signal,
             });

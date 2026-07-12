@@ -24,7 +24,7 @@ import { parseGrantIds } from "@/lib/agent";
 import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
-import { callAgentModel, callMcpTool, saveWorkflow } from "./actions";
+import { callAgentModel, callIntegration, callMcpTool, saveWorkflow } from "./actions";
 import Canvas, { type CanvasHandle } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
@@ -145,6 +145,7 @@ export default function Designer({
             await runWorkflow(present, byKey, {
                 emit,
                 callMcp: callMcpTool,
+                callIntegration,
                 callAgent: callAgentModel,
                 onValue: (nodeId, portId, text) =>
                     samplesRef.current.set(`${nodeId}:${portId}`, text),

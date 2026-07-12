@@ -175,6 +175,9 @@ One node per registered tool. Each parameter is a value input port named "p_<par
 LLM loop over built-in model credits (paid plans) with the user's OpenRouter key as fallback. Inputs: flow in, prompt (value), model (value — overrides config.model when connected, usually from a "model" node). Config: system (textarea), model (OpenRouter id like "openai/gpt-4o-mini"), output ("text" | "image" — image works only on models whose OpenRouter output modalities include image; any other value runs as text; image mode ignores tool grants and returns the first generated image), tools, skills. tools/skills are JSON string arrays as strings: tools entries are "<entryId>:<toolName>" (the mcp node key without the "mcp:" prefix), skills entries are skill entry uuids. The agent may call granted tools itself. Output "result" carries the final text, or a data:image/… URL when output=image.
 Skill nodes are not executable on their own — skills only run as agent grants.
 
+## Integration nodes (keys "integration:<provider>")
+Outbound message nodes, e.g. "integration:discord-webhook". Inputs: flow in, message (value — overrides config.message when connected). Output: flow out. config.webhookUrl must be a real https://discord.com/api/webhooks/… URL (validated server-side at run time); Discord truncates messages to 2000 chars.
+
 ## Layout
 Positions are free-form; the designer snaps to a 24px grid. Readable default: columns left-to-right, x += 264 per step, y += 168 per parallel branch.
 

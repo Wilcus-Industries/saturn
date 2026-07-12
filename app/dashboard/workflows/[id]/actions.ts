@@ -8,6 +8,7 @@ import {
     type McpCallResult,
 } from "@/lib/agent";
 import { db } from "@/lib/db";
+import { executeIntegration } from "@/lib/integrations.server";
 import type { CallAgentRequest } from "@/lib/interpreter";
 import { executeAgentTurn, executeMcpTool, UUID } from "@/lib/runner.server";
 import { requireUser } from "@/lib/subscription";
@@ -45,6 +46,18 @@ export async function callMcpTool(
 ): Promise<McpCallResult> {
     const { session } = await requireUser();
     return executeMcpTool(session.user.id, entryId, toolName, input);
+}
+
+// executes one integration send for a designer test run. Errors return as
+// values; validation lives in executeIntegration (lib/integrations.server.ts),
+// shared with the scheduled runner.
+export async function callIntegration(
+    providerId: string,
+    config: Record<string, string>,
+    message: string,
+): Promise<McpCallResult> {
+    const { session } = await requireUser();
+    return executeIntegration(session.user.id, providerId, config, message);
 }
 
 const isRecord = (x: unknown): x is Record<string, unknown> =>

@@ -17,6 +17,7 @@ import {
     parseSkillGrants,
     parseToolGrants,
 } from "@/lib/agent";
+import { integrationProviderId } from "@/lib/integrations";
 import { paramPortId } from "@/lib/registry";
 import type {
     CatalogEntry,
@@ -50,6 +51,13 @@ export function describeImage(dataUrl: string): string {
 export type RunHooks = {
     emit: (line: ConsoleLine) => void;
     callMcp: (entryId: string, toolName: string, input: string) => Promise<McpCallResult>;
+    // one outbound integration send (Discord webhook, …) — executed
+    // server-side so URL validation and future tokens stay off the client
+    callIntegration: (
+        providerId: string,
+        config: Record<string, string>,
+        message: string,
+    ) => Promise<McpCallResult>;
     // one LLM turn of an agent loop (the callAgentModel server action)
     callAgent: (req: CallAgentRequest) => Promise<AgentModelResult>;
     // reports every value computed during the run (nodeId + output portId);
@@ -70,6 +78,8 @@ const MAX_MCP_CALLS = 20;
 // agent-initiated MCP calls budget separately so a busy loop can't starve
 // the graph's plain MCP nodes (and vice versa)
 const MAX_AGENT_MCP_CALLS = 40;
+// integration sends budget separately from MCP calls for the same reason
+const MAX_INTEGRATION_CALLS = 20;
 // long tool results would drown the console
 const MAX_RESULT_CHARS = 2000;
 // tool output fed back to the model — larger than the console cap, the
@@ -180,11 +190,12 @@ function coerceParam(
 export async function runWorkflow(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
-    { emit, callMcp, callAgent, onValue, signal }: RunHooks,
+    { emit, callMcp, callIntegration, callAgent, onValue, signal }: RunHooks,
 ): Promise<void> {
     let steps = 0;
     let mcpCalls = 0;
     let agentMcpCalls = 0;
+    let integrationCalls = 0;
     const loopValues = new Map<string, RunValue>(); // loop nodeId → current item
     const results = new Map<string, string>(); // mcp nodeId → last tool result
     const saturnResults = new Map<string, string>(); // agent/await "nodeId:portId" → output
@@ -649,6 +660,26 @@ export async function runWorkflow(
                         emit({
                             kind: "info",
                             text: truncate(`${display} → ${text || "(empty)"}`),
+                        });
+                        next = "out";
+                    } else if (entry?.category === "integration") {
+                        if (++integrationCalls > MAX_INTEGRATION_CALLS) {
+                            fail(`integration call limit (${MAX_INTEGRATION_CALLS}) exceeded for one run`);
+                        }
+                        const message = incomingValueEdge(node.id, "message")
+                            ? fmt(evalInput(node, "message", ctx))
+                            : (node.config.message ?? "");
+                        emit({ kind: "info", text: `sending via ${entry.label}…` });
+                        const res = await callIntegration(
+                            integrationProviderId(node.type),
+                            node.config,
+                            message,
+                        );
+                        if ("error" in res) fail(`${entry.label}: ${res.error}`);
+                        const text = "text" in res ? res.text : "";
+                        emit({
+                            kind: "info",
+                            text: truncate(`${entry.label} → ${text || "(empty)"}`),
                         });
                         next = "out";
                     } else if (entry?.category === "skill") {
