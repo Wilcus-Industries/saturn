@@ -1,8 +1,51 @@
+import type { Metadata } from "next";
 import PageTransition from "./pageTransition";
 import GetStartedLink from "./getStartedLink";
 import DemoWindow from "./demoWindow";
 import FeatureGrid from "./featureNode";
 import Reveal from "./reveal";
+import { GITHUB_URL, ORG_NAME, SITE_DESCRIPTION, SITE_NAME, siteUrl } from "@/lib/seo";
+
+export const metadata: Metadata = {
+    alternates: { canonical: "/" },
+};
+
+// structured data for the landing page — offer prices must stay in sync with
+// TIERS in app/(saturn)/activate/tierCard.tsx
+const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+        {
+            "@type": "Organization",
+            "@id": `${siteUrl}/#org`,
+            name: ORG_NAME,
+            url: siteUrl,
+            logo: `${siteUrl}/icon.png`,
+            sameAs: [GITHUB_URL],
+        },
+        {
+            "@type": "WebSite",
+            "@id": `${siteUrl}/#website`,
+            name: SITE_NAME,
+            url: siteUrl,
+            publisher: { "@id": `${siteUrl}/#org` },
+        },
+        {
+            "@type": "SoftwareApplication",
+            name: SITE_NAME,
+            url: siteUrl,
+            description: SITE_DESCRIPTION,
+            applicationCategory: "DeveloperApplication",
+            operatingSystem: "Web",
+            softwareHelp: GITHUB_URL,
+            offers: [
+                { "@type": "Offer", name: "Saturn Free", price: "0", priceCurrency: "USD" },
+                { "@type": "Offer", name: "Saturn Pro", price: "19", priceCurrency: "USD" },
+                { "@type": "Offer", name: "Saturn Max", price: "79", priceCurrency: "USD" },
+            ],
+        },
+    ],
+};
 
 // one line of saturn's rings seen edge-on — the section divider
 function RingDivider() {
@@ -21,6 +64,10 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 export default function Home() {
     return (
         <PageTransition>
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
+            />
             <div className={"absolute top-5 left-5 right-5 z-10 pl-3 flex flex-col gap-3"}>
                 <h1 className={"text-5xl font-mono"}>Saturn</h1>
                 <p className={"w-full max-w-100 font-sans"}>

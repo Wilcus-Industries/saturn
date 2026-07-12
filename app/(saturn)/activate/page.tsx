@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -6,6 +7,11 @@ import { getActivation } from "@/lib/subscription";
 import PageTransition from "../pageTransition";
 import TierCard, { TIER_BUTTON } from "./tierCard";
 import { activateFree, activatePlan } from "./actions";
+
+export const metadata: Metadata = {
+    title: "Activate",
+    robots: { index: false, follow: false },
+};
 
 // activation is post-auth — reachable only with a live session, otherwise send
 // the user back to connect an account first; already-activated users go

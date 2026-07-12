@@ -1,8 +1,15 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getActivation } from "@/lib/subscription";
 import Connect from "./connect";
+
+export const metadata: Metadata = {
+    title: "Get started",
+    description: "Connect your Google account to start building agentic automations with Saturn.",
+    robots: { index: false, follow: true },
+};
 
 // signed-in users skip the connect step entirely — the redirect runs during
 // this server render, so the connect UI is never sent to the client; users
