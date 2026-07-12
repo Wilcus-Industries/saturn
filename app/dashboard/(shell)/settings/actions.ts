@@ -322,8 +322,8 @@ export async function discoverMcpTools(formData: FormData) {
     revalidatePath("/dashboard/settings");
 }
 
-// TEMPORARY: stores the user's OpenRouter key until the built-in token
-// system lands. Write-only: blank keeps the stored key, checkbox clears.
+// stores the user's OpenRouter key — the BYOK fallback when built-in credits
+// are unavailable. Write-only: blank keeps the stored key, checkbox clears.
 export async function saveOpenrouterKey(formData: FormData) {
     const { session } = await requireUser();
 

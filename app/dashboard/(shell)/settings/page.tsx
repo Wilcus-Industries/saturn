@@ -5,6 +5,7 @@ import McpLogo from "@/app/dashboard/mcpLogo";
 import { auth } from "@/lib/auth";
 import ActionButton from "@/app/dashboard/actionButton";
 import { faviconDomain } from "@/lib/registry";
+import { getCreditUsage } from "@/lib/credits.server";
 import { hasOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
 import { baseUrl, getActivationDetails } from "@/lib/subscription";
@@ -31,6 +32,7 @@ export default async function Settings({
 
     const registry = await getUserRegistry(session.user.id);
     const keySet = await hasOpenrouterKey(session.user.id);
+    const credits = await getCreditUsage(session.user.id);
     const mcpServers = registry.filter((entry) => entry.kind === "mcp");
     const skills = registry.filter((entry) => entry.kind === "skill");
 
@@ -128,13 +130,45 @@ export default async function Settings({
                 </form>
             </section>
 
-            {/* TEMPORARY: BYO OpenRouter key until the built-in token system lands */}
+            {/* built-in credits (paid tiers) + BYO OpenRouter key fallback */}
             <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
                 <h2 className={"font-mono text-xl"}>Models</h2>
                 <p className={"font-mono text-sm text-gray-400"}>
-                    workflows use your OpenRouter key to run models — temporary
-                    until Saturn tokens land
+                    {credits.allowance > 0
+                        ? "workflows run on your built-in model credits; your OpenRouter key is used as fallback when credits run out"
+                        : "add an OpenRouter key to run models, or upgrade for built-in credits"}
                 </p>
+
+                {credits.allowance > 0 && (
+                    <div className={"flex flex-col gap-2 border border-foreground/15 p-4"}>
+                        <div className={"flex items-baseline justify-between font-mono text-sm"}>
+                            <span>
+                                {Math.min(credits.used, credits.allowance).toLocaleString(
+                                    "en-US",
+                                )}
+                                {" / "}
+                                {credits.allowance.toLocaleString("en-US")} credits used
+                            </span>
+                            {credits.periodEnd && (
+                                <span className={"text-xs text-gray-400"}>
+                                    resets{" "}
+                                    {credits.periodEnd.toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "numeric",
+                                    })}
+                                </span>
+                            )}
+                        </div>
+                        <div className={"h-1 w-full bg-foreground/15"}>
+                            <div
+                                className={"h-full bg-foreground"}
+                                style={{
+                                    width: `${Math.min((credits.used / credits.allowance) * 100, 100)}%`,
+                                }}
+                            />
+                        </div>
+                    </div>
+                )}
 
                 <form action={saveOpenrouterKey} className={"flex flex-col gap-3"}>
                     <label className={"flex flex-col gap-1"}>

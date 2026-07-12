@@ -24,7 +24,7 @@ const FEATURES = [
     },
     {
         name: "models",
-        desc: "300+ models through OpenRouter. Bring your own key today.",
+        desc: "300+ models through OpenRouter. Built-in credits on paid plans, or bring your own key.",
     },
 ] as const;
 

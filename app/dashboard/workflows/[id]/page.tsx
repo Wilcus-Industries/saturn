@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { hasOpenrouterKey, listOpenrouterModels } from "@/lib/openrouter.server";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
+import { getActivation, isPaidPlan } from "@/lib/subscription";
 import type { WorkflowRow } from "@/lib/workflow";
 import Designer from "./designer";
 
@@ -31,12 +32,15 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     const row = rows[0] as WorkflowRow;
 
     // user-registered mcp servers/skills join the static catalog as nodes
-    const [userCatalog, keyed] = await Promise.all([
+    const [userCatalog, keyed, level] = await Promise.all([
         getUserRegistry(session.user.id).then(buildUserCatalog),
         hasOpenrouterKey(session.user.id),
+        getActivation(requestHeaders),
     ]);
-    // null = no key (toolbox hints at settings); [] = key set but fetch failed
-    const openrouterModels = keyed ? await listOpenrouterModels() : null;
+    // models list unlocks with built-in credits (paid tier) or a BYOK key.
+    // null = neither (toolbox hints at settings); [] = unlocked but fetch failed
+    const openrouterModels =
+        keyed || (level !== null && isPaidPlan(level)) ? await listOpenrouterModels() : null;
 
     return <Designer workflow={row} userCatalog={userCatalog} openrouterModels={openrouterModels} />;
 }

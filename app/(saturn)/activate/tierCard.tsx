@@ -5,7 +5,7 @@ import HackerText from "./hackerText";
 const TIERS = {
     free: {
         title: "Saturn Free",
-        price: "BYOK",
+        price: "$0/mo",
         accent: "",
         hover: "hover:bg-foreground hover:text-background",
         features: [
@@ -24,7 +24,7 @@ const TIERS = {
             "20 workflows",
             "10 MCP server connections",
             "Schedules down to every 5 minutes",
-            "Built-in model credits (coming soon)",
+            "15,000 model credits/mo",
         ],
     },
     max: {
@@ -36,6 +36,7 @@ const TIERS = {
             "100 workflows",
             "50 MCP server connections",
             "Schedules down to every minute",
+            "60,000 model credits/mo",
             "Priority access to everything (and new features)",
         ],
     },

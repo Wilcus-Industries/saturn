@@ -14,6 +14,7 @@ import {
     describeImage,
     runWorkflow,
 } from "@/lib/interpreter";
+import { getCreditUsage, platformKey, recordUsage } from "@/lib/credits.server";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { buildUserCatalog, canCallTool } from "@/lib/registry";
@@ -82,10 +83,13 @@ export async function executeMcpTool(
 
 // one LLM turn of an agent node's loop: resolve grants against the user's
 // registry, inject skill instructions by id (never caller-supplied text),
-// call OpenRouter with the user's key. Errors return as values.
+// call OpenRouter — on the platform key while built-in credits remain
+// (debited to the model_usage ledger), else the user's own key. Errors
+// return as values.
 export async function executeAgentTurn(
     userId: string,
     req: CallAgentRequest,
+    source: "designer" | "cron" | "manual",
 ): Promise<AgentModelResult> {
     if (typeof req.model !== "string" || !MODEL_ID.test(req.model)) {
         return { error: "invalid model id" };
@@ -127,17 +131,38 @@ export async function executeAgentTurn(
         if (!row) return { error: "skill not found" };
         system += `\n\n## Skill: ${row.name}\n${row.description}`;
     }
-    const apiKey = await getOpenrouterKey(userId);
-    if (!apiKey) return { error: "no OpenRouter key — add one in settings" };
+    // key selection: platform key while credits remain, else BYOK fallback.
+    // The check-then-call-then-record sequence can overshoot the allowance by
+    // ~one in-flight turn (bounded by max_tokens) — see lib/credits.server.ts.
+    const credits = await getCreditUsage(userId);
+    let apiKey: string | null = null;
+    let platformBilled = false;
+    if (credits.allowance > 0 && credits.used < credits.allowance && platformKey()) {
+        apiKey = platformKey();
+        platformBilled = true;
+    } else {
+        apiKey = await getOpenrouterKey(userId);
+    }
+    if (!apiKey) {
+        return {
+            error:
+                credits.allowance > 0
+                    ? "out of model credits until your billing period resets — add an OpenRouter key in settings to keep running"
+                    : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
+        };
+    }
 
     try {
-        const { content, toolCalls, images } = await chatComplete(apiKey, {
+        const { content, toolCalls, images, usage } = await chatComplete(apiKey, {
             model: req.model,
             system,
             messages: req.messages,
             tools: specs,
             outputImage: req.outputImage === true,
         });
+        if (platformBilled && usage) {
+            await recordUsage(userId, { model: req.model, ...usage, source });
+        }
         // the image rides its own field so the content slice never touches
         // the data URL; oversized images are dropped (interpreter falls back
         // to text with a warning)
@@ -301,7 +326,7 @@ export async function executeWorkflowRun(
                 emit,
                 callMcp: (entryId, toolName, input) =>
                     executeMcpTool(wf.user_id, entryId, toolName, input),
-                callAgent: (req) => executeAgentTurn(wf.user_id, req),
+                callAgent: (req) => executeAgentTurn(wf.user_id, req, opts.trigger),
                 signal: controller.signal,
             });
         } catch (err) {

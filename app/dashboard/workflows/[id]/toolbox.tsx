@@ -116,7 +116,7 @@ export default function Toolbox({
 }: {
     graph: WorkflowGraph;
     userCatalog: CatalogEntry[];
-    // null = no OpenRouter key saved; [] = key set but the list fetch failed
+    // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
     onSpawnStart: SpawnStart;
 }) {
@@ -228,7 +228,7 @@ export default function Toolbox({
                             )}
                             {openrouterModels === null && (
                                 <p className={"text-[10px] text-gray-400"}>
-                                    add an OpenRouter key in settings to list models
+                                    upgrade or add an OpenRouter key in settings to list models
                                 </p>
                             )}
                             {openrouterModels !== null && openrouterModels.length === 0 && (

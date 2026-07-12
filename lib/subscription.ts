@@ -26,13 +26,15 @@ export const baseUrl = process.env.BETTER_AUTH_URL as string;
 // in server actions (createWorkflow, saveMcpServer); tierCard.tsx copy must
 // stay in sync with these numbers. cronFloorMinutes is the tightest cron
 // schedule a tier may run (free hourly, pro every 5 min, max every minute).
+// modelCredits is the built-in model allowance per billing period
+// (1,000 credits = $1 of model cost; spent via lib/credits.server.ts).
 export const PLAN_LIMITS = {
-    free: { workflows: 3, mcpServers: 1, cronFloorMinutes: 60 },
-    pro: { workflows: 20, mcpServers: 10, cronFloorMinutes: 5 },
-    max: { workflows: 100, mcpServers: 50, cronFloorMinutes: 1 },
+    free: { workflows: 3, mcpServers: 1, cronFloorMinutes: 60, modelCredits: 0 },
+    pro: { workflows: 20, mcpServers: 10, cronFloorMinutes: 5, modelCredits: 15_000 },
+    max: { workflows: 100, mcpServers: 50, cronFloorMinutes: 1, modelCredits: 60_000 },
 } as const satisfies Record<
     ActivationLevel,
-    { workflows: number; mcpServers: number; cronFloorMinutes: number }
+    { workflows: number; mcpServers: number; cronFloorMinutes: number; modelCredits: number }
 >;
 
 // not-yet-activated users get free limits

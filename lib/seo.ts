@@ -8,7 +8,7 @@ export const SITE_TITLE = "Saturn: Agentic automations, anywhere and anytime";
 export const SITE_DESCRIPTION =
     "Saturn is an open-source, node-based designer for agentic automations. " +
     "Drag agents, MCP tools, skills, and cron triggers onto a canvas, wire them " +
-    "together, and run them on a schedule with 300+ models via OpenRouter or your own keys.";
+    "together, and run them on a schedule with 300+ models on built-in credits or your own keys.";
 export const GITHUB_URL = "https://github.com/Wilcus-Industries/saturn";
 export const ORG_NAME = "Wilcus Industries";
 

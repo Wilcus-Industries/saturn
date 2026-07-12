@@ -87,7 +87,7 @@ export default function Designer({
 }: {
     workflow: WorkflowRow;
     userCatalog: CatalogEntry[];
-    // null = no OpenRouter key saved; [] = key set but the list fetch failed
+    // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
 }) {
     const [history, dispatch] = useReducer(graphReducer, workflow.graph, initHistory);

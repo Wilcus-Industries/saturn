@@ -105,5 +105,5 @@ export async function callAgentModel(req: CallAgentRequest): Promise<AgentModelR
         return { error: "transcript too large" };
     }
 
-    return executeAgentTurn(session.user.id, req);
+    return executeAgentTurn(session.user.id, req, "designer");
 }

@@ -1,6 +1,7 @@
-// Server-side access to the user's OpenRouter key. TEMPORARY: this is a
-// stopgap so workflows can reach models until the built-in token system
-// lands. The key is write-only — never return it to the client.
+// Server-side access to the user's OpenRouter key — the BYOK fallback used
+// when a user has no built-in credits (free tier / allowance exhausted; see
+// lib/credits.server.ts). The key is write-only — never return it to the
+// client.
 import { db } from "@/lib/db";
 
 export async function getOpenrouterKey(userId: string): Promise<string | null> {

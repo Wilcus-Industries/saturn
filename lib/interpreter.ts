@@ -3,9 +3,9 @@
 // unsaved edits included) and server-side (the cron runner). Side effects
 // happen only through the injected RunHooks: MCP nodes execute for real via
 // callMcp (tokens never reach the browser); agent nodes drive their LLM
-// loops here, one callAgent invocation per turn (the OpenRouter key stays
-// server-side too); standalone skill nodes have no runtime yet and are
-// skipped.
+// loops here, one callAgent invocation per turn (API keys and credit
+// accounting stay server-side too); standalone skill nodes have no runtime
+// yet and are skipped.
 import {
     type AgentMessage,
     type AgentModelResult,

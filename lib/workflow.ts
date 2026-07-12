@@ -164,8 +164,9 @@ export const CATALOG: CatalogEntry[] = [
     },
 
     // saturn — LLM agent blocks, executed by the test-run interpreter via the
-    // callAgentModel server action (BYO OpenRouter key). "tools"/"skills"
-    // config values are JSON string arrays written by the grant picker.
+    // callAgentModel server action (built-in credits, BYOK fallback).
+    // "tools"/"skills" config values are JSON string arrays written by the
+    // grant picker.
     {
         key: "agent", category: "saturn", label: "agent",
         inputs: [flowIn, v("prompt"), v("model")],

@@ -51,11 +51,31 @@ create index if not exists registry_entry_user_id_idx on registry_entry (user_id
 -- added after initial rollout; keeps existing tables in sync with the create above
 alter table registry_entry add column if not exists oauth jsonb not null default '{}';
 
--- per-user secrets (settings → models). TEMPORARY: openrouter_key is a
--- stopgap until the built-in token system lands. Write-only, never sent
--- to the client.
+-- per-user secrets (settings → models). openrouter_key is the BYOK fallback
+-- used when a user has no built-in credits (free tier / allowance exhausted).
+-- Write-only, never sent to the client.
 create table if not exists user_secret (
     user_id        text primary key references "user"(id) on delete cascade,
     openrouter_key text not null default '',
     updated_at     timestamptz not null default now()
 );
+
+-- built-in model credits usage ledger (source of truth — no balance column,
+-- no reset job). One row per platform-billed LLM turn; the current
+-- billing-period sum vs the tier allowance decides whether the platform key
+-- may be used (lib/credits.server.ts). credits = ceil(cost_usd * 1000)
+-- computed at insert (1,000 credits = $1); cost_microdollars keeps the raw
+-- OpenRouter usage.cost * 1e6 for audit.
+create table if not exists model_usage (
+    id                uuid primary key default gen_random_uuid(),
+    user_id           text not null references "user"(id) on delete cascade,
+    model             text not null,
+    credits           integer not null check (credits >= 0),
+    cost_microdollars bigint not null default 0,
+    prompt_tokens     integer not null default 0,
+    completion_tokens integer not null default 0,
+    source            text not null check (source in ('designer', 'cron', 'manual')),
+    created_at        timestamptz not null default now()
+);
+create index if not exists model_usage_user_created_idx
+    on model_usage (user_id, created_at desc);

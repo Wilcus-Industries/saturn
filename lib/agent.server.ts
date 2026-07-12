@@ -97,7 +97,15 @@ export async function chatComplete(
         tools: AgentToolSpec[];
         outputImage?: boolean;
     },
-): Promise<{ content: string; toolCalls: AgentToolCall[]; images: string[] }> {
+): Promise<{
+    content: string;
+    toolCalls: AgentToolCall[];
+    images: string[];
+    // present when OpenRouter returned usage accounting; costUsd is the
+    // amount charged to the key. Server-side only — never crosses to the
+    // browser (AgentModelResult in lib/agent.ts stays usage-free).
+    usage?: { costUsd: number; promptTokens: number; completionTokens: number };
+}> {
     const { defs, byWireName, wireNameOf } = buildToolDefs(req.tools);
 
     const wire: WireMessage[] = [{ role: "system", content: req.system }];
@@ -140,6 +148,7 @@ export async function chatComplete(
             model: req.model,
             messages: wire,
             max_tokens: MAX_COMPLETION_TOKENS,
+            usage: { include: true }, // per-call cost for the credits ledger
             ...(defs.length ? { tools: defs } : {}),
             ...(req.outputImage ? { modalities: ["image", "text"] } : {}),
         }),
@@ -186,5 +195,20 @@ export async function chatComplete(
             });
         }
     }
-    return { content, toolCalls, images };
+    // usage accounting (requested via usage: {include: true}); parsed
+    // defensively — a missing/odd usage object just means no ledger record
+    const rawUsage = record(record(body)?.usage);
+    const usage =
+        typeof rawUsage?.cost === "number"
+            ? {
+                  costUsd: rawUsage.cost,
+                  promptTokens:
+                      typeof rawUsage.prompt_tokens === "number" ? rawUsage.prompt_tokens : 0,
+                  completionTokens:
+                      typeof rawUsage.completion_tokens === "number"
+                          ? rawUsage.completion_tokens
+                          : 0,
+              }
+            : undefined;
+    return { content, toolCalls, images, ...(usage ? { usage } : {}) };
 }

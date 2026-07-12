@@ -41,6 +41,7 @@ export const metadata: Metadata = {
         "node-based editor",
         "cron automation",
         "OpenRouter",
+        "model credits",
         "open source",
         "LLM workflows",
     ],
