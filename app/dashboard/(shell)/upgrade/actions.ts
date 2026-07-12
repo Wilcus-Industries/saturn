@@ -71,5 +71,7 @@ export async function downgradeToFree() {
         body: { returnUrl: `${baseUrl}/dashboard/settings` },
         headers: requestHeaders,
     });
+    // guard like the sibling actions — redirect(undefined) would throw obscurely
+    if (!url) throw new Error("Stripe portal session could not be created");
     redirect(url);
 }

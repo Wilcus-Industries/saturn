@@ -3,10 +3,93 @@
 // metadata → dynamic client registration → PKCE authorization code).
 // Server-only: tokens and client secrets never leave this layer.
 import { createHash, randomBytes } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
 import type { McpToolParam, McpToolParamType } from "@/lib/workflow";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const TIMEOUT_MS = 15_000;
+
+// ------------------------------------------------------------------ SSRF guard
+// The MCP server_url and every OAuth metadata endpoint the flow then follows
+// (authorization_servers, registration/token endpoints from server-returned
+// JSON) are attacker-influenceable, so no request from this layer may reach a
+// private/loopback/link-local/reserved address — e.g. cloud metadata at
+// 169.254.169.254, RFC1918, or localhost. Every fetch site calls
+// assertPublicHttpsUrl first; saveMcpServer uses the sync shape check.
+const BLOCKED = new BlockList();
+// IPv4 special-use / private ranges (RFC 5735 / 6598 / 1918)
+for (const [net, prefix] of [
+    ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
+    ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24],
+    ["192.88.99.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["198.51.100.0", 24],
+    ["203.0.113.0", 24], ["224.0.0.0", 4], ["240.0.0.0", 4],
+] as const) {
+    BLOCKED.addSubnet(net, prefix, "ipv4");
+}
+// IPv6 special-use ranges
+BLOCKED.addAddress("::", "ipv6"); // unspecified
+BLOCKED.addAddress("::1", "ipv6"); // loopback
+for (const [net, prefix] of [
+    ["::ffff:0:0", 96], // IPv4-mapped
+    ["64:ff9b::", 96], // NAT64
+    ["100::", 64], // discard-only
+    ["fc00::", 7], // unique-local
+    ["fe80::", 10], // link-local
+    ["ff00::", 8], // multicast
+    ["2001:db8::", 32], // documentation
+] as const) {
+    BLOCKED.addSubnet(net, prefix, "ipv6");
+}
+
+function ipBlocked(ip: string): boolean {
+    const fam = isIP(ip);
+    if (fam === 0) return true; // unparseable → refuse
+    return BLOCKED.check(ip, fam === 4 ? "ipv4" : "ipv6");
+}
+
+// bracketed IPv6 hostnames arrive from URL.hostname as "[::1]"
+const bareHost = (host: string): string =>
+    host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+
+// synchronous shape guard: https-only, reject literal private/loopback IPs and
+// localhost/.local without touching DNS — safe to call at save time
+export function assertHttpsUrlShape(raw: string): URL {
+    let url: URL;
+    try {
+        url = new URL(raw);
+    } catch {
+        throw new Error("Invalid server URL");
+    }
+    if (url.protocol !== "https:") throw new Error("Server URL must be https");
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
+        throw new Error("Server URL must be a public host");
+    }
+    const bare = bareHost(host);
+    if (isIP(bare) !== 0 && ipBlocked(bare)) {
+        throw new Error("Server URL must be a public host");
+    }
+    return url;
+}
+
+// full egress guard: shape check + DNS resolution; every resolved address must
+// be public. Blunts DNS-rebinding by re-checking at call time (a public IP that
+// later rebinds to private between this lookup and the fetch is residual).
+export async function assertPublicHttpsUrl(raw: string): Promise<void> {
+    const url = assertHttpsUrlShape(raw);
+    const bare = bareHost(url.hostname.toLowerCase());
+    if (isIP(bare) !== 0) return; // literal IP already validated above
+    let addrs: { address: string }[];
+    try {
+        addrs = await lookup(bare, { all: true });
+    } catch {
+        throw new Error("Could not resolve server host");
+    }
+    if (addrs.length === 0 || addrs.some((a) => ipBlocked(a.address))) {
+        throw new Error("Server host resolves to a non-public address");
+    }
+}
 
 export type DiscoveredTool = {
     name: string;
@@ -138,6 +221,7 @@ async function rpc(
 ): Promise<{ result: unknown; sessionId?: string }> {
     const id = opts.id ?? 1;
     const isNotification = method.startsWith("notifications/");
+    await assertPublicHttpsUrl(serverUrl); // SSRF guard
     const res = await fetch(serverUrl, {
         method: "POST",
         headers: {
@@ -271,6 +355,7 @@ export async function callTool(
 
 async function fetchJson(url: string): Promise<Record<string, unknown> | null> {
     try {
+        await assertPublicHttpsUrl(url); // SSRF guard (blocked → null, no egress)
         const res = await fetch(url, {
             headers: { accept: "application/json" },
             signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -393,6 +478,7 @@ export async function registerClient(
     redirectUri: string,
     scope?: string,
 ): Promise<{ clientId: string; clientSecret?: string }> {
+    await assertPublicHttpsUrl(registrationEndpoint); // SSRF guard
     const res = await fetch(registrationEndpoint, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
@@ -446,6 +532,7 @@ async function tokenRequest(
     params: Record<string, string>,
     clientSecret?: string,
 ): Promise<TokenSet> {
+    await assertPublicHttpsUrl(tokenUrl); // SSRF guard
     const res = await fetch(tokenUrl, {
         method: "POST",
         headers: {

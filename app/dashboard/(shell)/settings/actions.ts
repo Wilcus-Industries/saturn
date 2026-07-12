@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import {
+    assertHttpsUrlShape,
     type AuthServerMeta,
     buildAuthorizeUrl,
     discoverTools,
@@ -102,13 +103,9 @@ export async function saveMcpServer(formData: FormData): Promise<ActionResult> {
         const name = requiredName(formData);
 
         const serverUrl = String(formData.get("serverUrl") ?? "").trim();
-        let url: URL;
-        try {
-            url = new URL(serverUrl);
-        } catch {
-            throw new Error("Invalid server URL");
-        }
-        if (url.protocol !== "https:") throw new Error("Server URL must be https");
+        // https-only + reject literal private/loopback/localhost hosts (sync, no
+        // DNS). The full resolve-time SSRF guard runs at every fetch in lib/mcp.
+        assertHttpsUrlShape(serverUrl);
 
         const authToken = String(formData.get("authToken") ?? "").trim();
         if (authToken.length > MAX_TOKEN) throw new Error("Token too long");

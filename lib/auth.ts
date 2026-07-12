@@ -53,9 +53,20 @@ export const auth = betterAuth({
         // server at /mcp (dynamic client registration + PKCE); unauthenticated
         // authorize requests bounce through /onboard and resume after Google
         // sign-in sets the session cookie.
+        //
+        // consentPage + the /api/auth/mcp/authorize proxy (proxy.ts) force an
+        // explicit consent screen for every authorize request. Without it the
+        // plugin issues a code silently to any (anonymously registered) client,
+        // which a Lax session cookie turns into cross-account token theft.
         mcp({
             loginPage: "/onboard",
             resource: `${process.env.BETTER_AUTH_URL}/mcp`,
+            oidcConfig: {
+                // loginPage is required by the OIDCOptions type; the plugin
+                // overwrites it with the top-level loginPage at runtime
+                loginPage: "/onboard",
+                consentPage: "/oauth/consent",
+            },
         }),
         nextCookies(),
     ], // nextCookies must stay last

@@ -295,6 +295,12 @@ export async function runWorkflow(
                         return "";
                     }
                     for (const seg of path ? path.split(".") : []) {
+                        // read-only walk, but never traverse prototype chain keys
+                        // (defensive; keeps client + cron paths identical)
+                        if (seg === "__proto__" || seg === "constructor" || seg === "prototype") {
+                            warn(`extract: path "${path}" not found — using ""`);
+                            return "";
+                        }
                         if (Array.isArray(cur)) {
                             cur = cur[Number(seg)];
                         } else if (typeof cur === "object" && cur !== null) {

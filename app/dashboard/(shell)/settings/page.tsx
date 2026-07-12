@@ -269,7 +269,10 @@ export default async function Settings({
                                     className={`border-t border-red-500/30 px-3 py-2 font-mono
                                         text-xs text-red-400`}
                                 >
-                                    {mcpError.slice(0, 300)}
+                                    {/* reflected from the URL (gated on the viewer's own entry
+                                        id); collapse whitespace + hard-cap so it can't be shaped
+                                        into fake multi-line UI */}
+                                    {mcpError.replace(/\s+/g, " ").trim().slice(0, 200)}
                                 </p>
                             )}
                         </div>
