@@ -4,7 +4,7 @@
 // checks live here — graph/agent-derived input is untrusted even
 // server-side; shape validation of browser-built transcripts stays in the
 // actions.
-import type { AgentModelResult, McpCallResult } from "@/lib/agent";
+import { type AgentModelResult, MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS, type McpCallResult } from "@/lib/agent";
 import { type AgentToolSpec, chatComplete } from "@/lib/agent.server";
 import { cronMatches } from "@/lib/cron";
 import { db } from "@/lib/db";
@@ -28,8 +28,6 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const MAX_TOOL_INPUT = 4096;
 const MODEL_ID = /^[\w.:/-]{1,128}$/;
 const MAX_SYSTEM_PROMPT = 8192;
-const MAX_GRANTED_TOOLS = 20;
-const MAX_GRANTED_SKILLS = 10;
 const MAX_MODEL_CONTENT = 20_000; // model output returned per turn
 const MAX_IMAGE_DATA_URL = 4_194_304; // generated-image data URL (~3 MB decoded)
 

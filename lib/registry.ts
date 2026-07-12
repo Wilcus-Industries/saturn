@@ -87,20 +87,20 @@ export function mergeTools(
     });
 }
 
-// legacy generic mcp node / skill node — two port rows, at most one config
-// row. The mcp shape survives only so graphs saved before per-tool nodes
-// keep resolving; buildUserCatalog flags it legacy (hidden from the toolbox).
+// legacy generic mcp node / skill grant chip. The mcp shape survives only so
+// graphs saved before per-tool nodes keep resolving; buildUserCatalog flags
+// it legacy (hidden from the toolbox). The skill node is a non-executable
+// grant chip: a single "skill" value output wired into an agent's "skills"
+// port grants the skill (resolved statically from the node type).
 export function toCatalogEntry(row: RegistryEntryRow): CatalogEntry {
-    const base = {
-        key: userNodeKey(row.kind, row.id),
-        label: row.name,
-        inputs: [flowIn, valuePort("input")],
-        outputs: [flowOut, valuePort("result")],
-    };
+    const key = userNodeKey(row.kind, row.id);
     if (row.kind === "mcp") {
         return {
-            ...base,
+            key,
+            label: row.name,
             category: "mcp",
+            inputs: [flowIn, valuePort("input")],
+            outputs: [flowOut, valuePort("result")],
             config: [{
                 id: "tool",
                 label: "tool",
@@ -110,47 +110,33 @@ export function toCatalogEntry(row: RegistryEntryRow): CatalogEntry {
             logoDomain: faviconDomain(row.server_url),
         };
     }
-    return { ...base, category: "skill", emoji: row.emoji };
+    return {
+        key,
+        label: row.name,
+        category: "skill",
+        inputs: [],
+        outputs: [valuePort("skill")],
+        emoji: row.emoji,
+    };
 }
 
-// "p_" prefix keeps param port/config ids clear of reserved ids
-// (in/out/result, the legacy tool select) — schema keys can be anything
-export const paramPortId = (name: string) => `p_${name}`;
-
-// one designer node per enabled tool. Discovered tools carry params: each
-// becomes a value input port plus a config text field used as a literal
-// fallback when the port isn't connected (the if.b/b_literal pattern).
-// Manually added tools have no params → a raw-JSON "input" port instead.
+// one non-executable grant chip per enabled tool: a single "tool" value
+// output wired into an agent's "tools" port grants it. Grants resolve
+// statically from the node type ("mcp:<uuid>:<toolName>"), never by evaluating
+// the chip — so the tool's params live only on the registry rows (server-side
+// buildToolDefs), not on the node.
 function toToolEntry(row: RegistryEntryRow, tool: McpTool): CatalogEntry | null {
     const key = `mcp:${row.id}:${tool.name}`;
     if (key.length > MAX_NODE_TYPE_LENGTH) return null; // overlong discovered name — skip
-    const base = {
+    return {
         key,
-        category: "mcp" as const,
+        category: "mcp",
         label: tool.name,
         group: row.name,
         logoDomain: faviconDomain(row.server_url),
         toolName: tool.name,
-        outputs: [flowOut, valuePort("result")],
-    };
-    if (!tool.params) return { ...base, inputs: [flowIn, valuePort("input")] };
-    return {
-        ...base,
-        params: tool.params,
-        inputs: [
-            flowIn,
-            ...tool.params.map((p) =>
-                valuePort(paramPortId(p.name), p.required ? `${p.name}*` : p.name),
-            ),
-        ],
-        config: tool.params.map((p) => ({
-            id: paramPortId(p.name),
-            label: p.name,
-            overriddenBy: paramPortId(p.name),
-            ...(p.type === "boolean"
-                ? { input: "select" as const, options: ["true", "false"] }
-                : { input: p.type === "number" ? ("number" as const) : ("text" as const) }),
-        })),
+        inputs: [],
+        outputs: [valuePort("tool")],
     };
 }
 

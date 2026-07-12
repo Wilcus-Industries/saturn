@@ -31,8 +31,9 @@ const CLICK_SLOP = 4; // px of movement below which a gesture counts as a click
 // pointerdown (never re-measured per move)
 // options for a dynamicOptions select (the agent's "output" field): the
 // resolved model's output modalities. Mirrors the interpreter's model
-// resolution — a connected model node wins over the config literal. Unknown
-// slug / empty model / non-model upstream → "" (nothing selectable).
+// resolution — a connected model node wins; config.model is a legacy-only
+// fallback. Unknown slug / empty model / non-model upstream → "" (nothing
+// selectable).
 function agentOutputOptions(
     graph: WorkflowGraph,
     node: WorkflowNode,

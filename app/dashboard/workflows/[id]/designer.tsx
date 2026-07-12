@@ -20,7 +20,6 @@ import {
     type WorkflowGraph,
     type WorkflowRow,
 } from "@/lib/workflow";
-import { parseGrantIds } from "@/lib/agent";
 import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
@@ -29,11 +28,12 @@ import Canvas, { type CanvasHandle } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
 import EntryIcon from "./entryIcon";
-import GrantPicker from "./grantPicker";
 import {
+    chipSize,
     EVENT_H,
     GRID,
     HEADER_H,
+    isChipEntry,
     isEventEntry,
     isModelEntry,
     MODEL_D,
@@ -206,7 +206,7 @@ export default function Designer({
             // same grid as the canvas dots and drag-end snapping
             const snap = (value: number) => Math.round(value / GRID) * GRID;
             // rectangles drop with the header centered under the pointer;
-            // model circles / event blocks center the block itself
+            // model circles / event blocks / grant chips center the block itself
             const entry = byKey[spawnKey];
             const w = entry ? nodeWidth(entry) : NODE_W;
             const dy =
@@ -214,7 +214,9 @@ export default function Designer({
                     ? MODEL_D / 2
                     : entry && isEventEntry(entry)
                       ? EVENT_H / 2
-                      : HEADER_H / 2;
+                      : entry && isChipEntry(entry)
+                        ? chipSize(entry) / 2
+                        : HEADER_H / 2;
             dispatch({
                 type: "addNode",
                 node: {
@@ -294,17 +296,6 @@ export default function Designer({
         before: WorkflowGraph;
     } | null>(null);
 
-    // agent grant picker (tools/skills multi-select); same one-undo-step
-    // snapshot pattern as the path picker
-    const [grantPicker, setGrantPicker] = useState<{
-        nodeId: string;
-        fieldId: string;
-        kind: "tools" | "skills";
-        anchor: { x: number; y: number };
-        selected: string[];
-        before: WorkflowGraph;
-    } | null>(null);
-
     // stable (reads through refs) so the memoized Node isn't re-rendered by
     // a new handler identity every designer render
     const openPicker: OpenPickerHandler = useCallback((anchor, nodeId, fieldId) => {
@@ -314,19 +305,6 @@ export default function Designer({
         // port naming
         const node = graph.nodes.find((n) => n.id === nodeId);
         const entry = node ? byKeyRef.current[node.type] : undefined;
-        // grant fields route to the tools/skills picker instead
-        const field = entry?.config?.find((f) => f.id === fieldId);
-        if (field?.picker === "tools" || field?.picker === "skills") {
-            setGrantPicker({
-                nodeId,
-                fieldId,
-                kind: field.picker,
-                anchor,
-                selected: parseGrantIds(node?.config[fieldId] ?? ""),
-                before: graph,
-            });
-            return;
-        }
         const valueInput = entry?.inputs.find((p) => p.kind === "value");
         const edge = valueInput
             ? graph.edges.find(
@@ -359,18 +337,6 @@ export default function Designer({
         dispatch({ type: "setConfig", nodeId: picker.nodeId, field: picker.fieldId, value: path });
         dispatch({ type: "commitConfig", before: picker.before });
         setPicker(null);
-    };
-
-    const handleGrantApply = (ids: string[]) => {
-        if (!grantPicker) return;
-        dispatch({
-            type: "setConfig",
-            nodeId: grantPicker.nodeId,
-            field: grantPicker.fieldId,
-            value: JSON.stringify(ids),
-        });
-        dispatch({ type: "commitConfig", before: grantPicker.before });
-        setGrantPicker(null);
     };
 
     const [saving, startSaving] = useTransition();
@@ -505,7 +471,6 @@ export default function Designer({
                 dispatch({ type: "commitDrag", before });
             } else if (e.key === "Escape") {
                 if (picker) setPicker(null);
-                else if (grantPicker) setGrantPicker(null);
                 else if (pendingDrag) {
                     setPendingDrag(null);
                     setPendingPoint(null);
@@ -572,17 +537,6 @@ export default function Designer({
                     sample={picker.sample}
                     onPick={handlePick}
                     onClose={() => setPicker(null)}
-                />
-            )}
-
-            {grantPicker && (
-                <GrantPicker
-                    anchor={grantPicker.anchor}
-                    kind={grantPicker.kind}
-                    userCatalog={userCatalog}
-                    selected={grantPicker.selected}
-                    onApply={handleGrantApply}
-                    onClose={() => setGrantPicker(null)}
                 />
             )}
 

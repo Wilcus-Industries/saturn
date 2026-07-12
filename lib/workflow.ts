@@ -1,7 +1,7 @@
 // Workflow designer data model: node catalog, graph types, validation and
 // connection rules. Shared by the designer canvas and server actions.
 
-import { parseSkillGrants, parseToolGrants } from "@/lib/agent";
+import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
 import {
     INTEGRATION_PREFIX,
     INTEGRATIONS,
@@ -33,9 +33,18 @@ export type McpToolParam = {
     description?: string;
 };
 
-// multi: value input that accepts many incoming edges (await "values" —
-// everywhere else value inputs stay single-edge via edgesToReplace)
-export type PortSpec = { id: string; label: string; kind: PortKind; multi?: boolean };
+// multi: value input that accepts many incoming edges (await "values", agent
+// "tools"/"skills") — every other value input stays single-edge via
+// edgesToReplace.
+// accepts: value input that takes grant-chip outputs only ("tool" = an mcp
+// per-tool node, "skill" = a skill node); ordinary value edges are rejected.
+export type PortSpec = {
+    id: string;
+    label: string;
+    kind: PortKind;
+    multi?: boolean;
+    accepts?: "tool" | "skill";
+};
 
 export type ConfigField = {
     id: string;
@@ -43,10 +52,8 @@ export type ConfigField = {
     input: "text" | "number" | "select" | "textarea";
     options?: readonly string[];
     placeholder?: string;
-    // json-path: config row gets a pick-from-sample button; tools/skills:
-    // the row is a button opening the grant picker (value is a JSON string
-    // array — Record<string,string> config still holds)
-    picker?: "json-path" | "tools" | "skills";
+    // json-path: config row gets a pick-from-sample button (extract.path)
+    picker?: "json-path";
     // input port that takes precedence when connected — the designer dims
     // the field so a literal never looks live while an edge overrides it
     overriddenBy?: string;
@@ -69,7 +76,6 @@ export type CatalogEntry = {
     group?: string; // toolbox subheader (per-tool mcp node: the server name)
     legacy?: boolean; // resolvable for saved graphs but hidden from the toolbox
     toolName?: string; // per-tool mcp node: the tool this node calls
-    params?: McpToolParam[]; // per-tool mcp node: arg spec (absent = raw-JSON input port)
 };
 
 export type WorkflowNode = {
@@ -196,21 +202,23 @@ export const CATALOG: CatalogEntry[] = [
     },
 
     // saturn — LLM agent blocks, executed by the test-run interpreter via the
-    // callAgentModel server action (built-in credits, BYOK fallback).
-    // "tools"/"skills" config values are JSON string arrays written by the
-    // grant picker.
+    // callAgentModel server action (built-in credits, BYOK fallback). Grants
+    // are edges from chip nodes into the multi "tools" (mcp per-tool nodes)
+    // and "skills" (skill nodes) ports. config.system/config.model are legacy
+    // fallbacks honored by the interpreter when the port has no edge, but not
+    // surfaced in the designer UI.
     {
         key: "agent", category: "saturn", label: "agent",
-        inputs: [flowIn, v("prompt"), v("model")],
+        inputs: [
+            flowIn, v("prompt"), v("system"), v("model"),
+            { ...v("tools"), multi: true, accepts: "tool" },
+            { ...v("skills"), multi: true, accepts: "skill" },
+        ],
         // "result" carries the final text, or the generated image as a
         // data:image/… URL when output=image
         outputs: [flowOut, v("result")],
         config: [
-            { id: "system", label: "system", input: "textarea" },
-            { id: "model", label: "model", input: "text", placeholder: "openai/gpt-4o-mini", overriddenBy: "model" },
             { id: "output", label: "output", input: "select", options: ["text", "image"], dynamicOptions: true },
-            { id: "tools", label: "tools", input: "text", picker: "tools" },
-            { id: "skills", label: "skills", input: "text", picker: "skills" },
         ],
     },
 
@@ -370,6 +378,16 @@ function findPort(
     return entry[dir].find((p) => p.id === ref.portId) ?? null;
 }
 
+// grant-chip nodes: a per-tool mcp node ("tool") or a skill node ("skill"),
+// whose value output feeds only an agent's matching accepts port. The legacy
+// generic mcp:<uuid> entry carries no toolName, so it's an ordinary node.
+function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | null {
+    if (!entry || entry.missing) return null;
+    if (entry.category === "mcp" && typeof entry.toolName === "string") return "tool";
+    if (entry.category === "skill") return "skill";
+    return null;
+}
+
 // hard connection rules only — the value-input single-edge limit is handled
 // by the canvas replacing the old edge via edgesToReplace
 export function canConnect(
@@ -385,6 +403,16 @@ export function canConnect(
     if (!fromPort || !toPort) return false;
     if (fromPort.kind !== toPort.kind) return false;
 
+    // grant-chip gating: an accepts port takes only its chip kind, and a chip
+    // output feeds only an accepts port (never an ordinary value input)
+    const srcNode = graph.nodes.find((n) => n.id === from.nodeId);
+    const srcChip = chipKind(srcNode ? byKey[srcNode.type] : undefined);
+    if (toPort.accepts) {
+        if (srcChip !== toPort.accepts) return false;
+    } else if (srcChip) {
+        return false;
+    }
+
     const duplicate = graph.edges.some(
         (e) =>
             e.from.nodeId === from.nodeId && e.from.portId === from.portId &&
@@ -397,10 +425,10 @@ export function canConnect(
 // (the MCP server's validate_graph/save_graph tools). Assumes the graph
 // already passed isWorkflowGraph. Errors are states the canvas can't produce
 // (bad ports, kind mismatches, duplicate edges, fan-in on single-edge value
-// inputs); warnings are legal-but-probably-unintended states (unknown node
-// types resolve as inert "(deleted)" placeholders, missing start node means
-// the workflow never runs, agent grants that don't match a registry entry
-// are rejected at execution time).
+// inputs, a chip wired into a mismatched accepts port); warnings are
+// legal-but-probably-unintended states (unknown node types resolve as inert
+// "(deleted)" placeholders, missing start node means the workflow never runs,
+// a chip output wired into an ordinary value input grants nothing).
 export function validateGraphStrict(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
@@ -462,20 +490,37 @@ export function validateGraphStrict(
             errors.push(`${label}: port kinds don't match (${fromPort.kind} output → ${toPort.kind} input, edge kind "${edge.kind}")`);
             continue;
         }
+        // grant-chip gating (mirrors canConnect): an accepts port takes only
+        // its chip kind (hard error); a chip output wired into an ordinary
+        // value input grants nothing (warning — old graphs may carry these)
+        const srcChip = chipKind(fromEntry);
+        if (toPort.accepts) {
+            if (srcChip !== toPort.accepts) {
+                errors.push(
+                    `${label}: input "${toPort.id}" accepts only ${toPort.accepts} grant-chip nodes`,
+                );
+                continue;
+            }
+        } else if (srcChip) {
+            warnings.push(
+                `${label}: ${srcChip} nodes only grant agents — this edge into an ordinary value input is ignored`,
+            );
+        }
         if (toPort.kind === "value" && !toPort.multi) {
             const inKey = `${edge.to.nodeId}.${edge.to.portId}`;
             const count = (valueInDegree.get(inKey) ?? 0) + 1;
             valueInDegree.set(inKey, count);
             if (count === 2) {
                 errors.push(
-                    `input ${inKey} has multiple incoming value edges — value inputs accept one edge (only await.values is multi)`,
+                    `input ${inKey} has multiple incoming value edges — this value input accepts one edge`,
                 );
             }
         }
     }
 
-    // agent grant references — execution rejects grants that don't resolve
-    // against the owner's registry, so flag them at authoring time
+    // grants are edges from chip nodes into the tools/skills ports; unresolvable
+    // sources are already covered by the unknown-type warning. config.model
+    // stays a fallback when the model port is unwired.
     for (const node of graph.nodes) {
         if (node.type !== "agent") continue;
         const hasModelEdge = graph.edges.some(
@@ -484,19 +529,17 @@ export function validateGraphStrict(
         if (!hasModelEdge && !(node.config.model ?? "").trim()) {
             warnings.push(`agent "${node.id}" has no model — the run will fail`);
         }
-        for (const ref of parseToolGrants(node.config.tools ?? "")) {
-            if (!byKey[`mcp:${ref.entryId}:${ref.toolName}`]) {
-                warnings.push(
-                    `agent "${node.id}" grants tool "${ref.entryId}:${ref.toolName}" which doesn't match any registered MCP tool node`,
-                );
-            }
+        const grantCount = (portId: string) =>
+            graph.edges.filter((e) => e.to.nodeId === node.id && e.to.portId === portId).length;
+        if (grantCount("tools") > MAX_GRANTED_TOOLS) {
+            warnings.push(
+                `agent "${node.id}" has more than ${MAX_GRANTED_TOOLS} tool grants — extras are dropped at run time`,
+            );
         }
-        for (const skillId of parseSkillGrants(node.config.skills ?? "")) {
-            if (!byKey[`skill:${skillId}`]) {
-                warnings.push(
-                    `agent "${node.id}" grants skill "${skillId}" which doesn't match any registered skill`,
-                );
-            }
+        if (grantCount("skills") > MAX_GRANTED_SKILLS) {
+            warnings.push(
+                `agent "${node.id}" has more than ${MAX_GRANTED_SKILLS} skill grants — extras are dropped at run time`,
+            );
         }
     }
 

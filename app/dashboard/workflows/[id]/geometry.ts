@@ -22,6 +22,13 @@ export const EVENT_W = 56; // w-14
 export const EVENT_H = 48; // h-12
 export const EVENT_LABEL_H = 24; // h-6 name strip below (like MODEL_LABEL_H)
 
+// mcp/skill grant chips render as a rounded square (60px mcp / 48px skill)
+// with a label strip (h-6) below, like the model circle; node.tsx's chip
+// branch must match these exactly too
+export const MCP_CHIP = 60;
+export const SKILL_CHIP = 48;
+export const CHIP_LABEL_H = 24; // h-6 label strip below (like MODEL_LABEL_H)
+
 // literal value nodes (string/number): a bare header-less box holding the
 // editable value with one output port on the right edge. The string box
 // grows with its content — width from the longest line, height from the line
@@ -42,6 +49,21 @@ export const isModelEntry = (entry: CatalogEntry): boolean =>
 export const isEventEntry = (entry: CatalogEntry): boolean =>
     entry.category === "events" && !entry.missing;
 
+// per-tool mcp nodes (key "mcp:<uuid>:<toolName>") and skill nodes render as
+// grant chips. The legacy generic mcp:<uuid> entry has no toolName → rect
+// branch; missing placeholders keep the dashed rect (like isModelEntry)
+export const isMcpChipEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "mcp" && !entry.missing && typeof entry.toolName === "string";
+
+export const isSkillChipEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "skill" && !entry.missing;
+
+export const isChipEntry = (entry: CatalogEntry): boolean =>
+    isMcpChipEntry(entry) || isSkillChipEntry(entry);
+
+export const chipSize = (entry: CatalogEntry): number =>
+    isMcpChipEntry(entry) ? MCP_CHIP : SKILL_CHIP;
+
 // missingEntry placeholders map to category "logic", so these are only ever
 // true for the real model / event / literal catalog entries
 export const isLiteralEntry = (entry: CatalogEntry): boolean =>
@@ -58,16 +80,14 @@ function literalMetrics(value: string): { width: number; height: number } {
     return { width, height: lines.length * LIT_LINE_H + LIT_PAD_Y };
 }
 
-export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number =>
-    isModelEntry(entry)
-        ? MODEL_D
-        : isEventEntry(entry)
-          ? EVENT_W
-          : isLiteralEntry(entry)
-            ? entry.key === "number"
-                ? NUM_W
-                : literalMetrics(node?.config.value ?? "").width
-            : NODE_W;
+export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number => {
+    if (isModelEntry(entry)) return MODEL_D;
+    if (isEventEntry(entry)) return EVENT_W;
+    if (isChipEntry(entry)) return chipSize(entry);
+    if (isLiteralEntry(entry))
+        return entry.key === "number" ? NUM_W : literalMetrics(node?.config.value ?? "").width;
+    return NODE_W;
+};
 
 export const configRowHeight = (field: ConfigField): number =>
     field.input === "textarea" ? TEXTAREA_ROW_H : CONFIG_ROW_H;
@@ -79,6 +99,7 @@ const portRows = (entry: CatalogEntry): number =>
 export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
     if (isModelEntry(entry)) return MODEL_D + MODEL_LABEL_H;
     if (isEventEntry(entry)) return EVENT_H + EVENT_LABEL_H;
+    if (isChipEntry(entry)) return chipSize(entry) + CHIP_LABEL_H;
     if (isLiteralEntry(entry))
         return entry.key === "number"
             ? LIT_LINE_H + LIT_PAD_Y
@@ -114,6 +135,16 @@ export function portPosition(
         return entry.inputs.some((p) => p.id === portId)
             ? { x: node.x, y }
             : { x: node.x + EVENT_W, y };
+    }
+
+    // grant chip: only a single value output, on the right-edge midline (no
+    // inputs — the left branch is defensive, like the model circle)
+    if (isChipEntry(entry)) {
+        const size = chipSize(entry);
+        const y = node.y + size / 2;
+        return entry.inputs.some((p) => p.id === portId)
+            ? { x: node.x, y }
+            : { x: node.x + size, y };
     }
 
     // literal box: only a value output, on the right edge at the box midline

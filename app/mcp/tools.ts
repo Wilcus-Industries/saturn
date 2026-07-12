@@ -4,6 +4,7 @@
 // same cores as the designer actions and the cron runner; tool-execution
 // failures return as isError results, never as JSON-RPC errors.
 
+import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
 import { describeCron, isValidCron } from "@/lib/cron";
 import { db } from "@/lib/db";
 import type { ConsoleLine } from "@/lib/interpreter";
@@ -24,7 +25,6 @@ import {
 
 const MAX_RUN_TIMEOUT_S = 240;
 const MAX_LIST_RUNS = 50;
-const MAX_PARAM_DESCRIPTION = 200;
 
 // ---------------------------------------------------------------------------
 // definitions
@@ -168,12 +168,11 @@ Config fields hold literal strings. A field with "overriddenBy" is ignored when 
 ## Built-in nodes
 - start: entry point. if: routes flow to true/false comparing a vs b (config.operator; b from port or b_literal). loop: runs body once per item of the JSON array on items, then done; item carries the current element. and/or/not: boolean values. string: emits config.value verbatim on its "out" value output. number: emits config.value coerced to a number ("out"). print: logs config.message or the value port. extract: pulls a field out of a JSON value via config.path, dot-separated with numeric array indices ("data.results.0.price"). await: join barrier for parallel branches — continues when ALL incoming flow edges arrive; results = JSON array of its values edges (multi port), in edge order. model: emits config.model (an OpenRouter model id) on its "model" value output — connect it to an agent's model input.
 
-## MCP tool nodes (keys "mcp:<entryId>:<toolName>")
-One node per registered tool. Each parameter is a value input port named "p_<param>" with a same-named config field as literal fallback. Tools without discovered params (and legacy "mcp:<entryId>" nodes) take one raw-JSON-object string on the "input" port. Output "result" carries the tool result text.
+## MCP tool nodes (keys "mcp:<entryId>:<toolName>") and skill nodes (keys "skill:<uuid>")
+Grant chips — one MCP tool node per registered tool, one skill node per skill. They have NO flow ports and are NOT executable on their own: an MCP tool node has a single value output "tool", a skill node a single value output "skill". That output connects nowhere except an agent's matching grant port ("tool" → agent "tools", "skill" → agent "skills"); wiring it there grants the agent that tool/skill. Chips are never run or evaluated as values — the grant resolves statically from the node type. MCP tools therefore run only through agents.
 
 ## Agent node (type "agent")
-LLM loop over built-in model credits (paid plans) with the user's OpenRouter key as fallback. Inputs: flow in, prompt (value), model (value — overrides config.model when connected, usually from a "model" node). Config: system (textarea), model (OpenRouter id like "openai/gpt-4o-mini"), output ("text" | "image" — image works only on models whose OpenRouter output modalities include image; any other value runs as text; image mode ignores tool grants and returns the first generated image), tools, skills. tools/skills are JSON string arrays as strings: tools entries are "<entryId>:<toolName>" (the mcp node key without the "mcp:" prefix), skills entries are skill entry uuids. The agent may call granted tools itself. Output "result" carries the final text, or a data:image/… URL when output=image.
-Skill nodes are not executable on their own — skills only run as agent grants.
+LLM loop over built-in model credits (paid plans) with the user's OpenRouter key as fallback. Inputs: flow in; prompt (value); system (value, usually from a "string" node — config.system is a legacy fallback honored only when the port is unconnected); model (value, usually from a "model" node — config.model is a legacy fallback likewise); tools (value, multi — accepts ONLY MCP tool node outputs); skills (value, multi — accepts ONLY skill node outputs). Config: only output ("text" | "image" — image works only on models whose OpenRouter output modalities include image; any other value runs as text; image mode ignores tool grants and returns the first generated image). Grants come from the connected chips: at most ${MAX_GRANTED_TOOLS} tools and ${MAX_GRANTED_SKILLS} skills, resolved from each chip's node type; the agent may call granted tools itself during its loop. Output "result" carries the final text, or a data:image/… URL when output=image.
 
 ## Integration nodes (keys "integration:<provider>")
 Outbound message nodes, e.g. "integration:discord-webhook". Inputs: flow in, message (value — overrides config.message when connected). Output: flow out. config.webhookUrl must be a real https://discord.com/api/webhooks/… URL (validated server-side at run time); Discord truncates messages to 2000 chars.
@@ -396,6 +395,7 @@ export async function dispatchTool(
                         id: p.id,
                         kind: p.kind,
                         ...(p.multi ? { multi: true } : {}),
+                        ...(p.accepts ? { accepts: p.accepts } : {}),
                     })),
                     outputs: e.outputs.map((p) => ({ id: p.id, kind: p.kind })),
                     ...(e.config?.length
@@ -406,18 +406,6 @@ export async function dispatchTool(
                                   ...(f.options ? { options: f.options } : {}),
                                   ...(f.picker ? { picker: f.picker } : {}),
                                   ...(f.overriddenBy ? { overriddenBy: f.overriddenBy } : {}),
-                              })),
-                          }
-                        : {}),
-                    ...(e.params?.length
-                        ? {
-                              params: e.params.map((p) => ({
-                                  name: p.name,
-                                  type: p.type,
-                                  required: p.required,
-                                  ...(p.description
-                                      ? { description: p.description.slice(0, MAX_PARAM_DESCRIPTION) }
-                                      : {}),
                               })),
                           }
                         : {}),

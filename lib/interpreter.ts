@@ -1,30 +1,27 @@
 // Workflow graph interpreter. Walks the in-memory graph and emits console
 // lines as it goes; runs both in the browser (the designer's ▶ test run,
 // unsaved edits included) and server-side (the cron runner). Side effects
-// happen only through the injected RunHooks: MCP nodes execute for real via
-// callMcp (tokens never reach the browser); agent nodes drive their LLM
+// happen only through the injected RunHooks: agent nodes drive their LLM
 // loops here, one callAgent invocation per turn (API keys and credit
-// accounting stay server-side too); standalone skill nodes have no runtime
-// yet and are skipped.
+// accounting stay server-side too), calling their granted MCP tools for real
+// via callMcp (tokens never reach the browser). MCP tool and skill nodes are
+// non-executable grant chips — wiring one into an agent's tools/skills port
+// grants it; standalone they are skipped.
 import {
     type AgentMessage,
     type AgentModelResult,
     type AgentToolRef,
     MAX_AGENT_MESSAGES,
     MAX_AGENT_TURNS,
+    MAX_GRANTED_SKILLS,
+    MAX_GRANTED_TOOLS,
     MAX_TOOL_CALLS_PER_TURN,
     type McpCallResult,
-    parseSkillGrants,
-    parseToolGrants,
+    skillIdFromNodeType,
+    toolRefFromNodeType,
 } from "@/lib/agent";
 import { integrationProviderId } from "@/lib/integrations";
-import { paramPortId } from "@/lib/registry";
-import type {
-    CatalogEntry,
-    McpToolParamType,
-    WorkflowGraph,
-    WorkflowNode,
-} from "@/lib/workflow";
+import type { CatalogEntry, WorkflowGraph, WorkflowNode } from "@/lib/workflow";
 
 // kind "image": text is a data:image/… URL — the designer console renders
 // it inline; the cron runner persists a describeImage placeholder instead
@@ -73,10 +70,8 @@ type RunValue = string | number | boolean;
 // total work cap — real flow cycles are caught exactly (per-chain visited
 // set), so this only stops pathological-but-legal graphs (huge nested loops)
 const MAX_STEPS = 10_000;
-// real network calls — keep a test run from hammering an MCP server
-const MAX_MCP_CALLS = 20;
-// agent-initiated MCP calls budget separately so a busy loop can't starve
-// the graph's plain MCP nodes (and vice versa)
+// agent-initiated MCP calls (the only MCP execution path) — keep a busy
+// agent loop from hammering an MCP server
 const MAX_AGENT_MCP_CALLS = 40;
 // integration sends budget separately from MCP calls for the same reason
 const MAX_INTEGRATION_CALLS = 20;
@@ -143,61 +138,15 @@ function toList(items: RunValue): RunValue[] {
     return trimmed.split(",").map((s) => s.trim());
 }
 
-// one tool arg from its string source (port value or config literal) to the
-// JSON type the tool's schema declares
-function coerceParam(
-    raw: string,
-    type: McpToolParamType,
-): { ok: true; value: unknown } | { ok: false } {
-    switch (type) {
-        case "string":
-            return { ok: true, value: raw };
-        case "number": {
-            const n = raw.trim() === "" ? NaN : Number(raw);
-            return Number.isNaN(n) ? { ok: false } : { ok: true, value: n };
-        }
-        case "boolean":
-            return { ok: true, value: truthy(raw) };
-        case "array": {
-            const trimmed = raw.trim();
-            if (trimmed.startsWith("[")) {
-                try {
-                    const parsed: unknown = JSON.parse(trimmed);
-                    if (Array.isArray(parsed)) return { ok: true, value: parsed };
-                } catch {
-                    // fall through to comma-split
-                }
-            }
-            return {
-                ok: true,
-                value: trimmed === "" ? [] : trimmed.split(",").map((s) => s.trim()),
-            };
-        }
-        case "object": {
-            try {
-                const parsed: unknown = JSON.parse(raw);
-                if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-                    return { ok: true, value: parsed };
-                }
-            } catch {
-                // not JSON
-            }
-            return { ok: false };
-        }
-    }
-}
-
 export async function runWorkflow(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
     { emit, callMcp, callIntegration, callAgent, onValue, signal }: RunHooks,
 ): Promise<void> {
     let steps = 0;
-    let mcpCalls = 0;
     let agentMcpCalls = 0;
     let integrationCalls = 0;
     const loopValues = new Map<string, RunValue>(); // loop nodeId → current item
-    const results = new Map<string, string>(); // mcp nodeId → last tool result
     const saturnResults = new Map<string, string>(); // agent/await "nodeId:portId" → output
     const awaitArrivals = new Map<string, number>(); // await nodeId → flow arrivals so far
     let branchFailed = false; // a fan-out branch failed — siblings stop at their next step
@@ -352,15 +301,8 @@ export async function runWorkflow(
                     return stored;
                 }
                 default: {
-                    if (entry?.category === "mcp") {
-                        const result = results.get(node.id);
-                        if (result === undefined) {
-                            warn(`${label(node)}: "result" read before the node ran — using ""`);
-                            return "";
-                        }
-                        return result;
-                    }
-                    if (entry?.category === "skill") return "";
+                    // mcp/skill nodes are grant chips — never evaluated as values
+                    if (entry?.category === "mcp" || entry?.category === "skill") return "";
                     warn(`cannot evaluate output "${portId}" of ${label(node)} — using ""`);
                     return "";
                 }
@@ -594,7 +536,45 @@ export async function runWorkflow(
                 case "agent": {
                     // anything other than "image" (incl. legacy "plan") runs as text
                     const outputImage = node.config.output === "image";
-                    const toolRefs = parseToolGrants(node.config.tools ?? "");
+                    // grants resolve statically from each connected chip node's
+                    // type, never by evaluating it as a value; dedup identical
+                    // refs (multiple chips of the same tool = one grant). NO
+                    // config fallback — legacy config.tools/skills stop applying.
+                    const toolRefs: AgentToolRef[] = [];
+                    const seenTools = new Set<string>();
+                    for (const edge of incomingValueEdges(node.id, "tools")) {
+                        const src = nodeById.get(edge.from.nodeId);
+                        const ref = src ? toolRefFromNodeType(src.type) : null;
+                        if (!ref) {
+                            warn(`agent: tool edge from "${src ? label(src) : edge.from.nodeId}" is not an MCP tool — ignored`);
+                            continue;
+                        }
+                        const dedupKey = `${ref.entryId}:${ref.toolName}`;
+                        if (seenTools.has(dedupKey)) continue;
+                        seenTools.add(dedupKey);
+                        toolRefs.push(ref);
+                    }
+                    if (toolRefs.length > MAX_GRANTED_TOOLS) {
+                        warn(`agent: ${toolRefs.length} tool grants over the cap (${MAX_GRANTED_TOOLS}) — using the first ${MAX_GRANTED_TOOLS}`);
+                        toolRefs.length = MAX_GRANTED_TOOLS;
+                    }
+                    const skillIds: string[] = [];
+                    const seenSkills = new Set<string>();
+                    for (const edge of incomingValueEdges(node.id, "skills")) {
+                        const src = nodeById.get(edge.from.nodeId);
+                        const skillId = src ? skillIdFromNodeType(src.type) : null;
+                        if (!skillId) {
+                            warn(`agent: skill edge from "${src ? label(src) : edge.from.nodeId}" is not a skill — ignored`);
+                            continue;
+                        }
+                        if (seenSkills.has(skillId)) continue;
+                        seenSkills.add(skillId);
+                        skillIds.push(skillId);
+                    }
+                    if (skillIds.length > MAX_GRANTED_SKILLS) {
+                        warn(`agent: ${skillIds.length} skill grants over the cap (${MAX_GRANTED_SKILLS}) — using the first ${MAX_GRANTED_SKILLS}`);
+                        skillIds.length = MAX_GRANTED_SKILLS;
+                    }
                     if (outputImage && toolRefs.length) {
                         warn("agent: image output doesn't support tools — grants ignored for this run");
                     }
@@ -604,13 +584,16 @@ export async function runWorkflow(
                     }
                     const result = await runAgentLoop({
                         prefix: "agent",
-                        system: node.config.system ?? "",
+                        // connected system node wins; config.system is a legacy fallback
+                        system: incomingValueEdge(node.id, "system")
+                            ? fmt(evalInput(node, "system", ctx))
+                            : (node.config.system ?? ""),
                         // connected model node wins over the config literal
                         model: incomingValueEdge(node.id, "model")
                             ? fmt(evalInput(node, "model", ctx)).trim()
                             : (node.config.model ?? "").trim(),
                         toolRefs: outputImage ? [] : toolRefs,
-                        skillIds: parseSkillGrants(node.config.skills ?? ""),
+                        skillIds,
                         userText,
                         outputImage,
                     });
@@ -620,67 +603,7 @@ export async function runWorkflow(
                     break;
                 }
                 default:
-                    if (entry?.category === "mcp") {
-                        // legacy generic node ("mcp:<uuid>") picks its tool from
-                        // config; per-tool nodes ("mcp:<uuid>:<tool>") carry it in
-                        // the entry. entryId is a fixed-offset slice, never a
-                        // split — tool names may contain ":".
-                        const legacy = typeof entry.toolName !== "string";
-                        const toolName = legacy ? node.config.tool : entry.toolName;
-                        if (!toolName) {
-                            warn(`${entry.label}: no tool selected — skipped`);
-                            next = "out";
-                            break;
-                        }
-                        if (++mcpCalls > MAX_MCP_CALLS) {
-                            fail(`MCP call limit (${MAX_MCP_CALLS}) exceeded for one run`);
-                        }
-                        const entryId = legacy ? node.type.slice(4) : node.type.slice(4, 40);
-                        let input: string;
-                        if (entry.params) {
-                            const args: Record<string, unknown> = {};
-                            for (const p of entry.params) {
-                                const portId = paramPortId(p.name);
-                                let raw: string | null = null;
-                                if (incomingValueEdge(node.id, portId)) {
-                                    raw = fmt(evalInput(node, portId, ctx));
-                                } else if ((node.config[portId] ?? "") !== "") {
-                                    raw = node.config[portId];
-                                }
-                                if (raw === null) {
-                                    if (p.required) {
-                                        warn(`${entry.label}: required arg "${p.name}" not set — omitted`);
-                                    }
-                                    continue;
-                                }
-                                const coerced = coerceParam(raw, p.type);
-                                if (!coerced.ok) {
-                                    warn(`${entry.label}: arg "${p.name}" is not a valid ${p.type} — omitted`);
-                                    continue;
-                                }
-                                args[p.name] = coerced.value;
-                            }
-                            input = JSON.stringify(args);
-                        } else {
-                            // no schema (legacy node or manually added tool) —
-                            // raw-JSON escape hatch on the "input" port
-                            input = incomingValueEdge(node.id, "input")
-                                ? fmt(evalInput(node, "input", ctx))
-                                : "";
-                        }
-                        const display = `${entry.group ?? entry.label} · ${toolName}`;
-                        emit({ kind: "info", text: `calling ${display}…` });
-                        const res = await callMcp(entryId, toolName, input);
-                        if ("error" in res) fail(`${display}: ${res.error}`);
-                        const text = "text" in res ? res.text : "";
-                        results.set(node.id, text);
-                        onValue?.(node.id, "result", text);
-                        emit({
-                            kind: "info",
-                            text: truncate(`${display} → ${text || "(empty)"}`),
-                        });
-                        next = "out";
-                    } else if (entry?.category === "integration") {
+                    if (entry?.category === "integration") {
                         if (++integrationCalls > MAX_INTEGRATION_CALLS) {
                             fail(`integration call limit (${MAX_INTEGRATION_CALLS}) exceeded for one run`);
                         }
@@ -700,7 +623,9 @@ export async function runWorkflow(
                             text: truncate(`${entry.label} → ${text || "(empty)"}`),
                         });
                         next = "out";
-                    } else if (entry?.category === "skill") {
+                    } else if (entry?.category === "mcp" || entry?.category === "skill") {
+                        // grant chips: run only as agent grants, never standalone.
+                        // A legacy flow edge out of one still continues the chain.
                         warn(`"${entry.label}" is not executable — skipped`);
                         next = "out";
                     } else {

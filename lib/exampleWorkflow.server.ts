@@ -2,16 +2,26 @@ import { db } from "@/lib/db";
 import type { WorkflowGraph } from "@/lib/workflow";
 
 // Starter graph seeded for every new user: start → agent → print, with a
-// string node feeding the prompt and a model node feeding the model port.
-// Static catalog nodes only — no user-registry dependency.
+// string node feeding the system prompt, another feeding the prompt, and a
+// model node feeding the model port (system/prompt/model stacked left of the
+// agent). Static catalog nodes only — no user-registry dependency.
 const EXAMPLE_GRAPH: WorkflowGraph = {
     nodes: [
-        { id: "start", type: "start", x: 48, y: 120, config: {} },
+        { id: "start", type: "start", x: 48, y: 96, config: {} },
+        {
+            id: "system",
+            type: "string",
+            x: 48,
+            y: 216,
+            config: {
+                value: "You are a poet. Reply with only the haiku, nothing else.",
+            },
+        },
         {
             id: "prompt",
             type: "string",
             x: 48,
-            y: 288,
+            y: 336,
             config: {
                 value: "Write a haiku about the morning sky over Saturn.",
             },
@@ -19,21 +29,18 @@ const EXAMPLE_GRAPH: WorkflowGraph = {
         {
             id: "model",
             type: "model",
-            x: 168,
-            y: 432,
+            x: 48,
+            y: 456,
             config: { model: "openai/gpt-4o-mini", preset: "1" },
         },
         {
             id: "agent",
             type: "agent",
-            x: 312,
-            y: 120,
-            config: {
-                system: "You are a poet. Reply with only the haiku, nothing else.",
-                output: "text",
-            },
+            x: 360,
+            y: 216,
+            config: { output: "text" },
         },
-        { id: "print", type: "print", x: 576, y: 120, config: { message: "" } },
+        { id: "print", type: "print", x: 648, y: 216, config: { message: "" } },
     ],
     edges: [
         { id: "e1", from: { nodeId: "start", portId: "out" }, to: { nodeId: "agent", portId: "in" }, kind: "flow" },
@@ -41,6 +48,7 @@ const EXAMPLE_GRAPH: WorkflowGraph = {
         { id: "e3", from: { nodeId: "model", portId: "model" }, to: { nodeId: "agent", portId: "model" }, kind: "value" },
         { id: "e4", from: { nodeId: "agent", portId: "out" }, to: { nodeId: "print", portId: "in" }, kind: "flow" },
         { id: "e5", from: { nodeId: "agent", portId: "result" }, to: { nodeId: "print", portId: "value" }, kind: "value" },
+        { id: "e6", from: { nodeId: "system", portId: "out" }, to: { nodeId: "agent", portId: "system" }, kind: "value" },
     ],
 };
 

@@ -35,26 +35,25 @@ export const MAX_AGENT_TURNS = 8; // LLM calls per agent loop
 export const MAX_AGENT_MESSAGES = 60; // transcript length cap per model call
 export const MAX_TOOL_CALLS_PER_TURN = 5;
 
-// grant-picker config values are JSON string arrays; "" or junk → []
-export function parseGrantIds(raw: string): string[] {
-    if (!raw) return [];
-    try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter((x): x is string => typeof x === "string");
-    } catch {
-        return [];
-    }
+// grants are now edges from chip nodes into the agent's tools/skills ports —
+// these cap how many an agent may carry (mirrored by the server's request
+// validation in lib/runner.server.ts)
+export const MAX_GRANTED_TOOLS = 20;
+export const MAX_GRANTED_SKILLS = 10;
+
+// grants resolve statically from the source chip node's type, never by
+// evaluating it as a value. Node types are "mcp:<36-char-uuid>:<toolName>"
+// and "skill:<uuid>" — fixed-offset slices, never split: tool names may
+// contain ":". "mcp:" is 4 chars, so the uuid spans [4,40) and ":" sits at
+// index 40; a valid tool name is the non-empty remainder from 41.
+export function toolRefFromNodeType(type: string): AgentToolRef | null {
+    if (!type.startsWith("mcp:") || type[40] !== ":" || type.length <= 41) return null;
+    return { entryId: type.slice(4, 40), toolName: type.slice(41) };
 }
 
-// tool grant ids are "<entryId>:<toolName>" — fixed-offset uuid slice, not a
-// split, because tool names may contain ":"
-export function parseToolGrants(raw: string): AgentToolRef[] {
-    return parseGrantIds(raw)
-        .filter((id) => id.length > 37 && id[36] === ":")
-        .map((id) => ({ entryId: id.slice(0, 36), toolName: id.slice(37) }));
-}
-
-export function parseSkillGrants(raw: string): string[] {
-    return parseGrantIds(raw);
+// "skill:" is 6 chars; a valid skill node type is exactly the prefix + a
+// 36-char uuid remainder
+export function skillIdFromNodeType(type: string): string | null {
+    if (!type.startsWith("skill:") || type.length !== 42) return null;
+    return type.slice(6);
 }

@@ -27,11 +27,14 @@ for (const [net, prefix] of [
 ] as const) {
     BLOCKED.addSubnet(net, prefix, "ipv4");
 }
-// IPv6 special-use ranges
+// IPv6 special-use ranges. ::ffff:0:0/96 (IPv4-mapped) must NOT be listed:
+// BlockList canonicalizes plain IPv4 as mapped-v6 internally, so that subnet
+// would match every IPv4 address and block all IPv4-only hosts. Mapped
+// literals are still safe — BlockList checks them against the v4 rules
+// (dotted and hex forms alike), so ::ffff:127.0.0.1 stays blocked.
 BLOCKED.addAddress("::", "ipv6"); // unspecified
 BLOCKED.addAddress("::1", "ipv6"); // loopback
 for (const [net, prefix] of [
-    ["::ffff:0:0", 96], // IPv4-mapped
     ["64:ff9b::", 96], // NAT64
     ["100::", 64], // discard-only
     ["fc00::", 7], // unique-local

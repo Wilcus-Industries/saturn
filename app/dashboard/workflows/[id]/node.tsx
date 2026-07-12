@@ -16,8 +16,20 @@ import {
     type WorkflowGraph,
     type WorkflowNode,
 } from "@/lib/workflow";
+import McpLogo from "@/app/dashboard/mcpLogo";
 import EntryIcon from "./entryIcon";
-import { GRID, isEventEntry, isLiteralEntry, isModelEntry, nodeHeight, nodeWidth } from "./geometry";
+import {
+    GRID,
+    isEventEntry,
+    isLiteralEntry,
+    isMcpChipEntry,
+    isModelEntry,
+    isSkillChipEntry,
+    MCP_CHIP,
+    nodeHeight,
+    nodeWidth,
+    SKILL_CHIP,
+} from "./geometry";
 import type { GraphAction } from "./graphReducer";
 import ModelLogo from "./modelLogo";
 
@@ -50,17 +62,6 @@ export type OpenPickerHandler = (
 // h-6 name strip = MODEL_LABEL_H 24. Event nodes render as a curved-left block:
 // h-12 w-14 = EVENT_H 48 × EVENT_W 56 plus an h-6 label strip = EVENT_LABEL_H
 // 24. Change sizes only via geometry.ts.
-
-// selection count for a grant-picker field's JSON string array value
-function grantCount(raw: string): number {
-    if (!raw) return 0;
-    try {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed.length : 0;
-    } catch {
-        return 0;
-    }
-}
 
 const DRAG_SLOP = 4; // client px below which a press counts as a click
 
@@ -384,6 +385,62 @@ export default memo(function Node({
         );
     }
 
+    // mcp/skill grant chips render as a rounded square (60px mcp / 48px skill
+    // = MCP_CHIP/SKILL_CHIP, h-6 label strip = CHIP_LABEL_H) with the server
+    // favicon / skill emoji centered and a single value output on the
+    // right-edge midpoint per geometry.ts, mirroring the model circle branch.
+    // Border is the category color as a LITERAL Tailwind class (JIT can't see
+    // computed names) — purple mcp / green skill, matching CATEGORY_STYLES.
+    if (isMcpChipEntry(entry) || isSkillChipEntry(entry)) {
+        const output = entry.outputs[0];
+        const mcp = isMcpChipEntry(entry);
+        const size = mcp ? MCP_CHIP : SKILL_CHIP;
+        const border = mcp ? "border-purple-500" : "border-green-500";
+        return (
+            <div
+                data-node-id={node.id}
+                style={{ left: node.x, top: node.y, width: size }}
+                className={"absolute font-mono text-xs"}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+            >
+                <div
+                    style={{ width: size, height: size }}
+                    className={`relative flex cursor-grab items-center justify-center rounded-xl border-2 bg-background ${border} ${styles.headerBg} ${
+                        selected ? "outline outline-1 outline-foreground" : ""
+                    }`}
+                >
+                    {mcp ? (
+                        <McpLogo domain={entry.logoDomain ?? ""} name={entry.label} size={"fill"} />
+                    ) : (
+                        <span className={"text-2xl leading-none"}>{entry.emoji}</span>
+                    )}
+                    {output && (
+                        <span
+                            className={
+                                "absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/2"
+                            }
+                        >
+                            {port(output, "out", "")}
+                        </span>
+                    )}
+                </div>
+                <div className={"flex h-6 items-center justify-center"}>
+                    <span
+                        className={
+                            "line-clamp-2 max-w-full break-words text-center text-[10px] leading-3"
+                        }
+                        title={mcp ? `${entry.group} · ${entry.label}` : entry.label}
+                    >
+                        {entry.label}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
     // literal value nodes (string/number): a bare header-less box holding the
     // editable value, one value output on the right edge (geometry.ts
     // isLiteralEntry). The string box grows with its content. The whole box
@@ -552,7 +609,6 @@ export default memo(function Node({
                         field: field.id,
                         value: e.target.value,
                     });
-                const grant = field.picker === "tools" || field.picker === "skills";
                 return (
                 <label
                     key={field.id}
@@ -563,23 +619,7 @@ export default memo(function Node({
                     <span className={"w-14 shrink-0 truncate text-[10px] text-gray-400"}>
                         {field.label}
                     </span>
-                    {grant ? (
-                        // the JSON array value isn't hand-editable — the row
-                        // is a button opening the grant picker
-                        <button
-                            type={"button"}
-                            disabled={!onOpenPicker}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                                const r = e.currentTarget.getBoundingClientRect();
-                                onOpenPicker?.({ x: r.left, y: r.bottom + 4 }, node.id, field.id);
-                            }}
-                            className={`${shared.className} text-left text-gray-400 hover:text-foreground`}
-                        >
-                            {grantCount(node.config[field.id] ?? "") || "none"}
-                            {" selected"}
-                        </button>
-                    ) : field.input === "select" ? (
+                    {field.input === "select" ? (
                         (() => {
                             const options = field.dynamicOptions
                                 ? outputOptions

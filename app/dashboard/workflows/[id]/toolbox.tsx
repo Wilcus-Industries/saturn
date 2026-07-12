@@ -179,6 +179,11 @@ export default function Toolbox({
                                     {q ? "no matches" : "none yet — add in settings"}
                                 </p>
                             )}
+                            {groups.size > 0 && (
+                                <p className={"text-[10px] text-gray-400"}>
+                                    connect a tool to an agent&apos;s tools port
+                                </p>
+                            )}
                             {[...groups].map(([server, entries]) => (
                                 <div key={server} className={"flex flex-col gap-1"}>
                                     <div
@@ -263,7 +268,7 @@ export default function Toolbox({
                         </h2>
                         {category === "skill" && entries.length > 0 && (
                             <p className={"text-[10px] text-gray-400"}>
-                                not runnable in test runs yet
+                                connect to an agent&apos;s skills port to grant
                             </p>
                         )}
                         {entries.length === 0 && (
