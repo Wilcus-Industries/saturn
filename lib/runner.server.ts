@@ -30,6 +30,7 @@ const MODEL_ID = /^[\w.:/-]{1,128}$/;
 const MAX_SYSTEM_PROMPT = 8192;
 const MAX_MODEL_CONTENT = 20_000; // model output returned per turn
 const MAX_IMAGE_DATA_URL = 4_194_304; // generated-image data URL (~3 MB decoded)
+const REASONING_MODES = new Set(["off", "low", "medium", "high"]);
 
 // executes one MCP tool call for a workflow run. Returns errors as values
 // (not throws) so consoles and run logs can render them.
@@ -151,6 +152,20 @@ export async function executeAgentTurn(
         };
     }
 
+    // allowlist the reasoning mode; drop it for image output (single-turn,
+    // reasoning not applicable) and map to OpenRouter's reasoning param
+    let reasoningMode =
+        typeof req.reasoning === "string" && REASONING_MODES.has(req.reasoning)
+            ? req.reasoning
+            : undefined;
+    if (req.outputImage === true) reasoningMode = undefined;
+    const reasoning =
+        reasoningMode === "off"
+            ? ({ enabled: false } as const)
+            : reasoningMode
+              ? { effort: reasoningMode }
+              : undefined;
+
     try {
         const { content, toolCalls, images, usage } = await chatComplete(apiKey, {
             model: req.model,
@@ -158,6 +173,7 @@ export async function executeAgentTurn(
             messages: req.messages,
             tools: specs,
             outputImage: req.outputImage === true,
+            reasoning,
         });
         if (platformBilled && usage) {
             await recordUsage(userId, { model: req.model, ...usage, source });

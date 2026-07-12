@@ -96,6 +96,7 @@ export async function chatComplete(
         messages: AgentMessage[];
         tools: AgentToolSpec[];
         outputImage?: boolean;
+        reasoning?: { enabled: false } | { effort: string };
     },
 ): Promise<{
     content: string;
@@ -151,6 +152,7 @@ export async function chatComplete(
             usage: { include: true }, // per-call cost for the credits ledger
             ...(defs.length ? { tools: defs } : {}),
             ...(req.outputImage ? { modalities: ["image", "text"] } : {}),
+            ...(req.reasoning ? { reasoning: req.reasoning } : {}),
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
     });

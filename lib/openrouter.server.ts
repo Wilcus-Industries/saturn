@@ -22,8 +22,15 @@ export async function hasOpenrouterKey(userId: string): Promise<boolean> {
 }
 
 // outputModalities is architecture.output_modalities filtered to the values
-// the designer understands — it drives the agent node's output select
-export type OpenrouterModel = { id: string; name: string; outputModalities: string[] };
+// the designer understands — it drives the agent node's output select.
+// supportsReasoning is derived from supported_parameters and drives the
+// agent node's reasoning select.
+export type OpenrouterModel = {
+    id: string;
+    name: string;
+    outputModalities: string[];
+    supportsReasoning: boolean;
+};
 
 // public endpoint, deliberately unauthenticated: the response is the same
 // for every user, so the shared Next data cache (1h revalidate) is safe.
@@ -41,6 +48,7 @@ export async function listOpenrouterModels(): Promise<OpenrouterModel[]> {
                       id?: unknown;
                       name?: unknown;
                       architecture?: { output_modalities?: unknown };
+                      supported_parameters?: unknown;
                   }[])
                 : [];
         return data
@@ -55,6 +63,9 @@ export async function listOpenrouterModels(): Promise<OpenrouterModel[]> {
                           (x): x is string => x === "text" || x === "image",
                       )
                     : [],
+                supportsReasoning:
+                    Array.isArray(m.supported_parameters) &&
+                    m.supported_parameters.includes("reasoning"),
             }))
             .sort((a, b) => a.name.localeCompare(b.name));
     } catch {

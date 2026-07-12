@@ -34,6 +34,9 @@ export type CallAgentRequest = {
     tools: AgentToolRef[];
     messages: AgentMessage[];
     outputImage?: boolean;
+    // raw reasoning mode from the agent node ("off"|"low"|"medium"|"high");
+    // the server allowlists it and maps it to OpenRouter's reasoning param
+    reasoning?: string;
 };
 
 // "[image · image/png · 154 KB]" — log-safe stand-in for a data URL
@@ -323,6 +326,7 @@ export async function runWorkflow(
         skillIds: string[];
         userText: string;
         outputImage: boolean;
+        reasoning?: string;
     }): Promise<string> {
         if (!opts.model) fail(`${opts.prefix}: no model set`);
         const messages: AgentMessage[] = [
@@ -339,6 +343,7 @@ export async function runWorkflow(
                 tools: opts.toolRefs,
                 messages,
                 outputImage: opts.outputImage,
+                reasoning: opts.reasoning,
             });
             if ("error" in res) fail(`${opts.prefix}: ${res.error}`);
             content = "content" in res ? res.content : "";
@@ -596,6 +601,7 @@ export async function runWorkflow(
                         skillIds,
                         userText,
                         outputImage,
+                        reasoning: node.config.reasoning,
                     });
                     saturnResults.set(`${node.id}:result`, result);
                     onValue?.(node.id, "result", result);

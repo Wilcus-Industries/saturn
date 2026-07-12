@@ -119,6 +119,11 @@ export default function Designer({
         () => new Map((openrouterModels ?? []).map((m) => [m.id, m.outputModalities])),
         [openrouterModels],
     );
+    // slug → reasoning capability, driving the agent node's reasoning select
+    const modelReasoning = useMemo(
+        () => new Map((openrouterModels ?? []).map((m) => [m.id, m.supportsReasoning])),
+        [openrouterModels],
+    );
 
     // selection lives outside history so undo/redo doesn't thrash it
     const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -516,6 +521,7 @@ export default function Designer({
                     dispatch={dispatch}
                     pending={pendingEdge}
                     modelModalities={modelModalities}
+                    modelReasoning={modelReasoning}
                     onPortPointerDown={startEdgeDrag}
                     onOpenPicker={openPicker}
                 />

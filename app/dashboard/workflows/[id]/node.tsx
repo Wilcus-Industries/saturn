@@ -90,6 +90,7 @@ export default memo(function Node({
     zoom,
     overriddenIds,
     outputOptions,
+    reasoningOptions,
     pendingKind,
     onPortPointerDown,
     onOpenPicker,
@@ -109,6 +110,9 @@ export default memo(function Node({
     // field) — "" means the resolved model's modalities are unknown, so
     // nothing is selectable. Same canvas-computed-string pattern as above.
     outputOptions: string;
+    // comma-joined options for the agent's reasoning dynamicOptions select —
+    // "" means the resolved model's reasoning capability is unknown (locked).
+    reasoningOptions: string;
     // kind of the in-flight edge drag (null when none, or when it started on
     // this node) — matching ports scale up as a drop affordance
     pendingKind: PortKind | null;
@@ -621,9 +625,11 @@ export default memo(function Node({
                     </span>
                     {field.input === "select" ? (
                         (() => {
+                            const dynStr =
+                                field.id === "reasoning" ? reasoningOptions : outputOptions;
                             const options = field.dynamicOptions
-                                ? outputOptions
-                                    ? outputOptions.split(",")
+                                ? dynStr
+                                    ? dynStr.split(",")
                                     : []
                                 : (field.options ?? []);
                             const locked = field.dynamicOptions && options.length === 0;
@@ -633,7 +639,9 @@ export default memo(function Node({
                                     disabled={shared.disabled || locked}
                                     title={
                                         locked
-                                            ? "output modalities unknown — set a model from the OpenRouter list"
+                                            ? field.id === "reasoning"
+                                                ? "model has no reasoning setting — pick a reasoning-capable model"
+                                                : "output modalities unknown — set a model from the OpenRouter list"
                                             : shared.title
                                     }
                                     onChange={onChange}
