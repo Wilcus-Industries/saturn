@@ -1,8 +1,8 @@
 import PageTransition from "./pageTransition";
 import GetStartedLink from "./getStartedLink";
 import DemoWindow from "./demoWindow";
-import FeaturesGraph from "./featureNode";
-import TierCard from "./activate/tierCard";
+import FeatureGrid from "./featureNode";
+import Reveal from "./reveal";
 
 // one line of saturn's rings seen edge-on — the section divider
 function RingDivider() {
@@ -34,7 +34,7 @@ export default function Home() {
                 </p>
                 <p className={"w-full max-w-100 font-sans"}>
                     Fully open-source on <a href={"https://github.com/Wilcus-Industries/saturn"}
-                       className={"text-blue-400"}>
+                       className={"underline underline-offset-4 hover:text-gray-400 transition-colors"}>
                         GitHub
                     </a>.
                 </p>
@@ -64,73 +64,48 @@ export default function Home() {
                 :: learn_more
                 <span aria-hidden className={"learn-more-nudge"}>▾</span>
             </a>
-            {/* landing body below the saturn sky — rendered in the designer's
-                own node language so the marketing reads as the product */}
-            <section id={"learn-more"} className={"min-h-dvh bg-background relative"}>
-                <div className={"max-w-5xl px-8 py-24 flex flex-col gap-20"}>
-
-                    <div className={"flex flex-col gap-3"}>
-                        <Eyebrow>:: demo</Eyebrow>
-                        <h2 className={"text-3xl sm:text-4xl font-mono"}>Wire agents into workflows.</h2>
-                        <p className={"w-full max-w-100 font-sans"}>
-                            Drop agents, tools, and logic onto a canvas and wire them together.
-                            Saturn runs the graph on your schedule.
-                        </p>
-                        <DemoWindow />
-                    </div>
-
-                    <RingDivider />
+            {/* landing body below the saturn sky — one full-viewport monochrome
+                section rendered in the designer's own node language so the
+                marketing reads as the product */}
+            <section id={"learn-more"} className={"relative flex min-h-dvh flex-col bg-background"}>
+                <RingDivider />
+                <div className={"mx-auto flex w-full max-w-6xl flex-1 flex-col justify-between gap-8 px-8 py-6 sm:py-8"}>
 
                     <div className={"flex flex-col gap-3"}>
                         <Eyebrow>:: features</Eyebrow>
                         <h2 className={"text-3xl sm:text-4xl font-mono"}>Every piece is a node.</h2>
-                        <p className={"w-full max-w-100 font-sans"}>
-                            Everything below sits in the designer&apos;s toolbox — grab it and wire it in.
+                        <p className={"max-w-xl font-sans text-foreground/70"}>
+                            Agents, tools, and schedules — drop them on a canvas, wire them
+                            together, and Saturn runs the graph on your schedule.
                         </p>
-                        <FeaturesGraph />
                     </div>
 
-                    <RingDivider />
+                    <Reveal className={"grid items-center gap-8 lg:grid-cols-2"}>
+                        <FeatureGrid />
+                        <DemoWindow />
+                    </Reveal>
 
-                    <div className={"flex flex-col gap-3"}>
-                        <Eyebrow>:: activate</Eyebrow>
-                        <h2 className={"text-3xl sm:text-4xl font-mono"}>Pick your orbit.</h2>
-                        <p className={"w-full max-w-100 font-sans"}>
-                            Tiers set platform limits — workflows, MCP servers, schedule frequency.
-                            Models are yours either way.
-                        </p>
-                        <div className={"mt-6 flex flex-wrap gap-6"}>
-                            <div className={"flex-1 min-w-72"}><TierCard tier={"free"} interactive={false} /></div>
-                            <div className={"flex-1 min-w-72"}><TierCard tier={"pro"} interactive={false} /></div>
-                            <div className={"flex-1 min-w-72"}><TierCard tier={"max"} interactive={false} /></div>
+                    <div className={"flex flex-col gap-6"}>
+                        <div className={"flex flex-wrap items-center gap-3"}>
+                            <GetStartedLink className={`text-background bg-foreground w-30
+                                                        p-1 flex items-center justify-center
+                                                        hover:bg-background hover:text-foreground
+                                                        border-foreground border duration-200
+                                                        transition-colors`}>
+                                <span>Get Started</span>
+                            </GetStartedLink>
+                            <GetStartedLink
+                                    className={`w-30 p-1 flex items-center justify-center
+                                                bg-background border-foreground border
+                                                hover:bg-foreground hover:text-background
+                                                transition-colors duration-200 cursor-pointer`}>
+                                <span>Sign In</span>
+                            </GetStartedLink>
+                            <span className={"font-mono text-xs text-gray-400"}>free tier · no card</span>
                         </div>
-
-                        <span aria-hidden className={"ml-4 h-10 border-l border-dashed border-gray-400/60"} />
-                        <div className={"relative border border-foreground bg-background p-4 pl-5 w-full max-w-100"}>
-                            <span aria-hidden className={"absolute left-0 inset-y-0 w-1 bg-foreground"} />
-                            <span aria-hidden className={"absolute -left-1 top-4 size-2 rounded-full border border-background bg-foreground"} />
-                            <h3 className={"font-mono text-sm"}>:: get_started</h3>
-                            <p className={"font-sans text-sm text-foreground/80 mt-1.5"}>Free tier. No card.</p>
-                            <div className={"mt-3 flex flex-row gap-2"}>
-                                <GetStartedLink className={`text-background bg-foreground w-30
-                                                            p-1 flex items-center justify-center
-                                                            hover:bg-background hover:text-foreground
-                                                            border-foreground border duration-200
-                                                            transition-colors`}>
-                                    <span>Get Started</span>
-                                </GetStartedLink>
-                                <GetStartedLink
-                                        className={`w-30 p-1 flex items-center justify-center
-                                                    bg-background border-foreground border
-                                                    hover:bg-foreground hover:text-background
-                                                    transition-colors duration-200 cursor-pointer`}>
-                                    <span>Sign In</span>
-                                </GetStartedLink>
-                            </div>
-                        </div>
-
-                        <div className={"mt-12 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-gray-400"}>
-                            <a href={"https://github.com/Wilcus-Industries/saturn"} className={"text-blue-400"}>
+                        <div className={"flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-gray-400"}>
+                            <a href={"https://github.com/Wilcus-Industries/saturn"}
+                               className={"underline underline-offset-4 hover:text-foreground transition-colors"}>
                                 GitHub
                             </a>
                             <span aria-hidden>·</span>

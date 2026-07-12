@@ -95,32 +95,22 @@ body {
   }
 }
 
-/* landing features graph — the dashed spine draws top-to-bottom and node
-   cards rise in once <Reveal> tags the block `landing-revealed` on first
-   scroll into view. Declared after the Tailwind import so these transition
-   lists win over utility transitions on the same elements. */
-.landing-spine {
-  transform: scaleY(0);
-  transform-origin: top;
-  transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
-}
+/* landing features grid — node cards rise in once <Reveal> tags the block
+   `landing-revealed` on first scroll into view. Declared after the Tailwind
+   import so these transition lists win over utility transitions on the same
+   elements. */
 .landing-reveal-item {
   opacity: 0;
   translate: 0 8px;
   transition: opacity 500ms ease-out, translate 500ms ease-out;
-}
-.landing-revealed .landing-spine {
-  transform: none;
 }
 .landing-revealed .landing-reveal-item {
   opacity: 1;
   translate: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .landing-spine,
   .landing-reveal-item {
     transition: none;
-    transform: none;
     opacity: 1;
     translate: none;
   }
