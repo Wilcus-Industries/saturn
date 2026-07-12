@@ -5,6 +5,7 @@ import McpLogo from "@/app/dashboard/mcpLogo";
 import { auth } from "@/lib/auth";
 import ActionButton from "@/app/dashboard/actionButton";
 import ConnectAgent from "@/app/dashboard/connectAgent";
+import CreditsBar from "@/app/dashboard/creditsBar";
 import { faviconDomain } from "@/lib/registry";
 import { getCreditUsage } from "@/lib/credits.server";
 import { hasOpenrouterKey } from "@/lib/openrouter.server";
@@ -141,37 +142,11 @@ export default async function Settings({
                 </p>
 
                 {credits.allowance > 0 && (
-                    <div className={"flex flex-col gap-2 border border-foreground/15 p-4"}>
-                        <div className={"flex items-baseline justify-between font-mono text-sm"}>
-                            <span>
-                                {Math.min(credits.used, credits.allowance).toLocaleString(
-                                    "en-US",
-                                )}
-                                {" / "}
-                                {credits.allowance.toLocaleString("en-US")} credits used
-                            </span>
-                            {credits.periodEnd ? (
-                                <span className={"text-xs text-gray-400"}>
-                                    resets{" "}
-                                    {credits.periodEnd.toLocaleDateString("en-US", {
-                                        month: "short",
-                                        day: "numeric",
-                                    })}
-                                </span>
-                            ) : (
-                                // free tier: rolling 30-day window, no fixed reset
-                                <span className={"text-xs text-gray-400"}>past 30 days</span>
-                            )}
-                        </div>
-                        <div className={"h-1 w-full bg-foreground/15"}>
-                            <div
-                                className={"h-full bg-foreground"}
-                                style={{
-                                    width: `${Math.min((credits.used / credits.allowance) * 100, 100)}%`,
-                                }}
-                            />
-                        </div>
-                    </div>
+                    <CreditsBar
+                        used={credits.used}
+                        allowance={credits.allowance}
+                        periodEnd={credits.periodEnd}
+                    />
                 )}
 
                 <form action={saveOpenrouterKey} className={"flex flex-col gap-3"}>

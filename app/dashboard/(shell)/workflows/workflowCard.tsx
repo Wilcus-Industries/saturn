@@ -21,7 +21,7 @@ export function relativeTime(from: Date, to = new Date()): string {
     return `${Math.floor(hours / 24)}d ago`;
 }
 
-const STATUS_DOT: Record<LastRun["status"], string> = {
+export const STATUS_DOT: Record<LastRun["status"], string> = {
     success: "bg-green-500",
     error: "bg-red-500",
     running: "bg-gray-400 animate-pulse motion-reduce:animate-none",

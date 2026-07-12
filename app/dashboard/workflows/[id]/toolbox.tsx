@@ -16,7 +16,9 @@ import EntryIcon from "./entryIcon";
 import ModelLogo from "./modelLogo";
 
 const SECTIONS: { category: NodeCategory; heading: string }[] = [
-    { category: "main", heading: "main functions" },
+    { category: "events", heading: "events" },
+    { category: "logic", heading: "logic" },
+    { category: "data", heading: "data" },
     { category: "saturn", heading: "agents" },
     { category: "integration", heading: "integrations" },
     { category: "mcp", heading: "mcp servers" },

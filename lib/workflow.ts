@@ -11,7 +11,15 @@ import {
 } from "@/lib/integrations";
 
 export type PortKind = "flow" | "value";
-export type NodeCategory = "main" | "mcp" | "skill" | "saturn" | "model" | "integration";
+export type NodeCategory =
+    | "events"
+    | "logic"
+    | "data"
+    | "mcp"
+    | "skill"
+    | "saturn"
+    | "model"
+    | "integration";
 
 // one tool argument, derived from the MCP tool's inputSchema at discovery
 // (lib/mcp.ts deriveParams) and stored on the registry's McpTool entries.
@@ -104,13 +112,14 @@ const v = valuePort;
 const text = (id: string, label = id): ConfigField => ({ id, label, input: "text" });
 
 export const CATALOG: CatalogEntry[] = [
-    // main
+    // events — workflow entry points
     {
-        key: "start", category: "main", label: "start",
+        key: "start", category: "events", label: "start",
         inputs: [], outputs: [flowOut],
     },
+    // logic — control flow + boolean ops
     {
-        key: "if", category: "main", label: "if",
+        key: "if", category: "logic", label: "if",
         inputs: [flowIn, v("a"), v("b")],
         outputs: [
             { id: "true", label: "true", kind: "flow" },
@@ -122,7 +131,7 @@ export const CATALOG: CatalogEntry[] = [
         ],
     },
     {
-        key: "loop", category: "main", label: "loop",
+        key: "loop", category: "logic", label: "loop",
         inputs: [flowIn, v("items")],
         outputs: [
             { id: "body", label: "body", kind: "flow" },
@@ -131,34 +140,35 @@ export const CATALOG: CatalogEntry[] = [
         ],
     },
     {
-        key: "and", category: "main", label: "and",
+        key: "and", category: "logic", label: "and",
         inputs: [v("a"), v("b")], outputs: [v("out")],
     },
     {
-        key: "or", category: "main", label: "or",
+        key: "or", category: "logic", label: "or",
         inputs: [v("a"), v("b")], outputs: [v("out")],
     },
     {
-        key: "not", category: "main", label: "not",
+        key: "not", category: "logic", label: "not",
         inputs: [v("in")], outputs: [v("out")],
     },
     {
-        key: "literal", category: "main", label: "literal",
+        key: "literal", category: "data", label: "literal",
         inputs: [], outputs: [v("out")],
         config: [
             { id: "valueType", label: "type", input: "select", options: ["string", "number"] },
             text("value"),
         ],
     },
+    // data — values, extraction, output
     {
-        key: "print", category: "main", label: "print",
+        key: "print", category: "data", label: "print",
         inputs: [flowIn, v("value")], outputs: [flowOut],
         config: [text("message")],
     },
     {
         // pull one field out of a JSON value (e.g. an MCP tool result);
         // path is dot-separated, numbers index arrays: "data.results.0.price"
-        key: "extract", category: "main", label: "extract",
+        key: "extract", category: "data", label: "extract",
         inputs: [v("value")], outputs: [v("out")],
         config: [{ ...text("path"), picker: "json-path" }],
     },
@@ -166,7 +176,7 @@ export const CATALOG: CatalogEntry[] = [
         // join barrier for parallel branches: runs once every incoming flow
         // edge has arrived; "results" is a JSON array of the "values" edges'
         // values in edge order
-        key: "await", category: "main", label: "await",
+        key: "await", category: "logic", label: "await",
         inputs: [flowIn, { ...v("values"), multi: true }],
         outputs: [flowOut, v("results")],
     },
@@ -234,17 +244,29 @@ export const MAX_GRAPH_JSON = 262_144;
 export function missingEntry(type: string): CatalogEntry {
     const prefix = type.split(":")[0];
     const category: NodeCategory =
-        prefix === "mcp" || prefix === "skill" || prefix === "integration" ? prefix : "main";
+        prefix === "mcp" || prefix === "skill" || prefix === "integration" ? prefix : "logic";
     return { key: type, category, label: "(deleted)", inputs: [], outputs: [], missing: true };
 }
 
 // literal Tailwind class strings (JIT can't see computed names) + raw hex for SVG edge strokes
 export const CATEGORY_STYLES = {
-    main: {
-        borderL: "border-l-yellow-500",
-        headerBg: "bg-yellow-500/10",
-        text: "text-yellow-600 dark:text-yellow-400",
-        edge: "#eab308",
+    events: {
+        borderL: "border-l-amber-500",
+        headerBg: "bg-amber-500/10",
+        text: "text-amber-600 dark:text-amber-400",
+        edge: "#f59e0b",
+    },
+    logic: {
+        borderL: "border-l-blue-500",
+        headerBg: "bg-blue-500/10",
+        text: "text-blue-600 dark:text-blue-400",
+        edge: "#3b82f6",
+    },
+    data: {
+        borderL: "border-l-teal-500",
+        headerBg: "bg-teal-500/10",
+        text: "text-teal-600 dark:text-teal-400",
+        edge: "#14b8a6",
     },
     mcp: {
         borderL: "border-l-purple-500",

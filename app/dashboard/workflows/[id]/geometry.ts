@@ -16,7 +16,7 @@ export const TEXTAREA_ROW_H = 72; // h-[72px] textarea config rows
 export const MODEL_D = 72;
 export const MODEL_LABEL_H = 24;
 
-// missingEntry placeholders map to category "main", so this is only ever
+// missingEntry placeholders map to category "logic", so this is only ever
 // true for the real model catalog entry
 export const isModelEntry = (entry: CatalogEntry): boolean =>
     entry.category === "model" && !entry.missing;

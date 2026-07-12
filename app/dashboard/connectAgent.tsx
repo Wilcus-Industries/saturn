@@ -2,7 +2,7 @@
 // runs itself, so this is purely a pointer (shared by overview + settings)
 export default function ConnectAgent({ baseUrl }: { baseUrl: string }) {
     return (
-        <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
+        <section id={"connect-agent"} className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
             <h2 className={"font-mono text-xl"}>Connect an agent</h2>
             <p className={"font-mono text-sm text-gray-400"}>
                 edit and test-run your workflows agentically — add Saturn as an
