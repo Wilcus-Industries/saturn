@@ -9,6 +9,22 @@ import ToolListEditor from "./toolListEditor";
 // add ("+ add server") or edit ("edit") trigger + modal for one MCP server
 export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
     const [open, setOpen] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    // controlled — React resets uncontrolled fields after a form action, which
+    // would wipe the user's input when the action returns an error
+    const [name, setName] = useState("");
+    const [serverUrl, setServerUrl] = useState("");
+    const [authToken, setAuthToken] = useState("");
+    const [clearToken, setClearToken] = useState(false);
+
+    const openModal = () => {
+        setError(null);
+        setName(entry?.name ?? "");
+        setServerUrl(entry?.server_url ?? "");
+        setAuthToken("");
+        setClearToken(false);
+        setOpen(true);
+    };
 
     // Escape closes; listener only lives while the modal is open
     useEffect(() => {
@@ -25,7 +41,7 @@ export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
             {entry ? (
                 <button
                     type={"button"}
-                    onClick={() => setOpen(true)}
+                    onClick={openModal}
                     className={"font-mono text-sm text-blue-400"}
                 >
                     edit
@@ -33,7 +49,7 @@ export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
             ) : (
                 <button
                     type={"button"}
-                    onClick={() => setOpen(true)}
+                    onClick={openModal}
                     className={`self-start border border-dashed border-foreground/30 px-3 py-1.5
                         font-mono text-sm text-gray-400 transition-colors duration-200
                         hover:border-foreground hover:text-foreground`}
@@ -55,7 +71,12 @@ export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
                     >
                         <form
                             action={async (formData) => {
-                                await saveMcpServer(formData);
+                                setError(null);
+                                const result = await saveMcpServer(formData);
+                                if (result) {
+                                    setError(result.error);
+                                    return;
+                                }
                                 setOpen(false);
                             }}
                             className={"flex flex-col gap-4"}
@@ -72,7 +93,8 @@ export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
                                     name={"name"}
                                     required
                                     autoFocus
-                                    defaultValue={entry?.name}
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
                                     className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                                 />
                             </label>
@@ -86,7 +108,8 @@ export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
                                     type={"url"}
                                     required
                                     placeholder={"https://mcp.example.com"}
-                                    defaultValue={entry?.server_url}
+                                    value={serverUrl}
+                                    onChange={(e) => setServerUrl(e.target.value)}
                                     className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                                 />
                             </label>
@@ -99,6 +122,8 @@ export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
                                     name={"authToken"}
                                     type={"password"}
                                     autoComplete={"off"}
+                                    value={authToken}
+                                    onChange={(e) => setAuthToken(e.target.value)}
                                     placeholder={
                                         entry?.has_token
                                             ? "•••• token set — leave blank to keep"
@@ -112,12 +137,21 @@ export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
                                 <label
                                     className={"flex items-center gap-2 font-mono text-xs text-gray-400"}
                                 >
-                                    <input type={"checkbox"} name={"clearToken"} />
+                                    <input
+                                        type={"checkbox"}
+                                        name={"clearToken"}
+                                        checked={clearToken}
+                                        onChange={(e) => setClearToken(e.target.checked)}
+                                    />
                                     clear stored token
                                 </label>
                             )}
 
                             <ToolListEditor initial={entry?.tools ?? []} />
+
+                            {error && (
+                                <p className={"font-mono text-xs text-red-400"}>{error}</p>
+                            )}
 
                             <ActionButton
                                 className={`self-end rounded-full border border-foreground px-4 py-2

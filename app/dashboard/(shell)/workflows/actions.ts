@@ -10,6 +10,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // actions are public POST endpoints — every one re-checks the session itself
 
+// expected failures come back as a value the modal renders inline; a thrown
+// error would only reach Next's generic error page (message redacted in prod)
+type ActionResult = { error: string } | undefined;
+
+function toError(err: unknown): { error: string } {
+    return { error: err instanceof Error ? err.message : "Something went wrong" };
+}
+
 // shared by create and update — the modal submits the same fields
 function parseWorkflowFields(formData: FormData) {
     const name = String(formData.get("name") ?? "").trim();
@@ -25,47 +33,59 @@ function parseWorkflowFields(formData: FormData) {
     return { name, emoji, description, cron };
 }
 
-export async function createWorkflow(formData: FormData) {
+export async function createWorkflow(formData: FormData): Promise<ActionResult> {
     const { requestHeaders, session } = await requireUser();
-    const { name, emoji, description, cron } = parseWorkflowFields(formData);
 
-    const level = await getActivation(requestHeaders);
-    assertCronFloor(cron, level);
+    let id: string;
+    try {
+        const { name, emoji, description, cron } = parseWorkflowFields(formData);
 
-    const cap = limitsFor(level).workflows;
-    const { rows: countRows } = await db.query<{ count: string }>(
-        "select count(*) from workflow where user_id = $1",
-        [session.user.id],
-    );
-    if (Number(countRows[0].count) >= cap) {
-        throw new Error(`Your plan allows ${cap} workflows — upgrade to add more`);
+        const level = await getActivation(requestHeaders);
+        assertCronFloor(cron, level);
+
+        const cap = limitsFor(level).workflows;
+        const { rows: countRows } = await db.query<{ count: string }>(
+            "select count(*) from workflow where user_id = $1",
+            [session.user.id],
+        );
+        if (Number(countRows[0].count) >= cap) {
+            throw new Error(`Your plan allows ${cap} workflows — upgrade to add more`);
+        }
+
+        const { rows } = await db.query<{ id: string }>(
+            `insert into workflow (user_id, name, emoji, description, cron)
+             values ($1, $2, $3, $4, $5) returning id`,
+            [session.user.id, name, emoji, description, cron],
+        );
+        id = rows[0].id;
+    } catch (err) {
+        return toError(err);
     }
 
-    const { rows } = await db.query<{ id: string }>(
-        `insert into workflow (user_id, name, emoji, description, cron)
-         values ($1, $2, $3, $4, $5) returning id`,
-        [session.user.id, name, emoji, description, cron],
-    );
-
-    redirect(`/dashboard/workflows/${rows[0].id}`);
+    // redirect throws internally — must run outside the try/catch
+    redirect(`/dashboard/workflows/${id}`);
 }
 
 // metadata only — the graph is saved separately by the designer
-export async function updateWorkflow(formData: FormData) {
+export async function updateWorkflow(formData: FormData): Promise<ActionResult> {
     const { requestHeaders, session } = await requireUser();
 
-    const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid workflow id");
-    const { name, emoji, description, cron } = parseWorkflowFields(formData);
-    assertCronFloor(cron, await getActivation(requestHeaders));
+    try {
+        const id = String(formData.get("id") ?? "");
+        if (!UUID.test(id)) throw new Error("Invalid workflow id");
+        const { name, emoji, description, cron } = parseWorkflowFields(formData);
+        assertCronFloor(cron, await getActivation(requestHeaders));
 
-    const { rowCount } = await db.query(
-        `update workflow
-         set name = $1, emoji = $2, description = $3, cron = $4, updated_at = now()
-         where id = $5 and user_id = $6`,
-        [name, emoji, description, cron, id, session.user.id],
-    );
-    if (!rowCount) throw new Error("Not found");
+        const { rowCount } = await db.query(
+            `update workflow
+             set name = $1, emoji = $2, description = $3, cron = $4, updated_at = now()
+             where id = $5 and user_id = $6`,
+            [name, emoji, description, cron, id, session.user.id],
+        );
+        if (!rowCount) throw new Error("Not found");
+    } catch (err) {
+        return toError(err);
+    }
 
     revalidatePath("/dashboard/workflows");
 }
@@ -76,11 +96,11 @@ export async function deleteWorkflow(formData: FormData) {
     const id = String(formData.get("id") ?? "");
     if (!UUID.test(id)) throw new Error("Invalid workflow id");
 
-    const { rowCount } = await db.query(
-        "delete from workflow where id = $1 and user_id = $2",
-        [id, session.user.id],
-    );
-    if (!rowCount) throw new Error("Not found");
+    // idempotent: a row already deleted elsewhere (another tab) is not an error
+    await db.query("delete from workflow where id = $1 and user_id = $2", [
+        id,
+        session.user.id,
+    ]);
 
     revalidatePath("/dashboard/workflows");
     // also lands the designer back on the list; on the list page it's a same-route refresh

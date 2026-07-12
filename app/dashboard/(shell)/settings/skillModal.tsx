@@ -9,6 +9,18 @@ import { saveSkill } from "./actions";
 // add ("+ add skill") or edit ("edit") trigger + modal for one skill
 export default function SkillModal({ entry }: { entry?: RegistryEntryRow }) {
     const [open, setOpen] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    // controlled — React resets uncontrolled fields after a form action, which
+    // would wipe the user's input when the action returns an error
+    const [name, setName] = useState("");
+    const [description, setDescription] = useState("");
+
+    const openModal = () => {
+        setError(null);
+        setName(entry?.name ?? "");
+        setDescription(entry?.description ?? "");
+        setOpen(true);
+    };
 
     // Escape closes; listener only lives while the modal is open
     useEffect(() => {
@@ -25,7 +37,7 @@ export default function SkillModal({ entry }: { entry?: RegistryEntryRow }) {
             {entry ? (
                 <button
                     type={"button"}
-                    onClick={() => setOpen(true)}
+                    onClick={openModal}
                     className={"font-mono text-sm text-blue-400"}
                 >
                     edit
@@ -33,7 +45,7 @@ export default function SkillModal({ entry }: { entry?: RegistryEntryRow }) {
             ) : (
                 <button
                     type={"button"}
-                    onClick={() => setOpen(true)}
+                    onClick={openModal}
                     className={`self-start border border-dashed border-foreground/30 px-3 py-1.5
                         font-mono text-sm text-gray-400 transition-colors duration-200
                         hover:border-foreground hover:text-foreground`}
@@ -54,7 +66,12 @@ export default function SkillModal({ entry }: { entry?: RegistryEntryRow }) {
                     >
                         <form
                             action={async (formData) => {
-                                await saveSkill(formData);
+                                setError(null);
+                                const result = await saveSkill(formData);
+                                if (result) {
+                                    setError(result.error);
+                                    return;
+                                }
                                 setOpen(false);
                             }}
                             className={"flex flex-col gap-4"}
@@ -71,7 +88,8 @@ export default function SkillModal({ entry }: { entry?: RegistryEntryRow }) {
                                     name={"name"}
                                     required
                                     autoFocus
-                                    defaultValue={entry?.name}
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
                                     className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                                 />
                             </label>
@@ -88,10 +106,15 @@ export default function SkillModal({ entry }: { entry?: RegistryEntryRow }) {
                                 <textarea
                                     name={"description"}
                                     rows={3}
-                                    defaultValue={entry?.description}
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
                                     className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                                 />
                             </label>
+
+                            {error && (
+                                <p className={"font-mono text-xs text-red-400"}>{error}</p>
+                            )}
 
                             <ActionButton
                                 className={`self-end rounded-full border border-foreground px-4 py-2

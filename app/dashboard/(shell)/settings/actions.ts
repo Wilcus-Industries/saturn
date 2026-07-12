@@ -32,6 +32,14 @@ const MAX_NAME = 60;
 const MAX_DESCRIPTION = 2000;
 const MAX_TOKEN = 4096;
 
+// expected failures come back as a value the modal renders inline; a thrown
+// error would only reach Next's generic error page (message redacted in prod)
+type ActionResult = { error: string } | undefined;
+
+function toError(err: unknown): { error: string } {
+    return { error: err instanceof Error ? err.message : "Something went wrong" };
+}
+
 function requiredName(formData: FormData): string {
     const name = String(formData.get("name") ?? "").trim();
     if (!name || name.length > MAX_NAME) throw new Error("Name is required (max 60 chars)");
@@ -86,107 +94,115 @@ function parseTools(raw: string): McpTool[] {
     });
 }
 
-export async function saveMcpServer(formData: FormData) {
+export async function saveMcpServer(formData: FormData): Promise<ActionResult> {
     const { requestHeaders, session } = await requireUser();
 
-    const id = optionalId(formData);
-    const name = requiredName(formData);
-
-    const serverUrl = String(formData.get("serverUrl") ?? "").trim();
-    let url: URL;
     try {
-        url = new URL(serverUrl);
-    } catch {
-        throw new Error("Invalid server URL");
-    }
-    if (url.protocol !== "https:") throw new Error("Server URL must be https");
+        const id = optionalId(formData);
+        const name = requiredName(formData);
 
-    const authToken = String(formData.get("authToken") ?? "").trim();
-    if (authToken.length > MAX_TOKEN) throw new Error("Token too long");
-    const clearToken = formData.get("clearToken") === "on";
-
-    let tools = parseTools(String(formData.get("tools") ?? "[]"));
-
-    if (id) {
-        // parseTools strips everything but {name, access, enabled} — the
-        // client never submits discovered readOnly/description/params.
-        // Re-attach the stored ones by tool name so a settings save
-        // doesn't wipe them.
-        const { rows } = await db.query<{ tools: McpTool[] }>(
-            "select tools from registry_entry where id = $1 and user_id = $2 and kind = 'mcp'",
-            [id, session.user.id],
-        );
-        const stored = new Map((rows[0]?.tools ?? []).map((t) => [t.name, t]));
-        tools = tools.map((t) => {
-            const prev = stored.get(t.name);
-            return prev
-                ? {
-                      ...t,
-                      ...(prev.readOnly !== undefined ? { readOnly: prev.readOnly } : {}),
-                      ...(prev.description ? { description: prev.description } : {}),
-                      ...(prev.params ? { params: prev.params } : {}),
-                  }
-                : t;
-        });
-
-        // blank token keeps the stored one; clearToken erases; filled overwrites
-        const params: unknown[] = [name, serverUrl, JSON.stringify(tools)];
-        let tokenSql = "auth_token";
-        if (clearToken) {
-            tokenSql = "''";
-        } else if (authToken) {
-            params.push(authToken);
-            tokenSql = `$${params.length}`;
+        const serverUrl = String(formData.get("serverUrl") ?? "").trim();
+        let url: URL;
+        try {
+            url = new URL(serverUrl);
+        } catch {
+            throw new Error("Invalid server URL");
         }
-        params.push(id, session.user.id);
-        const { rowCount } = await db.query(
-            `update registry_entry
-             set name = $1, server_url = $2, tools = $3, auth_token = ${tokenSql},
-                 updated_at = now()
-             where id = $${params.length - 1} and user_id = $${params.length} and kind = 'mcp'`,
-            params,
-        );
-        if (!rowCount) throw new Error("Not found");
-    } else {
-        const cap = Math.min(
-            limitsFor(await getActivation(requestHeaders)).mcpServers,
-            MAX_ENTRIES_PER_KIND,
-        );
-        await assertUnderCap(session.user.id, "mcp", cap);
-        await db.query(
-            `insert into registry_entry (user_id, kind, name, server_url, auth_token, tools)
-             values ($1, 'mcp', $2, $3, $4, $5)`,
-            [session.user.id, name, serverUrl, authToken, JSON.stringify(tools)],
-        );
+        if (url.protocol !== "https:") throw new Error("Server URL must be https");
+
+        const authToken = String(formData.get("authToken") ?? "").trim();
+        if (authToken.length > MAX_TOKEN) throw new Error("Token too long");
+        const clearToken = formData.get("clearToken") === "on";
+
+        let tools = parseTools(String(formData.get("tools") ?? "[]"));
+
+        if (id) {
+            // parseTools strips everything but {name, access, enabled} — the
+            // client never submits discovered readOnly/description/params.
+            // Re-attach the stored ones by tool name so a settings save
+            // doesn't wipe them.
+            const { rows } = await db.query<{ tools: McpTool[] }>(
+                "select tools from registry_entry where id = $1 and user_id = $2 and kind = 'mcp'",
+                [id, session.user.id],
+            );
+            const stored = new Map((rows[0]?.tools ?? []).map((t) => [t.name, t]));
+            tools = tools.map((t) => {
+                const prev = stored.get(t.name);
+                return prev
+                    ? {
+                          ...t,
+                          ...(prev.readOnly !== undefined ? { readOnly: prev.readOnly } : {}),
+                          ...(prev.description ? { description: prev.description } : {}),
+                          ...(prev.params ? { params: prev.params } : {}),
+                      }
+                    : t;
+            });
+
+            // blank token keeps the stored one; clearToken erases; filled overwrites
+            const params: unknown[] = [name, serverUrl, JSON.stringify(tools)];
+            let tokenSql = "auth_token";
+            if (clearToken) {
+                tokenSql = "''";
+            } else if (authToken) {
+                params.push(authToken);
+                tokenSql = `$${params.length}`;
+            }
+            params.push(id, session.user.id);
+            const { rowCount } = await db.query(
+                `update registry_entry
+                 set name = $1, server_url = $2, tools = $3, auth_token = ${tokenSql},
+                     updated_at = now()
+                 where id = $${params.length - 1} and user_id = $${params.length} and kind = 'mcp'`,
+                params,
+            );
+            if (!rowCount) throw new Error("Not found");
+        } else {
+            const cap = Math.min(
+                limitsFor(await getActivation(requestHeaders)).mcpServers,
+                MAX_ENTRIES_PER_KIND,
+            );
+            await assertUnderCap(session.user.id, "mcp", cap);
+            await db.query(
+                `insert into registry_entry (user_id, kind, name, server_url, auth_token, tools)
+                 values ($1, 'mcp', $2, $3, $4, $5)`,
+                [session.user.id, name, serverUrl, authToken, JSON.stringify(tools)],
+            );
+        }
+    } catch (err) {
+        return toError(err);
     }
 
     revalidatePath("/dashboard/settings");
 }
 
-export async function saveSkill(formData: FormData) {
+export async function saveSkill(formData: FormData): Promise<ActionResult> {
     const { session } = await requireUser();
 
-    const id = optionalId(formData);
-    const name = requiredName(formData);
-    const emoji = String(formData.get("emoji") ?? "").trim() || "⚙️";
-    const description = String(formData.get("description") ?? "").trim();
-    if (description.length > MAX_DESCRIPTION) throw new Error("Instructions too long");
+    try {
+        const id = optionalId(formData);
+        const name = requiredName(formData);
+        const emoji = String(formData.get("emoji") ?? "").trim() || "⚙️";
+        const description = String(formData.get("description") ?? "").trim();
+        if (description.length > MAX_DESCRIPTION) throw new Error("Instructions too long");
 
-    if (id) {
-        const { rowCount } = await db.query(
-            `update registry_entry
-             set name = $1, emoji = $2, description = $3, updated_at = now()
-             where id = $4 and user_id = $5 and kind = 'skill'`,
-            [name, emoji, description, id, session.user.id],
-        );
-        if (!rowCount) throw new Error("Not found");
-    } else {
-        await assertUnderCap(session.user.id, "skill");
-        await db.query(
-            `insert into registry_entry (user_id, kind, name, emoji, description)
-             values ($1, 'skill', $2, $3, $4)`,
-            [session.user.id, name, emoji, description],
-        );
+        if (id) {
+            const { rowCount } = await db.query(
+                `update registry_entry
+                 set name = $1, emoji = $2, description = $3, updated_at = now()
+                 where id = $4 and user_id = $5 and kind = 'skill'`,
+                [name, emoji, description, id, session.user.id],
+            );
+            if (!rowCount) throw new Error("Not found");
+        } else {
+            await assertUnderCap(session.user.id, "skill");
+            await db.query(
+                `insert into registry_entry (user_id, kind, name, emoji, description)
+                 values ($1, 'skill', $2, $3, $4)`,
+                [session.user.id, name, emoji, description],
+            );
+        }
+    } catch (err) {
+        return toError(err);
     }
 
     revalidatePath("/dashboard/settings");

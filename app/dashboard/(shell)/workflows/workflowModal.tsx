@@ -13,6 +13,18 @@ type WorkflowMeta = Pick<WorkflowRow, "id" | "name" | "emoji" | "description" | 
 // for one workflow's metadata; the graph is edited in the designer
 export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta }) {
     const [open, setOpen] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    // controlled — React resets uncontrolled fields after a form action, which
+    // would wipe the user's input when the action returns an error
+    const [name, setName] = useState("");
+    const [description, setDescription] = useState("");
+
+    const openModal = () => {
+        setError(null);
+        setName(workflow?.name ?? "");
+        setDescription(workflow?.description ?? "");
+        setOpen(true);
+    };
 
     // Escape closes; listener only lives while the modal is open
     useEffect(() => {
@@ -29,7 +41,7 @@ export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta })
             {workflow ? (
                 <button
                     type={"button"}
-                    onClick={() => setOpen(true)}
+                    onClick={openModal}
                     className={"font-mono text-sm text-gray-400 hover:text-foreground"}
                 >
                     edit
@@ -37,7 +49,7 @@ export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta })
             ) : (
                 <button
                     type={"button"}
-                    onClick={() => setOpen(true)}
+                    onClick={openModal}
                     aria-label={"new workflow"}
                     className={`flex min-h-40 items-center justify-center rounded-xl border border-dashed
                         border-foreground/30 text-3xl text-gray-400 transition-colors duration-200
@@ -58,14 +70,18 @@ export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta })
                         onClick={(e) => e.stopPropagation()}
                     >
                         <form
-                            action={
-                                workflow
-                                    ? async (formData) => {
-                                          await updateWorkflow(formData);
-                                          setOpen(false);
-                                      }
-                                    : createWorkflow
-                            }
+                            action={async (formData) => {
+                                setError(null);
+                                const result = workflow
+                                    ? await updateWorkflow(formData)
+                                    : await createWorkflow(formData);
+                                if (result) {
+                                    setError(result.error);
+                                    return;
+                                }
+                                // create never gets here — its action redirects
+                                setOpen(false);
+                            }}
                             className={"flex flex-col gap-4"}
                         >
                             <h2 className={"font-mono text-xl"}>
@@ -80,7 +96,8 @@ export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta })
                                     name={"name"}
                                     required
                                     autoFocus
-                                    defaultValue={workflow?.name}
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
                                     className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                                 />
                             </label>
@@ -95,7 +112,8 @@ export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta })
                                 <textarea
                                     name={"description"}
                                     rows={2}
-                                    defaultValue={workflow?.description}
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
                                     className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                                 />
                             </label>
@@ -104,6 +122,10 @@ export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta })
                                 <span className={"font-mono text-xs text-gray-400"}>schedule</span>
                                 <CronBuilder initial={workflow?.cron} />
                             </div>
+
+                            {error && (
+                                <p className={"font-mono text-xs text-red-400"}>{error}</p>
+                            )}
 
                             <ActionButton
                                 className={`self-end rounded-full border border-foreground px-4 py-2
