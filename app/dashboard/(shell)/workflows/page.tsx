@@ -14,12 +14,12 @@ export default async function Workflows() {
 
     // lateral join pulls each workflow's newest run for the card status chip
     const { rows } = await db.query<
-        Pick<WorkflowRow, "id" | "name" | "emoji" | "description" | "cron"> & {
+        Pick<WorkflowRow, "id" | "name" | "emoji" | "description" | "cron" | "active"> & {
             last_run_status: "running" | "success" | "error" | null;
             last_run_started_at: Date | null;
         }
     >(
-        `select w.id, w.name, w.emoji, w.description, w.cron,
+        `select w.id, w.name, w.emoji, w.description, w.cron, w.active,
                 r.status as last_run_status, r.started_at as last_run_started_at
          from workflow w
          left join lateral (

@@ -90,6 +90,26 @@ export async function updateWorkflow(formData: FormData): Promise<ActionResult> 
     revalidatePath("/dashboard/workflows");
 }
 
+// active gates scheduled execution only — manual/test runs still work when off.
+// Explicit desired state (not a flip) so a double-click stays idempotent.
+export async function setWorkflowActive(id: string, active: boolean): Promise<ActionResult> {
+    const { session } = await requireUser();
+
+    try {
+        if (!UUID.test(id)) throw new Error("Invalid workflow id");
+        const { rowCount } = await db.query(
+            `update workflow set active = $1, updated_at = now()
+             where id = $2 and user_id = $3`,
+            [active === true, id, session.user.id],
+        );
+        if (!rowCount) throw new Error("Not found");
+    } catch (err) {
+        return toError(err);
+    }
+
+    revalidatePath("/dashboard/workflows");
+}
+
 export async function deleteWorkflow(formData: FormData) {
     const { session } = await requireUser();
 

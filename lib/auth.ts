@@ -4,6 +4,7 @@ import { nextCookies } from "better-auth/next-js";
 import { stripe } from "@better-auth/stripe";
 import Stripe from "stripe";
 import { db } from "@/lib/db";
+import { seedExampleWorkflow } from "@/lib/exampleWorkflow.server";
 
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
@@ -20,6 +21,18 @@ export const auth = betterAuth({
             // activation level for the non-Stripe tier; input: false keeps it
             // out of the public updateUser surface
             plan: { type: "string", required: false, input: false },
+        },
+    },
+    databaseHooks: {
+        user: {
+            create: {
+                // seed the inactive example workflow for every new user;
+                // seedExampleWorkflow never throws — a throw here would
+                // propagate into the OAuth sign-in callback
+                after: async (user) => {
+                    await seedExampleWorkflow(user.id);
+                },
+            },
         },
     },
     plugins: [

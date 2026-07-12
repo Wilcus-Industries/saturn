@@ -50,7 +50,7 @@ const GRAPH_SCHEMA: JsonSchema = {
 export const TOOL_DEFS: ToolDef[] = [
     {
         name: "list_workflows",
-        description: "List the user's workflows: id, name, emoji, description, cron schedule (with a human-readable summary), node count and last run time.",
+        description: "List the user's workflows: id, name, emoji, description, cron schedule (with a human-readable summary), active flag, node count and last run time.",
         inputSchema: obj({}),
     },
     {
@@ -74,7 +74,7 @@ export const TOOL_DEFS: ToolDef[] = [
     },
     {
         name: "update_workflow",
-        description: "Update workflow metadata (name, emoji, description, cron). Only provided fields change; the graph is untouched (use save_graph for that).",
+        description: "Update workflow metadata (name, emoji, description, cron, active). Only provided fields change; the graph is untouched (use save_graph for that).",
         inputSchema: obj(
             {
                 id: str("Workflow id (uuid)"),
@@ -82,6 +82,10 @@ export const TOOL_DEFS: ToolDef[] = [
                 emoji: str("New emoji"),
                 description: str("New description"),
                 cron: str("New 5-field cron expression"),
+                active: {
+                    type: "boolean",
+                    description: "true = scheduled runs enabled, false = paused (manual runs still work)",
+                },
             },
             ["id"],
         ),
@@ -245,10 +249,11 @@ export async function dispatchTool(
                 emoji: string;
                 description: string;
                 cron: string;
+                active: boolean;
                 node_count: number;
                 last_run_at: Date | null;
             }>(
-                `select id, name, emoji, description, cron,
+                `select id, name, emoji, description, cron, active,
                         jsonb_array_length(graph->'nodes') as node_count, last_run_at
                    from workflow where user_id = $1 order by created_at desc`,
                 [userId],
@@ -261,6 +266,7 @@ export async function dispatchTool(
                     description: r.description,
                     cron: r.cron,
                     schedule: describeCron(r.cron),
+                    active: r.active,
                     nodeCount: r.node_count,
                     lastRunAt: r.last_run_at,
                 })),
@@ -271,7 +277,7 @@ export async function dispatchTool(
             const id = asId(args.id);
             if (!id) return fail("invalid workflow id");
             const { rows } = await db.query(
-                `select id, name, emoji, description, cron, graph, last_run_at, created_at, updated_at
+                `select id, name, emoji, description, cron, active, graph, last_run_at, created_at, updated_at
                    from workflow where id = $1 and user_id = $2`,
                 [id, userId],
             );
@@ -322,7 +328,7 @@ export async function dispatchTool(
 
             const sets: string[] = [];
             const values: unknown[] = [];
-            const push = (column: string, value: string) => {
+            const push = (column: string, value: unknown) => {
                 values.push(value);
                 sets.push(`${column} = $${values.length}`);
             };
@@ -347,7 +353,11 @@ export async function dispatchTool(
                 }
                 push("cron", cron);
             }
-            if (sets.length === 0) return fail("nothing to update — pass name, emoji, description or cron");
+            if (args.active !== undefined) {
+                if (typeof args.active !== "boolean") return fail("active must be a boolean");
+                push("active", args.active);
+            }
+            if (sets.length === 0) return fail("nothing to update — pass name, emoji, description, cron or active");
 
             values.push(id, userId);
             const { rowCount } = await db.query(

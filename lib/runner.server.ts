@@ -210,7 +210,8 @@ export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
     // check drops graphs that could never run (no start node)
     const { rows: candidates } = await db.query<{ id: string; user_id: string; cron: string }>(
         `select id, user_id, cron from workflow
-          where graph->'nodes' @> '[{"type":"start"}]'`,
+          where active
+            and graph->'nodes' @> '[{"type":"start"}]'`,
     );
 
     const now = new Date();
@@ -235,6 +236,7 @@ export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
         const { rows } = await db.query<ClaimedWorkflow>(
             `update workflow set last_run_at = now()
               where id = $1
+                and active
                 and (last_run_at is null or last_run_at <= now() - make_interval(secs => $2))
               returning id, user_id, name, graph`,
             [c.id, guardSeconds],

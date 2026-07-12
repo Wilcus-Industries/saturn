@@ -83,6 +83,7 @@ export type WorkflowRow = {
     description: string;
     cron: string;
     graph: WorkflowGraph;
+    active: boolean; // gates scheduled runs only; manual/test runs ignore it
     created_at: Date;
     updated_at: Date;
 };
