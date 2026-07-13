@@ -22,9 +22,9 @@ export const TEXTAREA_ROW_H = 72; // h-[72px] textarea config rows
 export const MODEL_D = 54; // 3/4 of the old 72px circle
 export const MODEL_LABEL_H = 24;
 
-// event nodes render as a curved-left block (h-12 w-14) with a label strip
-// (h-6) below; node.tsx's event branch must match these exactly too
-export const EVENT_W = 56; // w-14
+// event nodes render as a circle (h-12 w-12) with a label strip (h-6) below,
+// mirroring the model circle; node.tsx's event branch must match these exactly
+export const EVENT_W = 48; // w-12 (diameter — kept square so the node is round)
 export const EVENT_H = 48; // h-12
 export const EVENT_LABEL_H = 24; // h-6 name strip below (like MODEL_LABEL_H)
 
@@ -237,13 +237,21 @@ export function portGeometry(
         return { x: cx + (r * vx) / len, y: cy + (r * vy) / len, nx: vx / len, ny: vy / len };
     }
 
-    // event block: output anchors on the right-edge midline (start has one
-    // output, no inputs — the left branch is defensive)
+    // event circle: output rides the circle's perimeter toward its target
+    // (right-edge midline when unconnected), same as the model branch; no
+    // inputs, the left branch is defensive
     if (isEventEntry(entry)) {
-        const y = node.y + EVENT_H / 2;
-        return entry.inputs.some((p) => p.id === portId)
-            ? { x: node.x, y, nx: -1, ny: 0 }
-            : { x: node.x + EVENT_W, y, nx: 1, ny: 0 };
+        const r = EVENT_W / 2;
+        const cx = node.x + r;
+        const cy = node.y + EVENT_H / 2;
+        if (entry.inputs.some((p) => p.id === portId))
+            return { x: node.x, y: cy, nx: -1, ny: 0 };
+        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        if (!target) return { x: node.x + EVENT_W, y: cy, nx: 1, ny: 0 };
+        const vx = target.x - cx;
+        const vy = target.y - cy;
+        const len = Math.hypot(vx, vy) || 1;
+        return { x: cx + (r * vx) / len, y: cy + (r * vy) / len, nx: vx / len, ny: vy / len };
     }
 
     // agent: the flow "in" leaves the left edge, the outputs stack on the

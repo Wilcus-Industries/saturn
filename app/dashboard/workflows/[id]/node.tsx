@@ -30,6 +30,8 @@ import {
     AGENT_TOP_H,
     anchorOffsetY,
     GRID,
+    EVENT_H,
+    EVENT_W,
     HEADER_H,
     IF_H,
     IF_W,
@@ -75,8 +77,8 @@ export type OpenPickerHandler = (
 // = HEADER_H 32, h-6 port rows = PORT_ROW_H 24, h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
 // bottom pad. Model nodes render circular: h-18 w-18 = MODEL_D 72 plus an
-// h-6 name strip = MODEL_LABEL_H 24. Event nodes render as a curved-left block:
-// h-12 w-14 = EVENT_H 48 × EVENT_W 56 plus an h-6 label strip = EVENT_LABEL_H
+// h-6 name strip = MODEL_LABEL_H 24. Event nodes render circular too:
+// h-12 w-12 = EVENT_H 48 × EVENT_W 48 plus an h-6 label strip = EVENT_LABEL_H
 // 24. Change sizes only via geometry.ts.
 
 const DRAG_SLOP = 4; // client px below which a press counts as a click
@@ -379,48 +381,61 @@ export default memo(function Node({
         );
     }
 
-    // event nodes render as a curved-left block (h-20 w-24 = EVENT_H × EVENT_W,
-    // h-6 label strip = EVENT_LABEL_H) with the icon centered and the label
-    // floated underneath — the single flow output anchors on the block's
-    // right-edge midpoint per geometry.ts, mirroring the model branch above.
+    // event nodes render as a circle (h-12 w-12 = EVENT_H × EVENT_W, h-6 label
+    // strip = EVENT_LABEL_H) with the icon centered and the label underneath —
+    // the single flow output anchors on the circle's right-edge midpoint per
+    // geometry.ts, mirroring the model branch above.
     if (isEventEntry(entry)) {
         const output = entry.outputs[0];
         return (
             <div
                 data-node-id={node.id}
-                style={{ left: node.x, top: node.y }}
-                className={"absolute w-14 font-mono text-xs"}
+                style={{ left: node.x, top: node.y, width: EVENT_W }}
+                className={"absolute font-mono text-xs"}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
             >
                 <div
-                    // border tinted to the category color (same hex the edges
-                    // use); no Tailwind full-border class exists in the styles
-                    style={{ borderColor: styles.edge }}
-                    className={`relative flex h-12 w-14 cursor-grab items-center justify-center rounded-l-full rounded-r-xl border bg-background ${styles.headerBg} ${
+                    // border tinted to the category color (same hex the edges use)
+                    style={{ borderColor: styles.edge, width: EVENT_W, height: EVENT_H }}
+                    className={`relative flex cursor-grab items-center justify-center rounded-full border bg-background ${styles.headerBg} ${
                         selected ? "outline outline-1 outline-foreground" : ""
                     }`}
                 >
                     {entry.emoji ? (
-                        <span className={"translate-x-1 text-2xl leading-none"}>{entry.emoji}</span>
+                        <span className={"text-2xl leading-none"}>{entry.emoji}</span>
                     ) : (
-                        <span className={`translate-x-1 text-2xl leading-none ${styles.text}`}>
+                        // ▶ glyph's mass leans left; nudge right to optically center
+                        <span className={`translate-x-[2px] text-2xl leading-none ${styles.text}`}>
                             {"▶"}
                         </span>
                     )}
-                    {output && (
-                        <span
-                            className={
-                                "absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/2"
-                            }
-                        >
-                            {port(output, "out", "")}
-                        </span>
-                    )}
+                    {output &&
+                        (() => {
+                            const [ax, ay] = parsedOutAnchor ?? [EVENT_W, EVENT_H / 2];
+                            // point the ▶ along the outward normal it rotated to
+                            const deg =
+                                (Math.atan2(ay - EVENT_H / 2, ax - EVENT_W / 2) * 180) / Math.PI;
+                            return (
+                                <span
+                                    className={"absolute flex"}
+                                    style={{
+                                        left: ax,
+                                        top: ay,
+                                        transform: `translate(-50%, -50%) rotate(${deg}deg)`,
+                                    }}
+                                >
+                                    {port(output, "out", "")}
+                                </span>
+                            );
+                        })()}
                 </div>
-                <div className={"flex h-6 w-14 items-center justify-center"}>
+                <div
+                    style={{ width: EVENT_W }}
+                    className={"flex h-6 items-center justify-center"}
+                >
                     <span
                         className={
                             "line-clamp-2 max-w-full break-words text-center text-[10px] leading-3"

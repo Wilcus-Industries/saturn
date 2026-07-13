@@ -16,6 +16,7 @@ import Edges, { type PendingEdge } from "./edges";
 import {
     GRID,
     isChipEntry,
+    isEventEntry,
     isLiteralEntry,
     isModelEntry,
     nodeHeight,
@@ -384,7 +385,12 @@ export default function Canvas({
                     // feeds — a "lx,ly" local offset so Node's memo can compare
                     // it as a string (matches the edge anchor from geometry).
                     let outAnchor = "";
-                    if (isModelEntry(entry) || isChipEntry(entry) || isLiteralEntry(entry)) {
+                    if (
+                        isModelEntry(entry) ||
+                        isChipEntry(entry) ||
+                        isLiteralEntry(entry) ||
+                        isEventEntry(entry)
+                    ) {
                         const out = entry.outputs[0];
                         if (out) {
                             const p = portPosition(node, entry, out.id, graph, byKey);
