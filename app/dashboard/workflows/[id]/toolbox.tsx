@@ -10,7 +10,6 @@ import {
     CATEGORY_STYLES,
     type CatalogEntry,
     type NodeCategory,
-    type WorkflowGraph,
 } from "@/lib/workflow";
 import EntryIcon from "./entryIcon";
 import ModelLogo from "./modelLogo";
@@ -21,7 +20,7 @@ const SECTIONS: { category: NodeCategory; heading: string }[] = [
     { category: "data", heading: "data" },
     { category: "saturn", heading: "agents" },
     { category: "integration", heading: "integrations" },
-    { category: "mcp", heading: "mcp servers" },
+    { category: "mcp", heading: "tools" },
     { category: "skill", heading: "skills" },
     { category: "model", heading: "openrouter models" },
 ];
@@ -76,9 +75,13 @@ function ModelChip({
 function McpToolChip({
     entry,
     onSpawnStart,
+    compact,
 }: {
     entry: CatalogEntry;
     onSpawnStart: SpawnStart;
+    // compact = the 4-col per-tool grid (smaller tile + font); the "All tools"
+    // chip stays full-size on its own row
+    compact?: boolean;
 }) {
     return (
         <div
@@ -95,7 +98,7 @@ function McpToolChip({
             }}
         >
             <span
-                className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-foreground/15 ${CATEGORY_STYLES.mcp.headerBg}`}
+                className={`flex ${compact ? "h-9 w-9" : "h-12 w-12"} shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-foreground/15 ${CATEGORY_STYLES.mcp.headerBg}`}
             >
                 {entry.logoDomain ? (
                     <McpLogo domain={entry.logoDomain} name={entry.label} size={"fill"} />
@@ -103,7 +106,9 @@ function McpToolChip({
                     <EntryIcon entry={entry} />
                 )}
             </span>
-            <span className={"line-clamp-2 w-full break-words text-center text-[10px] leading-tight"}>
+            <span
+                className={`line-clamp-2 w-full break-words text-center ${compact ? "text-[9px]" : "text-[10px]"} leading-tight`}
+            >
                 {entry.label}
             </span>
         </div>
@@ -151,22 +156,27 @@ function Chip({
 }
 
 export default function Toolbox({
-    graph,
     userCatalog,
     openrouterModels,
     onSpawnStart,
 }: {
-    graph: WorkflowGraph;
     userCatalog: CatalogEntry[];
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
     onSpawnStart: SpawnStart;
 }) {
-    const hasStart = graph.nodes.some((n) => n.type === "start");
-
     // registered servers can carry dozens of tools each — filter by node
     // label or server name
     const [query, setQuery] = useState("");
+    // collapsed mcp server groups, keyed by server/group name
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+    const toggleGroup = (server: string) =>
+        setCollapsedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(server)) next.delete(server);
+            else next.add(server);
+            return next;
+        });
     const q = query.trim().toLowerCase();
     const matches = (entry: CatalogEntry) =>
         !q ||
@@ -218,21 +228,19 @@ export default function Toolbox({
                                     {q ? "no matches" : "none yet — add in settings"}
                                 </p>
                             )}
-                            {groups.size > 0 && (
-                                <p className={"text-[10px] text-gray-400"}>
-                                    connect a tool to an agent&apos;s tools port
-                                </p>
-                            )}
                             {[...groups].map(([server, entries]) => {
                                 // "All tools" chip stays a list-row; per-tool
                                 // chips render as a grid of rounded squares
                                 const allTools = entries.filter((e) => e.toolName === "*");
                                 const tools = entries.filter((e) => e.toolName !== "*");
+                                const collapsed = collapsedGroups.has(server);
                                 return (
                                     <div key={server} className={"flex flex-col gap-1"}>
-                                        <div
+                                        <button
+                                            type={"button"}
+                                            onClick={() => toggleGroup(server)}
                                             className={
-                                                "flex items-center gap-1.5 text-[10px] text-gray-400"
+                                                "flex items-center gap-1.5 text-[10px] text-gray-400 transition-colors hover:text-foreground"
                                             }
                                         >
                                             {entries[0].logoDomain && (
@@ -243,23 +251,35 @@ export default function Toolbox({
                                                 />
                                             )}
                                             <span className={"truncate"}>{server}</span>
-                                        </div>
-                                        {allTools.map((entry) => (
-                                            <Chip
-                                                key={entry.key}
-                                                entry={entry}
-                                                enabled
-                                                borderL={styles.borderL}
-                                                onSpawnStart={onSpawnStart}
-                                            />
-                                        ))}
-                                        {tools.length > 0 && (
+                                            <span
+                                                className={"ml-auto inline-block w-2 shrink-0 text-center text-xs leading-none"}
+                                            >
+                                                {collapsed ? "▸" : "▾"}
+                                            </span>
+                                        </button>
+                                        {!collapsed && allTools.length > 0 && (
                                             <div className={"grid grid-cols-3 gap-1"}>
+                                                {allTools.map((entry) => (
+                                                    <div
+                                                        key={entry.key}
+                                                        className={"col-start-2"}
+                                                    >
+                                                        <McpToolChip
+                                                            entry={entry}
+                                                            onSpawnStart={onSpawnStart}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {!collapsed && tools.length > 0 && (
+                                            <div className={"grid grid-cols-4 gap-1"}>
                                                 {tools.map((entry) => (
                                                     <McpToolChip
                                                         key={entry.key}
                                                         entry={entry}
                                                         onSpawnStart={onSpawnStart}
+                                                        compact
                                                     />
                                                 ))}
                                             </div>
@@ -334,7 +354,7 @@ export default function Toolbox({
                             <Chip
                                 key={entry.key}
                                 entry={entry}
-                                enabled={!(entry.key === "start" && hasStart)}
+                                enabled={true}
                                 borderL={styles.borderL}
                                 onSpawnStart={onSpawnStart}
                             />

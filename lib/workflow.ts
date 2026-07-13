@@ -2,6 +2,7 @@
 // connection rules. Shared by the designer canvas and server actions.
 
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
+import { isValidCron } from "@/lib/cron";
 import {
     INTEGRATION_PREFIX,
     INTEGRATIONS,
@@ -130,9 +131,20 @@ const v = valuePort;
 const text = (id: string, label = id): ConfigField => ({ id, label, input: "text" });
 
 export const CATALOG: CatalogEntry[] = [
-    // events — workflow entry points
+    // events — workflow entry points. Each is a trigger: a scheduled tick, and
+    // (future) a Discord mention etc. Entry resolution keys off the category,
+    // not the type string, so new events need no interpreter/designer change.
     {
-        key: "start", category: "events", label: "start",
+        key: "schedule", category: "events", label: "scheduled to run", emoji: "⏰",
+        // cron is authored via the designer's cron popover (node.tsx event
+        // branch), not this inline field — the field just declares the config key
+        inputs: [], outputs: [flowOut],
+        config: [{ id: "cron", label: "schedule", input: "text", default: "0 9 * * *" }],
+    },
+    // legacy entry point — hidden from the toolbox, still resolves so graphs
+    // saved before the events framework keep running (treated as an event node)
+    {
+        key: "start", category: "events", label: "start", legacy: true,
         inputs: [], outputs: [flowOut],
     },
     // logic — control flow + boolean ops
@@ -353,7 +365,6 @@ export function isWorkflowGraph(g: unknown): g is WorkflowGraph {
     if (!isRecord(g) || !Array.isArray(g.nodes) || !Array.isArray(g.edges)) return false;
 
     const nodeIds = new Set<string>();
-    let startCount = 0;
     for (const n of g.nodes) {
         if (!isRecord(n)) return false;
         if (typeof n.id !== "string" || nodeIds.has(n.id)) return false;
@@ -362,7 +373,7 @@ export function isWorkflowGraph(g: unknown): g is WorkflowGraph {
         // placeholders (user registry entries resolve per-owner at read time,
         // and removed static catalog entries must not brick saved graphs)
         if (typeof n.type !== "string" || n.type.length > MAX_NODE_TYPE_LENGTH) return false;
-        if (n.type === "start" && ++startCount > 1) return false;
+        // multiple event nodes are valid — each is an independent entry point
         if (typeof n.x !== "number" || !Number.isFinite(n.x)) return false;
         if (typeof n.y !== "number" || !Number.isFinite(n.y)) return false;
         if (!isRecord(n.config)) return false;
@@ -442,7 +453,7 @@ export function canConnect(
 // (bad ports, kind mismatches, duplicate edges, fan-in on single-edge value
 // inputs, a chip wired into a mismatched accepts port); warnings are
 // legal-but-probably-unintended states (unknown node types resolve as inert
-// "(deleted)" placeholders, missing start node means the workflow never runs,
+// "(deleted)" placeholders, no event node means the workflow never triggers,
 // a chip output wired into an ordinary value input grants nothing).
 export function validateGraphStrict(
     graph: WorkflowGraph,
@@ -462,8 +473,20 @@ export function validateGraphStrict(
             );
         }
     }
-    if (!graph.nodes.some((n) => n.type === "start")) {
-        warnings.push("no start node — the workflow can never run");
+    // entry points are event-category nodes (schedule, legacy start, future
+    // events); without one nothing can trigger the graph
+    const isEvent = (node: WorkflowNode) => known(node)?.category === "events";
+    if (!graph.nodes.some(isEvent)) {
+        warnings.push("no event node — add a 'scheduled to run' block so the workflow can trigger");
+    }
+    // a schedule node with a blank/invalid cron never fires
+    for (const node of graph.nodes) {
+        if (node.type !== "schedule") continue;
+        const cron = (node.config.cron ?? "").trim();
+        if (!cron) warnings.push(`schedule node "${node.id}" has no cron — it will never fire`);
+        else if (!isValidCron(cron)) {
+            warnings.push(`schedule node "${node.id}" has an invalid cron "${cron}" — it will never fire`);
+        }
     }
 
     const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));

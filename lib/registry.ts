@@ -2,6 +2,7 @@
 // (registry_entry table). Rows convert to workflow CatalogEntry nodes
 // keyed "mcp:<uuid>" / "skill:<uuid>" so the designer can render them.
 // Client-safe (no pg import) — the DB query lives in lib/registry.server.ts.
+import { ALL_TOOLS } from "@/lib/agent";
 import {
     type CatalogEntry,
     flowIn,
@@ -140,11 +141,33 @@ function toToolEntry(row: RegistryEntryRow, tool: McpTool): CatalogEntry | null 
     };
 }
 
+// the "general MCP server" grant chip (key "mcp:<uuid>:*"): a single chip
+// that grants an agent every enabled + callable tool of the server, instead
+// of one chip per tool. Renders/connects exactly like a per-tool chip
+// (category "mcp" + a toolName), but its sentinel toolName expands
+// server-side in executeAgentTurn.
+function toServerAllToolsEntry(row: RegistryEntryRow): CatalogEntry {
+    return {
+        key: `mcp:${row.id}:${ALL_TOOLS}`,
+        category: "mcp",
+        label: "All tools",
+        group: row.name,
+        logoDomain: faviconDomain(row.server_url),
+        toolName: ALL_TOOLS,
+        inputs: [],
+        outputs: [valuePort("tool")],
+    };
+}
+
 export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
     rows.flatMap((row) => {
         if (row.kind === "skill") return [toCatalogEntry(row)];
-        const toolEntries = row.tools
-            .filter((t) => t.enabled)
-            .flatMap((t) => toToolEntry(row, t) ?? []);
-        return [...toolEntries, { ...toCatalogEntry(row), legacy: true }];
+        // guard the sentinel: a real tool literally named "*" would collide
+        // with the general-server chip's key, so it never becomes a chip
+        const enabled = row.tools.filter((t) => t.enabled && t.name !== ALL_TOOLS);
+        const toolEntries = enabled.flatMap((t) => toToolEntry(row, t) ?? []);
+        // the general node is redundant for a single-tool server, so only
+        // offer it once there are 2+ enabled tools; sorts first in the group
+        const allTools = enabled.length >= 2 ? [toServerAllToolsEntry(row)] : [];
+        return [...allTools, ...toolEntries, { ...toCatalogEntry(row), legacy: true }];
     });

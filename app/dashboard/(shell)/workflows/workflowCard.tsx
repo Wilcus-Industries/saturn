@@ -1,6 +1,5 @@
 import Link from "next/link";
 import DeleteWorkflowButton from "@/app/dashboard/deleteWorkflowButton";
-import { describeCron } from "@/lib/cron";
 import type { WorkflowRow } from "@/lib/workflow";
 import ActiveToggle from "./activeToggle";
 import WorkflowModal from "./workflowModal";
@@ -31,7 +30,7 @@ export default function WorkflowCard({
     workflow,
     lastRun,
 }: {
-    workflow: Pick<WorkflowRow, "id" | "name" | "emoji" | "description" | "cron" | "active">;
+    workflow: Pick<WorkflowRow, "id" | "name" | "emoji" | "description" | "active">;
     lastRun: LastRun | null;
 }) {
     return (
@@ -51,13 +50,6 @@ export default function WorkflowCard({
                 <p className={"text-sm text-gray-400 line-clamp-2"}>{workflow.description}</p>
             )}
             <div className={"flex flex-wrap items-center gap-2"}>
-                {/* dimmed when inactive — the schedule isn't in effect */}
-                <span
-                    className={`rounded-full border border-foreground/15 px-3 py-1 font-mono
-                        text-xs text-gray-400 ${workflow.active ? "" : "opacity-50"}`}
-                >
-                    {describeCron(workflow.cron)}
-                </span>
                 {/* z-10 keeps the chip clickable above the card's stretched link */}
                 <Link
                     href={`/dashboard/workflows/${workflow.id}/runs`}

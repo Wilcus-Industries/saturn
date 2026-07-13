@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { describeCron } from "@/lib/cron";
 
 type Frequency = "minutes" | "hourly" | "daily" | "weekly" | "monthly";
@@ -9,6 +9,14 @@ const FREQUENCIES: Frequency[] = ["minutes", "hourly", "daily", "weekly", "month
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 // "minutes" intervals the builder offers; 1 emits "* * * * *", n emits "*/n * * * *"
 const EVERY_OPTIONS = [1, 5, 10, 15, 30];
+// the shortest interval (minutes) each frequency can fire, for the tier floor cap
+const FREQUENCY_MIN: Record<Frequency, number> = {
+    minutes: 1,
+    hourly: 60,
+    daily: 60 * 24,
+    weekly: 60 * 24 * 7,
+    monthly: 60 * 24 * 28,
+};
 
 const range = (length: number, start = 0) => Array.from({ length }, (_, i) => i + start);
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -64,8 +72,21 @@ function parseCron(cron: string | undefined): BuilderState {
     return DEFAULT_STATE;
 }
 
-// visual builder for the cron shapes describeCron understands
-export default function CronBuilder({ initial }: { initial?: string }) {
+// visual builder for the cron shapes describeCron understands. In the designer
+// it runs in callback mode (onChange writes the node config); floorMinutes caps
+// the offered intervals to the user's tier cron floor. The form-field path
+// (hidden input) is kept for any <form> consumer.
+export default function CronBuilder({
+    initial,
+    onChange,
+    floorMinutes,
+    name = "cron",
+}: {
+    initial?: string;
+    onChange?: (cron: string) => void;
+    floorMinutes?: number;
+    name?: string;
+}) {
     const [start] = useState(() => parseCron(initial));
     const [frequency, setFrequency] = useState<Frequency>(start.frequency);
     const [every, setEvery] = useState(start.every);
@@ -81,6 +102,26 @@ export default function CronBuilder({ initial }: { initial?: string }) {
         : frequency === "weekly" ? `${minute} ${hour} * * ${dayOfWeek}`
         : `${minute} ${hour} ${dayOfMonth} * *`;
 
+    // report the current expression to a callback consumer on every change
+    useEffect(() => {
+        onChange?.(cron);
+    }, [cron, onChange]);
+
+    // tier floor cap: hide frequencies/intervals below the floor, but always
+    // keep the CURRENT selection visible (a downgraded user may hold a tighter
+    // grandfathered cron — the runner clamps it, the picker just can't tighten).
+    // The current `every` is preserved only when "minutes" is actually selected,
+    // so a default every=5 on a daily node can't reopen sub-floor intervals.
+    const floor = floorMinutes ?? 1;
+    const everyOptions = EVERY_OPTIONS.filter(
+        (n) => n >= floor || (frequency === "minutes" && n === every),
+    );
+    const frequencies = FREQUENCIES.filter(
+        (f) =>
+            f === frequency ||
+            (f === "minutes" ? EVERY_OPTIONS.some((n) => n >= floor) : FREQUENCY_MIN[f] >= floor),
+    );
+
     return (
         <div className={"flex flex-col gap-2"}>
             <div className={"flex flex-wrap gap-2"}>
@@ -90,7 +131,7 @@ export default function CronBuilder({ initial }: { initial?: string }) {
                     aria-label={"frequency"}
                     className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                 >
-                    {FREQUENCIES.map((f) => (
+                    {frequencies.map((f) => (
                         <option key={f} value={f}>{f}</option>
                     ))}
                 </select>
@@ -102,7 +143,7 @@ export default function CronBuilder({ initial }: { initial?: string }) {
                         aria-label={"interval"}
                         className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                     >
-                        {EVERY_OPTIONS.map((n) => (
+                        {everyOptions.map((n) => (
                             <option key={n} value={n}>
                                 {n === 1 ? "every minute" : `every ${n} minutes`}
                             </option>
@@ -164,7 +205,7 @@ export default function CronBuilder({ initial }: { initial?: string }) {
             </div>
 
             <p className={"font-mono text-xs text-gray-400"}>{describeCron(cron)} — times are UTC</p>
-            <input type={"hidden"} name={"cron"} value={cron} />
+            <input type={"hidden"} name={name} value={cron} />
         </div>
     );
 }

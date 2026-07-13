@@ -1,5 +1,4 @@
 import { auth } from "@/lib/auth";
-import { cronMinIntervalMinutes } from "@/lib/cron";
 import { db } from "@/lib/db";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -22,10 +21,12 @@ export const isPaidPlan = (p: string): p is PaidPlan =>
 
 export const baseUrl = process.env.BETTER_AUTH_URL as string;
 
-// per-tier platform limits — the value metric paid tiers charge for. Enforced
-// in server actions (createWorkflow, saveMcpServer); tierCard.tsx copy must
-// stay in sync with these numbers. cronFloorMinutes is the tightest cron
-// schedule a tier may run (free hourly, pro every 5 min, max every minute).
+// per-tier platform limits — the value metric paid tiers charge for. Workflow/
+// MCP caps are enforced in server actions (createWorkflow, saveMcpServer);
+// tierCard.tsx copy must stay in sync with these numbers. cronFloorMinutes is
+// the tightest cron schedule a tier may run (free hourly, pro every 5 min, max
+// every minute) — enforced by the designer's cron picker cap and the runner's
+// run-time claim-guard clamp (lib/runner.server.ts), not at metadata save.
 // modelCredits is the built-in model allowance (1,000 credits = $1 of model
 // cost; spent via lib/credits.server.ts) — per Stripe billing period on paid
 // tiers, rolling 30-day window on free. Only an explicitly activated level
@@ -42,20 +43,6 @@ export const PLAN_LIMITS = {
 
 // not-yet-activated users get free limits
 export const limitsFor = (level: ActivationLevel | null) => PLAN_LIMITS[level ?? "free"];
-
-const floorLabel = (m: number) =>
-    m === 1 ? "every minute" : m === 60 ? "hourly" : `every ${m} minutes`;
-
-// tier cron floor — schedules tighter than the plan allows are rejected at save.
-// Shared by the workflow server actions and the MCP server tools.
-export function assertCronFloor(cron: string, level: ActivationLevel | null) {
-    const floor = limitsFor(level).cronFloorMinutes;
-    if (cronMinIntervalMinutes(cron) < floor) {
-        throw new Error(
-            `Your plan allows schedules down to ${floorLabel(floor)} — upgrade for tighter schedules`,
-        );
-    }
-}
 
 const NONE: Activation = { level: null, status: null, pendingCancel: false, periodEnd: null };
 

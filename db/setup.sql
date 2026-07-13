@@ -8,7 +8,7 @@ create table if not exists workflow (
     name        text not null,
     emoji       text not null default '⚙️',
     description text not null default '',
-    cron        text not null,
+    cron        text,  -- vestigial: the schedule now lives in a "schedule" event node's config.cron
     graph       jsonb not null default '{"nodes":[],"edges":[]}',
     active      boolean not null default true, -- gates scheduled runs only; manual runs ignore it
     last_run_at timestamptz,
@@ -19,6 +19,8 @@ create index if not exists workflow_user_id_idx on workflow (user_id);
 -- added after initial rollout; keeps existing tables in sync with the create above
 alter table workflow add column if not exists last_run_at timestamptz;
 alter table workflow add column if not exists active boolean not null default true;
+-- schedule moved into the graph's "schedule" event node; the column is now unused
+alter table workflow alter column cron drop not null;
 
 -- execution history for scheduled/test runs; retention capped in code (lib/runner.server.ts)
 create table if not exists workflow_run (

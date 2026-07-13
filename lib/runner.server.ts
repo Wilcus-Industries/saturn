@@ -4,7 +4,13 @@
 // checks live here — graph/agent-derived input is untrusted even
 // server-side; shape validation of browser-built transcripts stays in the
 // actions.
-import { type AgentModelResult, MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS, type McpCallResult } from "@/lib/agent";
+import {
+    type AgentModelResult,
+    isAllToolsRef,
+    MAX_GRANTED_SKILLS,
+    MAX_GRANTED_TOOLS,
+    type McpCallResult,
+} from "@/lib/agent";
 import { type AgentToolSpec, chatComplete } from "@/lib/agent.server";
 import { cronMatches } from "@/lib/cron";
 import { db } from "@/lib/db";
@@ -111,10 +117,29 @@ export async function executeAgentTurn(
     // mismatch instead of silently dropping (a granted-but-unavailable tool
     // is a misconfiguration the user must see, not something the model
     // should hallucinate around). executeMcpTool re-checks at execution time.
+    // A general-server chip (isAllToolsRef) is the exception: it expands to
+    // the server's every enabled + callable tool, silently skipping off or
+    // write-mismatched ones — "all the tools that are usable", never an error.
     const registry = await getUserRegistry(userId);
     const specs: AgentToolSpec[] = [];
+    const seen = new Set<string>(); // "<entryId>:<toolName>" — dedupe across chips
     for (const ref of req.tools) {
         const row = registry.find((r) => r.id === ref.entryId && r.kind === "mcp");
+        if (isAllToolsRef(ref)) {
+            if (!row) return { error: "MCP server not found" };
+            for (const tool of row.tools) {
+                if (!tool.enabled || !canCallTool(tool)) continue;
+                const key = `${ref.entryId}:${tool.name}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                specs.push({
+                    ref: { entryId: ref.entryId, toolName: tool.name },
+                    description: tool.description,
+                    params: tool.params,
+                });
+            }
+            continue;
+        }
         const tool = row?.tools.find((t) => t.name === ref.toolName);
         if (!tool?.enabled) return { error: `tool "${ref.toolName}" is not enabled` };
         if (!canCallTool(tool)) {
@@ -122,8 +147,13 @@ export async function executeAgentTurn(
                 error: `the server declares "${ref.toolName}" write-capable but it's granted read-only — allow read+write in settings`,
             };
         }
+        const key = `${ref.entryId}:${ref.toolName}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         specs.push({ ref, description: tool.description, params: tool.params });
     }
+    // a general-server chip is one edge but expands past the grant cap
+    if (specs.length > MAX_GRANTED_TOOLS) specs.length = MAX_GRANTED_TOOLS;
 
     let system = req.system;
     for (const id of req.skillIds) {
@@ -221,16 +251,17 @@ export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
           where status = 'running' and started_at < now() - interval '10 minutes'`,
     );
 
-    // light candidate select — no graph payload yet; the jsonb containment
-    // check drops graphs that could never run (no start node)
-    const { rows: candidates } = await db.query<{ id: string; user_id: string; cron: string }>(
-        `select id, user_id, cron from workflow
+    // candidate select — the jsonb containment check drops graphs that could
+    // never run on a schedule (no schedule node). Cron now lives in each
+    // schedule node's config, so we load the graph to read it.
+    const { rows: candidates } = await db.query<{ id: string; user_id: string; graph: WorkflowGraph }>(
+        `select id, user_id, graph from workflow
           where active
-            and graph->'nodes' @> '[{"type":"start"}]'`,
+            and graph->'nodes' @> '[{"type":"schedule"}]'`,
     );
 
     const now = new Date();
-    const matched = candidates.filter((c) => cronMatches(c.cron, now));
+    const matched = candidates.filter((c) => matchingScheduleNodeIds(c.graph, now).length > 0);
     if (matched.length === 0) return { due: 0, ran: 0 };
     const toClaim = matched.slice(0, MAX_RUNS_PER_TICK);
 
@@ -260,15 +291,26 @@ export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
     }
 
     // runOne never rejects, but allSettled keeps one pathological failure
-    // from ever sinking its siblings
-    await Promise.allSettled(claimed.map((wf) => runOne(wf)));
+    // from ever sinking its siblings. Fire only the schedule nodes matching
+    // this minute (recomputed from the claimed graph).
+    await Promise.allSettled(
+        claimed.map((wf) => runOne(wf, matchingScheduleNodeIds(wf.graph, now))),
+    );
     return { due: matched.length, ran: claimed.length };
+}
+
+// schedule nodes whose config.cron fires at `at` — the entry points a cron
+// tick should trigger (a workflow may hold several with different crons)
+function matchingScheduleNodeIds(graph: WorkflowGraph, at: Date): string[] {
+    return graph.nodes
+        .filter((n) => n.type === "schedule" && cronMatches((n.config.cron ?? "").trim(), at))
+        .map((n) => n.id);
 }
 
 // executes one claimed workflow and persists its workflow_run row. Catches
 // everything — nothing may reject out of the tick.
-async function runOne(wf: ClaimedWorkflow): Promise<void> {
-    await executeWorkflowRun(wf, { trigger: "cron" });
+async function runOne(wf: ClaimedWorkflow, entryNodeIds: string[]): Promise<void> {
+    await executeWorkflowRun(wf, { trigger: "cron", entryNodeIds });
 }
 
 export type WorkflowRunResult = {
@@ -284,7 +326,7 @@ export type WorkflowRunResult = {
 // server's run_workflow tool (trigger 'manual') both consume errors as values.
 export async function executeWorkflowRun(
     wf: { id: string; user_id: string; graph: WorkflowGraph },
-    opts: { trigger: "cron" | "manual"; timeoutMs?: number },
+    opts: { trigger: "cron" | "manual"; timeoutMs?: number; entryNodeIds?: string[] },
 ): Promise<WorkflowRunResult> {
     const timeoutMs = Math.min(opts.timeoutMs ?? RUN_TIMEOUT_MS, RUN_TIMEOUT_MS);
     let runId: string;
@@ -347,7 +389,7 @@ export async function executeWorkflowRun(
                     executeIntegration(wf.user_id, providerId, config, message),
                 callAgent: (req) => executeAgentTurn(wf.user_id, req, opts.trigger),
                 signal: controller.signal,
-            });
+            }, { entryNodeIds: opts.entryNodeIds });
         } catch (err) {
             thrown = err instanceof Error ? err.message : "run failed";
         } finally {
@@ -356,7 +398,7 @@ export async function executeWorkflowRun(
 
         if (dropped > 0) log.push({ kind: "info", text: `(${dropped} lines truncated)` });
 
-        // the interpreter *returns* after emitting "no start node"/"run
+        // the interpreter *returns* after emitting "no event node"/"run
         // aborted" error lines, so sawError (not just throw/abort) decides
         const failed = thrown !== null || controller.signal.aborted || sawError;
         const status = failed ? "error" : "success";

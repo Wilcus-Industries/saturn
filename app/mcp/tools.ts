@@ -5,13 +5,12 @@
 // failures return as isError results, never as JSON-RPC errors.
 
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
-import { describeCron, isValidCron } from "@/lib/cron";
 import { db } from "@/lib/db";
 import type { ConsoleLine } from "@/lib/interpreter";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import { executeWorkflowRun, UUID } from "@/lib/runner.server";
-import { assertCronFloor, baseUrl, getActivationLevels, limitsFor } from "@/lib/subscription";
+import { baseUrl, getActivationLevels, limitsFor } from "@/lib/subscription";
 import {
     CATALOG_BY_KEY,
     type CatalogEntry,
@@ -50,7 +49,7 @@ const GRAPH_SCHEMA: JsonSchema = {
 export const TOOL_DEFS: ToolDef[] = [
     {
         name: "list_workflows",
-        description: "List the user's workflows: id, name, emoji, description, cron schedule (with a human-readable summary), active flag, node count and last run time.",
+        description: "List the user's workflows: id, name, emoji, description, active flag, node count and last run time. The schedule lives inside the graph (a 'schedule' event node) — fetch it with get_workflow.",
         inputSchema: obj({}),
     },
     {
@@ -61,30 +60,28 @@ export const TOOL_DEFS: ToolDef[] = [
     {
         name: "create_workflow",
         description:
-            'Create a workflow. cron is a 5-field UTC expression where each field is "*" or a plain integer; "*/n" (n 2-30) is allowed in the minute field only — no ranges or lists. Examples: "0 9 * * *" daily 09:00 UTC, "*/5 * * * *" every 5 minutes. The account tier caps how many workflows can exist and how tight the schedule may be. The workflow starts with an empty graph — author it with save_graph.',
+            "Create a workflow. It starts with an empty graph — author it with save_graph. To run on a schedule, add a 'schedule' event node (its config.cron is a 5-field UTC expression) and wire its flow output onward; the account tier caps how many workflows can exist and how tight the schedule may be.",
         inputSchema: obj(
             {
                 name: str("Workflow name"),
-                cron: str('5-field cron, e.g. "0 * * * *" for hourly'),
                 emoji: str("Single emoji icon (optional, default ⚙️)"),
                 description: str("Short description (optional)"),
             },
-            ["name", "cron"],
+            ["name"],
         ),
     },
     {
         name: "update_workflow",
-        description: "Update workflow metadata (name, emoji, description, cron, active). Only provided fields change; the graph is untouched (use save_graph for that).",
+        description: "Update workflow metadata (name, emoji, description, active). The schedule lives in the graph's 'schedule' node — change it with save_graph. active gates whether any events fire.",
         inputSchema: obj(
             {
                 id: str("Workflow id (uuid)"),
                 name: str("New name"),
                 emoji: str("New emoji"),
                 description: str("New description"),
-                cron: str("New 5-field cron expression"),
                 active: {
                     type: "boolean",
-                    description: "true = scheduled runs enabled, false = paused (manual runs still work)",
+                    description: "true = events fire (scheduled runs enabled), false = paused (manual runs still work)",
                 },
             },
             ["id"],
@@ -103,7 +100,7 @@ export const TOOL_DEFS: ToolDef[] = [
     },
     {
         name: "validate_graph",
-        description: "Dry-run validation of a graph without saving: structural errors (bad ports, kind mismatches, duplicate edges, fan-in on single-edge value inputs) and warnings (unknown node types, missing start node, unresolvable agent grants).",
+        description: "Dry-run validation of a graph without saving: structural errors (bad ports, kind mismatches, duplicate edges, fan-in on single-edge value inputs) and warnings (unknown node types, no event node, blank/invalid schedule cron, unresolvable agent grants).",
         inputSchema: obj({ graph: GRAPH_SCHEMA }, ["graph"]),
     },
     {
@@ -114,7 +111,7 @@ export const TOOL_DEFS: ToolDef[] = [
     {
         name: "run_workflow",
         description:
-            "Execute a workflow now, server-side, exactly like a scheduled run (real MCP tool calls, real model calls) and return the console log. The run is recorded in the workflow's run history with trigger 'manual'. Requires a start node.",
+            "Execute a workflow now, server-side, exactly like a scheduled run (real MCP tool calls, real model calls) and return the console log. Fires every event node in the graph. The run is recorded in the workflow's run history with trigger 'manual'. Requires an event node.",
         inputSchema: obj(
             {
                 id: str("Workflow id (uuid)"),
@@ -160,16 +157,17 @@ Edge: {"id": "<unique string>", "from": {"nodeId", "portId"}, "to": {"nodeId", "
 ## Ports
 - flow ports sequence execution. A flow output may fan out into several edges: the branches run CONCURRENTLY.
 - value ports carry data (always strings; JSON for structured data). A value input accepts exactly ONE incoming edge — except ports marked "multi" (only await.values).
-- Every runnable graph needs exactly one "start" node; execution follows flow edges from it.
+- A graph triggers from event nodes (category "events"). The main one is "schedule" — its config.cron (5-field UTC expression: each field "*" or a plain integer, "*/n" with n 2-30 in the minute field only, e.g. "0 9 * * *" daily 09:00, "*/5 * * * *" every 5 min) sets when it fires. A graph may hold several event nodes; each is an independent entry point and execution follows flow edges from it. No event node ⇒ the workflow never triggers (a manual run_workflow still fires all event nodes).
 
 ## Config vs ports
 Config fields hold literal strings. A field with "overriddenBy" is ignored when its named input port is connected. Numbers/booleans are written as strings.
 
 ## Built-in nodes
-- start: entry point. if: routes flow to true/false comparing the left ("l") vs right ("r") operand value ports (config.operator). loop: runs body once per item of the JSON array on items, then done; item carries the current element. and/or/not: boolean values. string: emits config.value verbatim on its "out" value output. number: emits config.value coerced to a number ("out"). print: logs config.message or the value port. extract: pulls a field out of a JSON value via config.path, dot-separated with numeric array indices ("data.results.0.price"). await: join barrier for parallel branches — continues when ALL incoming flow edges arrive; results = JSON array of its values edges (multi port), in edge order. model: emits config.model (an OpenRouter model id) on its "model" value output — connect it to an agent's model input.
+- schedule: scheduled entry point (config.cron, see above). if: routes flow to true/false comparing the left ("l") vs right ("r") operand value ports (config.operator). loop: runs body once per item of the JSON array on items, then done; item carries the current element. and/or/not: boolean values. string: emits config.value verbatim on its "out" value output. number: emits config.value coerced to a number ("out"). print: logs config.message or the value port. extract: pulls a field out of a JSON value via config.path, dot-separated with numeric array indices ("data.results.0.price"). await: join barrier for parallel branches — continues when ALL incoming flow edges arrive; results = JSON array of its values edges (multi port), in edge order. model: emits config.model (an OpenRouter model id) on its "model" value output — connect it to an agent's model input.
 
 ## MCP tool nodes (keys "mcp:<entryId>:<toolName>") and skill nodes (keys "skill:<uuid>")
 Grant chips — one MCP tool node per registered tool, one skill node per skill. They have NO flow ports and are NOT executable on their own: an MCP tool node has a single value output "tool", a skill node a single value output "skill". That output connects nowhere except an agent's matching grant port ("tool" → agent "tools", "skill" → agent "skills"); wiring it there grants the agent that tool/skill. Chips are never run or evaluated as values — the grant resolves statically from the node type. MCP tools therefore run only through agents.
+A server with 2+ enabled tools also exposes a general-server chip keyed "mcp:<entryId>:*" (labelled "All tools"): connect its "tool" output to an agent's "tools" port to grant every usable tool of that server at once (expanded server-side to its enabled tools that pass the read/write gate; off or write-mismatched tools are skipped). Prefer it over wiring many individual tool chips from the same server.
 
 ## Agent node (type "agent")
 LLM loop over built-in model credits (paid plans) with the user's OpenRouter key as fallback. Inputs: flow in; prompt (value); system (value, usually from a "string" node — config.system is a legacy fallback honored only when the port is unconnected); model (value, usually from a "model" node — config.model is a legacy fallback likewise); tools (value, multi — accepts ONLY MCP tool node outputs); skills (value, multi — accepts ONLY skill node outputs). Config: only output ("text" | "image" — image works only on models whose OpenRouter output modalities include image; any other value runs as text; image mode ignores tool grants and returns the first generated image). Grants come from the connected chips: at most ${MAX_GRANTED_TOOLS} tools and ${MAX_GRANTED_SKILLS} skills, resolved from each chip's node type; the agent may call granted tools itself during its loop. Output "result" carries the final text, or a data:image/… URL when output=image.
@@ -223,7 +221,7 @@ function checkGraph(
     if (!isWorkflowGraph(graph)) {
         return {
             reject:
-                "invalid graph shape — needs {nodes, edges} with unique string node ids, at most one start node, numeric x/y, string-valued config, and edges anchored to existing nodes",
+                "invalid graph shape — needs {nodes, edges} with unique string node ids, numeric x/y, string-valued config, and edges anchored to existing nodes",
         };
     }
     if (graph.nodes.length > MAX_NODES) return { reject: `too many nodes (max ${MAX_NODES})` };
@@ -250,12 +248,11 @@ export async function dispatchTool(
                 name: string;
                 emoji: string;
                 description: string;
-                cron: string;
                 active: boolean;
                 node_count: number;
                 last_run_at: Date | null;
             }>(
-                `select id, name, emoji, description, cron, active,
+                `select id, name, emoji, description, active,
                         jsonb_array_length(graph->'nodes') as node_count, last_run_at
                    from workflow where user_id = $1 order by created_at desc`,
                 [userId],
@@ -266,8 +263,6 @@ export async function dispatchTool(
                     name: r.name,
                     emoji: r.emoji,
                     description: r.description,
-                    cron: r.cron,
-                    schedule: describeCron(r.cron),
                     active: r.active,
                     nodeCount: r.node_count,
                     lastRunAt: r.last_run_at,
@@ -279,30 +274,21 @@ export async function dispatchTool(
             const id = asId(args.id);
             if (!id) return fail("invalid workflow id");
             const { rows } = await db.query(
-                `select id, name, emoji, description, cron, active, graph, last_run_at, created_at, updated_at
+                `select id, name, emoji, description, active, graph, last_run_at, created_at, updated_at
                    from workflow where id = $1 and user_id = $2`,
                 [id, userId],
             );
             if (!rows[0]) return fail("workflow not found");
-            return ok({ ...rows[0], schedule: describeCron(rows[0].cron) });
+            return ok(rows[0]);
         }
 
         case "create_workflow": {
             const wfName = typeof args.name === "string" ? args.name.trim() : "";
             if (!wfName) return fail("name is required");
-            const cron = typeof args.cron === "string" ? args.cron.trim() : "";
-            if (!isValidCron(cron)) {
-                return fail('invalid cron expression — 5 fields, each "*" or an integer, "*/n" in the minute field only');
-            }
             const emoji = typeof args.emoji === "string" && args.emoji.trim() ? args.emoji.trim() : "⚙️";
             const description = typeof args.description === "string" ? args.description.trim() : "";
 
             const level = await tierFor(userId);
-            try {
-                assertCronFloor(cron, level);
-            } catch (err) {
-                return fail(err instanceof Error ? err.message : "schedule not allowed");
-            }
             const cap = limitsFor(level).workflows;
             const { rows: countRows } = await db.query<{ count: string }>(
                 "select count(*) from workflow where user_id = $1",
@@ -313,14 +299,14 @@ export async function dispatchTool(
             }
 
             const { rows } = await db.query<{ id: string }>(
-                `insert into workflow (user_id, name, emoji, description, cron)
-                 values ($1, $2, $3, $4, $5) returning id`,
-                [userId, wfName, emoji, description, cron],
+                `insert into workflow (user_id, name, emoji, description)
+                 values ($1, $2, $3, $4) returning id`,
+                [userId, wfName, emoji, description],
             );
             return ok({
                 id: rows[0].id,
                 url: `${baseUrl}/dashboard/workflows/${rows[0].id}`,
-                note: "the graph is empty — author it with save_graph (see get_catalog first)",
+                note: "the graph is empty — author it with save_graph (add a 'schedule' event node to run on a schedule; see get_catalog first)",
             });
         }
 
@@ -345,21 +331,11 @@ export async function dispatchTool(
             if (args.description !== undefined && typeof args.description === "string") {
                 push("description", args.description.trim());
             }
-            if (args.cron !== undefined) {
-                const cron = typeof args.cron === "string" ? args.cron.trim() : "";
-                if (!isValidCron(cron)) return fail("invalid cron expression");
-                try {
-                    assertCronFloor(cron, await tierFor(userId));
-                } catch (err) {
-                    return fail(err instanceof Error ? err.message : "schedule not allowed");
-                }
-                push("cron", cron);
-            }
             if (args.active !== undefined) {
                 if (typeof args.active !== "boolean") return fail("active must be a boolean");
                 push("active", args.active);
             }
-            if (sets.length === 0) return fail("nothing to update — pass name, emoji, description, cron or active");
+            if (sets.length === 0) return fail("nothing to update — pass name, emoji, description or active");
 
             values.push(id, userId);
             const { rowCount } = await db.query(

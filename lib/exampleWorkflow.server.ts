@@ -1,13 +1,13 @@
 import { db } from "@/lib/db";
 import type { WorkflowGraph } from "@/lib/workflow";
 
-// Starter graph seeded for every new user: start → agent → print, with a
+// Starter graph seeded for every new user: schedule → agent → print, with a
 // string node feeding the system prompt, another feeding the prompt, and a
 // model node feeding the model port (system/prompt/model stacked left of the
 // agent). Static catalog nodes only — no user-registry dependency.
 const EXAMPLE_GRAPH: WorkflowGraph = {
     nodes: [
-        { id: "start", type: "start", x: 48, y: 96, config: {} },
+        { id: "start", type: "schedule", x: 48, y: 96, config: { cron: "0 9 * * *" } },
         {
             id: "system",
             type: "string",
@@ -58,14 +58,13 @@ const EXAMPLE_GRAPH: WorkflowGraph = {
 export async function seedExampleWorkflow(userId: string): Promise<void> {
     try {
         await db.query(
-            `insert into workflow (user_id, name, emoji, description, cron, graph, active)
-             values ($1, $2, $3, $4, $5, $6, false)`,
+            `insert into workflow (user_id, name, emoji, description, graph, active)
+             values ($1, $2, $3, $4, $5, false)`,
             [
                 userId,
                 "Daily haiku",
                 "🪐",
                 "Example workflow: an agent writes a haiku and prints it. Open it in the designer and press run, or switch it active to run daily at 09:00 UTC.",
-                "0 9 * * *",
                 JSON.stringify(EXAMPLE_GRAPH),
             ],
         );

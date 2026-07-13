@@ -145,6 +145,7 @@ export async function runWorkflow(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
     { emit, callMcp, callIntegration, callAgent, onValue, signal }: RunHooks,
+    opts: { entryNodeIds?: string[] } = {},
 ): Promise<void> {
     let steps = 0;
     let agentMcpCalls = 0;
@@ -538,7 +539,8 @@ export async function runWorkflow(
                     break;
                 }
                 case "start":
-                    next = "out"; // only reachable via a flow cycle
+                case "schedule":
+                    next = "out"; // event nodes: only reachable via a flow cycle
                     break;
                 case "agent": {
                     // anything other than "image" (incl. legacy "plan") runs as text
@@ -658,20 +660,33 @@ export async function runWorkflow(
         }
     }
 
-    const start = graph.nodes.find((n) => n.type === "start");
-    if (!start) {
-        emit({ kind: "error", text: "no start node — add one from the toolbox" });
+    // entry points: the explicit ids the trigger fired (a cron tick passes the
+    // matching schedule node), else every event-category node (legacy "start"
+    // included) — a manual/test run fires them all
+    const isEvent = (n: WorkflowNode) => byKey[n.type]?.category === "events";
+    const entries = opts.entryNodeIds
+        ? opts.entryNodeIds
+            .map((id) => graph.nodes.find((n) => n.id === id))
+            .filter((n): n is WorkflowNode => !!n)
+        : graph.nodes.filter(isEvent);
+    if (entries.length === 0) {
+        emit({ kind: "error", text: "no event node — add a 'scheduled to run' block from the toolbox" });
         return;
     }
 
     emit({ kind: "info", text: "▶ run started" });
-    try {
-        await execFrom(start.id, "out", new Set());
-    } catch (err) {
-        if (!(err instanceof RunAbort)) throw err;
-        // a user stop already printed "run stopped" — skip the extra line
-        if (!signal?.aborted) emit({ kind: "error", text: "run aborted" });
-        return;
+    // event nodes are independent entry points — run them concurrently, like a
+    // flow fan-out; the first RunAbort stops the run
+    const results = await Promise.allSettled(
+        entries.map((e) => execFrom(e.id, "out", new Set())),
+    );
+    for (const r of results) {
+        if (r.status === "rejected") {
+            if (!(r.reason instanceof RunAbort)) throw r.reason;
+            // a user stop already printed "run stopped" — skip the extra line
+            if (!signal?.aborted) emit({ kind: "error", text: "run aborted" });
+            return;
+        }
     }
     emit({ kind: "info", text: `run finished (${steps} steps)` });
 }

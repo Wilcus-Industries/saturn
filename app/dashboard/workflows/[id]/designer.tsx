@@ -47,7 +47,9 @@ import {
 } from "./geometry";
 import ModelLogo from "./modelLogo";
 import { graphReducer, initHistory } from "./graphReducer";
-import type { OpenPickerHandler, PortPointerDownHandler } from "./node";
+import type { OpenCronHandler, OpenPickerHandler, PortPointerDownHandler } from "./node";
+import CronPopover from "./cronPopover";
+import { describeCron } from "@/lib/cron";
 import PathPicker, { type PickerSample } from "./pathPicker";
 import Toolbox from "./toolbox";
 import Topbar from "./topbar";
@@ -98,11 +100,14 @@ export default function Designer({
     workflow,
     userCatalog,
     openrouterModels,
+    cronFloorMinutes,
 }: {
     workflow: WorkflowRow;
     userCatalog: CatalogEntry[];
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
+    // tightest schedule interval the owner's tier allows — caps the cron picker
+    cronFloorMinutes: number;
 }) {
     const [history, dispatch] = useReducer(graphReducer, workflow.graph, initHistory);
     const present = history.present;
@@ -147,6 +152,36 @@ export default function Designer({
     // deliberately never persisted
     const [consoleHeight, setConsoleHeight] = useState(160);
     const [running, setRunning] = useState(false);
+
+    // the test event runner: every event node is an independent entry point,
+    // labelled by its schedule (or the entry label for non-schedule events)
+    const events = useMemo(
+        () =>
+            present.nodes
+                .filter((n) => byKey[n.type]?.category === "events")
+                .map((n) => {
+                    const entry = byKey[n.type];
+                    const cron = (n.config.cron ?? "").trim();
+                    const label = entry?.config?.some((f) => f.id === "cron")
+                        ? cron
+                            ? describeCron(cron)
+                            : "not scheduled"
+                        : (entry?.label ?? n.type);
+                    return { id: n.id, label };
+                }),
+        [present.nodes, byKey],
+    );
+    const [selectedEventId, setSelectedEventId] = useState("");
+    // keep the selected event valid as the graph changes; default to the first
+    const [prevEventKey, setPrevEventKey] = useState("");
+    const eventKey = events.map((e) => e.id).join(",");
+    if (prevEventKey !== eventKey) {
+        setPrevEventKey(eventKey);
+        if (!events.some((e) => e.id === selectedEventId)) {
+            setSelectedEventId(events[0]?.id ?? "");
+        }
+    }
+
     // per-port values from the last test run, for the extract path picker.
     // A ref: nothing renders from these until a picker opens (which snapshots
     // what it needs). Never persisted — samples die with the page.
@@ -169,7 +204,7 @@ export default function Designer({
                 onValue: (nodeId, portId, text) =>
                     samplesRef.current.set(`${nodeId}:${portId}`, text),
                 signal: controller.signal,
-            });
+            }, { entryNodeIds: selectedEventId ? [selectedEventId] : undefined });
         } catch (err) {
             emit({ kind: "error", text: `run crashed: ${String(err)}` });
         } finally {
@@ -358,6 +393,32 @@ export default function Designer({
         setPicker(null);
     };
 
+    // schedule-node cron popover: `before` snapshots the graph so the whole
+    // editing session collapses into one undo step, committed on close
+    const [cronEdit, setCronEdit] = useState<{
+        nodeId: string;
+        anchor: { x: number; y: number };
+        initial: string;
+        before: WorkflowGraph;
+    } | null>(null);
+
+    const openCron: OpenCronHandler = useCallback((anchor, nodeId) => {
+        const graph = graphRef.current;
+        const node = graph.nodes.find((n) => n.id === nodeId);
+        setCronEdit({ nodeId, anchor, initial: node?.config.cron ?? "", before: graph });
+    }, []);
+
+    const handleCronChange = (cron: string) => {
+        setCronEdit((cur) => {
+            if (cur) dispatch({ type: "setConfig", nodeId: cur.nodeId, field: "cron", value: cron });
+            return cur;
+        });
+    };
+    const closeCron = () => {
+        if (cronEdit) dispatch({ type: "commitConfig", before: cronEdit.before });
+        setCronEdit(null);
+    };
+
     const [saving, startSaving] = useTransition();
     const save = () => {
         if (saving || !dirty) return;
@@ -419,13 +480,10 @@ export default function Designer({
         return () => window.removeEventListener("beforeunload", warn);
     }, [dirty]);
 
-    // Cmd/Ctrl+D: copies of the selected nodes (start excluded — the graph
-    // allows only one) plus the edges running between them, offset a grid
-    // cell, selected afterwards; one undo step
+    // Cmd/Ctrl+D: copies of the selected nodes plus the edges running between
+    // them, offset a grid cell, selected afterwards; one undo step
     const duplicateSelection = () => {
-        const copyable = present.nodes.filter(
-            (n) => selection.has(n.id) && n.type !== "start",
-        );
+        const copyable = present.nodes.filter((n) => selection.has(n.id));
         if (!copyable.length) return;
         const idMap = new Map(copyable.map((n) => [n.id, crypto.randomUUID()]));
         const nodes = copyable.map((n) => ({
@@ -489,7 +547,8 @@ export default function Designer({
                 dispatch({ type: "moveNodes", ids: [...selection], dx, dy });
                 dispatch({ type: "commitDrag", before });
             } else if (e.key === "Escape") {
-                if (picker) setPicker(null);
+                if (cronEdit) closeCron();
+                else if (picker) setPicker(null);
                 else if (pendingDrag) {
                     setPendingDrag(null);
                     setPendingPoint(null);
@@ -507,17 +566,18 @@ export default function Designer({
                 workflowId={workflow.id}
                 emoji={workflow.emoji}
                 name={workflow.name}
-                cron={workflow.cron}
                 dirty={dirty}
                 saving={saving}
                 error={error}
+                events={events}
+                selectedEventId={selectedEventId}
+                onSelectEvent={setSelectedEventId}
                 onRun={runGraph}
                 onStop={stopRun}
                 running={running}
             />
             <div className={"flex min-h-0 flex-1"}>
                 <Toolbox
-                    graph={present}
                     userCatalog={userCatalog}
                     openrouterModels={openrouterModels}
                     onSpawnStart={(key, x, y, preset) =>
@@ -538,6 +598,7 @@ export default function Designer({
                     modelReasoning={modelReasoning}
                     onPortPointerDown={startEdgeDrag}
                     onOpenPicker={openPicker}
+                    onOpenCron={openCron}
                 />
             </div>
 
@@ -557,6 +618,16 @@ export default function Designer({
                     sample={picker.sample}
                     onPick={handlePick}
                     onClose={() => setPicker(null)}
+                />
+            )}
+
+            {cronEdit && (
+                <CronPopover
+                    anchor={cronEdit.anchor}
+                    initial={cronEdit.initial}
+                    floorMinutes={cronFloorMinutes}
+                    onChange={handleCronChange}
+                    onClose={closeCron}
                 />
             )}
 

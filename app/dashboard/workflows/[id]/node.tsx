@@ -17,6 +17,7 @@ import {
     type WorkflowGraph,
     type WorkflowNode,
 } from "@/lib/workflow";
+import { describeCron } from "@/lib/cron";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import EntryIcon from "./entryIcon";
 import {
@@ -73,6 +74,13 @@ export type OpenPickerHandler = (
     fieldId: string,
 ) => void;
 
+// a schedule event node opens the cron popover when clicked (press with no
+// drag); the anchor is the node's client-space bottom-left corner
+export type OpenCronHandler = (
+    anchor: { x: number; y: number },
+    nodeId: string,
+) => void;
+
 // renders to the geometry.ts metrics exactly: w-44 = NODE_W 176, h-8 header
 // = HEADER_H 32, h-6 port rows = PORT_ROW_H 24, h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
@@ -114,6 +122,7 @@ export default memo(function Node({
     pendingKind,
     onPortPointerDown,
     onOpenPicker,
+    onOpenCron,
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
@@ -146,6 +155,7 @@ export default memo(function Node({
     pendingKind: PortKind | null;
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
+    onOpenCron?: OpenCronHandler;
 }) {
     const styles = CATEGORY_STYLES[entry.category];
     // local (x,y) offset of a rotated chip/model output marker; null → the
@@ -387,6 +397,28 @@ export default memo(function Node({
     // geometry.ts, mirroring the model branch above.
     if (isEventEntry(entry)) {
         const output = entry.outputs[0];
+        // a schedule event carries a cron config field, authored via the cron
+        // popover (not an inline field); the label strip shows its humanized
+        // schedule so the node reads "daily at 09:00" under the clock
+        const hasCron = entry.config?.some((f) => f.id === "cron");
+        const cron = (node.config.cron ?? "").trim();
+        const labelText = hasCron
+            ? cron
+                ? describeCron(cron)
+                : "not scheduled"
+            : entry.label;
+
+        // a press that stayed under the drag threshold is a click → open the
+        // cron popover (mirrors the literal box's click-to-focus)
+        const eventEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+            const wasClick = !!dragRef.current && !dragRef.current.active;
+            endDrag();
+            if (wasClick && hasCron && onOpenCron) {
+                const r = e.currentTarget.getBoundingClientRect();
+                onOpenCron({ x: r.left, y: r.bottom + 4 }, node.id);
+            }
+        };
+
         return (
             <div
                 data-node-id={node.id}
@@ -394,13 +426,13 @@ export default memo(function Node({
                 className={"absolute font-mono text-xs"}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
-                onPointerUp={endDrag}
+                onPointerUp={hasCron ? eventEndDrag : endDrag}
                 onPointerCancel={endDrag}
             >
                 <div
                     // border tinted to the category color (same hex the edges use)
                     style={{ borderColor: styles.edge, width: EVENT_W, height: EVENT_H }}
-                    className={`relative flex cursor-grab items-center justify-center rounded-full border bg-background ${styles.headerBg} ${
+                    className={`relative flex ${hasCron ? "cursor-pointer" : "cursor-grab"} items-center justify-center rounded-full border bg-background ${styles.headerBg} ${
                         selected ? "outline outline-1 outline-foreground" : ""
                     }`}
                 >
@@ -440,9 +472,9 @@ export default memo(function Node({
                         className={
                             "line-clamp-2 max-w-full break-words text-center text-[10px] leading-3"
                         }
-                        title={entry.label}
+                        title={labelText}
                     >
-                        {entry.label}
+                        {labelText}
                     </span>
                 </div>
             </div>

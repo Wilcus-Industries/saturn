@@ -45,5 +45,12 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
             ? await listOpenrouterModels()
             : null;
 
-    return <Designer workflow={row} userCatalog={userCatalog} openrouterModels={openrouterModels} />;
+    return (
+        <Designer
+            workflow={row}
+            userCatalog={userCatalog}
+            openrouterModels={openrouterModels}
+            cronFloorMinutes={limitsFor(level).cronFloorMinutes}
+        />
+    );
 }

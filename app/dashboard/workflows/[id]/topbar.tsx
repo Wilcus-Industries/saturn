@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import DeleteWorkflowButton from "@/app/dashboard/deleteWorkflowButton";
-import { describeCron } from "@/lib/cron";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -11,10 +10,12 @@ export default function Topbar({
     workflowId,
     emoji,
     name,
-    cron,
     dirty,
     saving,
     error,
+    events,
+    selectedEventId,
+    onSelectEvent,
     onRun,
     onStop,
     running,
@@ -22,10 +23,13 @@ export default function Topbar({
     workflowId: string;
     emoji: string;
     name: string;
-    cron: string;
     dirty: boolean;
     saving: boolean;
     error: string | null;
+    // event nodes in the graph — the test runner fires the selected one
+    events: { id: string; label: string }[];
+    selectedEventId: string;
+    onSelectEvent: (id: string) => void;
     onRun: () => void;
     onStop: () => void;
     running: boolean;
@@ -57,15 +61,6 @@ export default function Topbar({
                 {emoji} {name}
             </span>
 
-            {/* schedule is edited from the list page's edit modal */}
-            <span
-                className={
-                    "hidden shrink-0 rounded-full border border-foreground/15 px-3 py-0.5 text-xs text-gray-400 sm:inline"
-                }
-            >
-                {describeCron(cron)}
-            </span>
-
             {/* run history lives on a shell page, not in the designer */}
             <Link
                 href={`/dashboard/workflows/${workflowId}/runs`}
@@ -76,10 +71,30 @@ export default function Topbar({
                 runs
             </Link>
 
-            <span className={"ml-auto flex items-center gap-3"}>
-                {/* test run — see interpreter.ts; turns into a stop button
-                    while running (an in-flight MCP call finishes, then the
-                    run halts before the next step) */}
+            <span className={"ml-auto flex items-center gap-2"}>
+                {/* test event runner — pick which event node to fire, then run
+                    it through the client-side interpreter (see interpreter.ts).
+                    The run button turns into a stop button while running (an
+                    in-flight MCP call finishes, then the run halts). */}
+                <select
+                    value={selectedEventId}
+                    onChange={(e) => onSelectEvent(e.target.value)}
+                    disabled={running || events.length === 0}
+                    aria-label={"event to test"}
+                    className={
+                        "max-w-40 shrink-0 truncate border border-foreground/15 bg-background px-2 py-0.5 text-xs text-gray-400 disabled:opacity-50"
+                    }
+                >
+                    {events.length === 0 ? (
+                        <option value={""}>no events</option>
+                    ) : (
+                        events.map((ev) => (
+                            <option key={ev.id} value={ev.id}>
+                                {ev.label}
+                            </option>
+                        ))
+                    )}
+                </select>
                 {running ? (
                     <button
                         type={"button"}
@@ -93,8 +108,12 @@ export default function Topbar({
                     <button
                         type={"button"}
                         onClick={onRun}
+                        disabled={events.length === 0}
+                        title={events.length === 0 ? "add an event node to run" : "test this event"}
                         className={`border border-green-500 px-2 py-0.5 text-green-600 transition-colors
-                            duration-200 hover:bg-green-600 hover:text-white dark:text-green-400`}
+                            duration-200 hover:bg-green-600 hover:text-white disabled:cursor-not-allowed
+                            disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-green-600
+                            dark:text-green-400`}
                     >
                         ▶ run
                     </button>

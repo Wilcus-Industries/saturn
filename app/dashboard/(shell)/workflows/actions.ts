@@ -2,9 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { isValidCron } from "@/lib/cron";
 import { db } from "@/lib/db";
-import { assertCronFloor, getActivation, limitsFor, requireUser } from "@/lib/subscription";
+import { getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,7 +17,8 @@ function toError(err: unknown): { error: string } {
     return { error: err instanceof Error ? err.message : "Something went wrong" };
 }
 
-// shared by create and update — the modal submits the same fields
+// shared by create and update — the modal submits the same fields. The
+// schedule now lives in a "scheduled to run" node in the graph, not here.
 function parseWorkflowFields(formData: FormData) {
     const name = String(formData.get("name") ?? "").trim();
     if (!name) throw new Error("Name is required");
@@ -26,23 +26,20 @@ function parseWorkflowFields(formData: FormData) {
     const emoji = String(formData.get("emoji") ?? "").trim() || "⚙️";
     const description = String(formData.get("description") ?? "").trim();
 
-    // the builder emits plain 5-field expressions; reject anything else
-    const cron = String(formData.get("cron") ?? "").trim();
-    if (!isValidCron(cron)) throw new Error("Invalid cron expression");
-
-    return { name, emoji, description, cron };
+    return { name, emoji, description };
 }
+
+// new workflows open on an empty canvas — the user drags in an event node
+const EMPTY_GRAPH = JSON.stringify({ nodes: [], edges: [] });
 
 export async function createWorkflow(formData: FormData): Promise<ActionResult> {
     const { requestHeaders, session } = await requireUser();
 
     let id: string;
     try {
-        const { name, emoji, description, cron } = parseWorkflowFields(formData);
+        const { name, emoji, description } = parseWorkflowFields(formData);
 
         const level = await getActivation(requestHeaders);
-        assertCronFloor(cron, level);
-
         const cap = limitsFor(level).workflows;
         const { rows: countRows } = await db.query<{ count: string }>(
             "select count(*) from workflow where user_id = $1",
@@ -53,9 +50,9 @@ export async function createWorkflow(formData: FormData): Promise<ActionResult> 
         }
 
         const { rows } = await db.query<{ id: string }>(
-            `insert into workflow (user_id, name, emoji, description, cron)
+            `insert into workflow (user_id, name, emoji, description, graph)
              values ($1, $2, $3, $4, $5) returning id`,
-            [session.user.id, name, emoji, description, cron],
+            [session.user.id, name, emoji, description, EMPTY_GRAPH],
         );
         id = rows[0].id;
     } catch (err) {
@@ -66,21 +63,20 @@ export async function createWorkflow(formData: FormData): Promise<ActionResult> 
     redirect(`/dashboard/workflows/${id}`);
 }
 
-// metadata only — the graph is saved separately by the designer
+// metadata only — the graph (and its schedule) is saved by the designer
 export async function updateWorkflow(formData: FormData): Promise<ActionResult> {
-    const { requestHeaders, session } = await requireUser();
+    const { session } = await requireUser();
 
     try {
         const id = String(formData.get("id") ?? "");
         if (!UUID.test(id)) throw new Error("Invalid workflow id");
-        const { name, emoji, description, cron } = parseWorkflowFields(formData);
-        assertCronFloor(cron, await getActivation(requestHeaders));
+        const { name, emoji, description } = parseWorkflowFields(formData);
 
         const { rowCount } = await db.query(
             `update workflow
-             set name = $1, emoji = $2, description = $3, cron = $4, updated_at = now()
-             where id = $5 and user_id = $6`,
-            [name, emoji, description, cron, id, session.user.id],
+             set name = $1, emoji = $2, description = $3, updated_at = now()
+             where id = $4 and user_id = $5`,
+            [name, emoji, description, id, session.user.id],
         );
         if (!rowCount) throw new Error("Not found");
     } catch (err) {

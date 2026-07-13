@@ -5,9 +5,8 @@ import ActionButton from "@/app/dashboard/actionButton";
 import EmojiGrid from "@/app/dashboard/emojiGrid";
 import type { WorkflowRow } from "@/lib/workflow";
 import { createWorkflow, updateWorkflow } from "./actions";
-import CronBuilder from "./cronBuilder";
 
-type WorkflowMeta = Pick<WorkflowRow, "id" | "name" | "emoji" | "description" | "cron">;
+type WorkflowMeta = Pick<WorkflowRow, "id" | "name" | "emoji" | "description">;
 
 // create (dashed hollow "+" card) or edit ("edit" on a card) trigger + modal
 // for one workflow's metadata; the graph is edited in the designer
@@ -117,11 +116,6 @@ export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta })
                                     className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                                 />
                             </label>
-
-                            <div className={"flex flex-col gap-1"}>
-                                <span className={"font-mono text-xs text-gray-400"}>schedule</span>
-                                <CronBuilder initial={workflow?.cron} />
-                            </div>
 
                             {error && (
                                 <p className={"font-mono text-xs text-red-400"}>{error}</p>

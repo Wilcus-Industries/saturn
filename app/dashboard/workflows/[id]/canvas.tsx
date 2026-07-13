@@ -24,7 +24,7 @@ import {
     portPosition,
 } from "./geometry";
 import type { GraphAction } from "./graphReducer";
-import Node, { type OpenPickerHandler, type PortPointerDownHandler } from "./node";
+import Node, { type OpenCronHandler, type OpenPickerHandler, type PortPointerDownHandler } from "./node";
 
 // imperative surface for the designer (toolbox drag-spawn drops through it)
 export type CanvasHandle = {
@@ -108,6 +108,7 @@ export default function Canvas({
     modelReasoning,
     onPortPointerDown,
     onOpenPicker,
+    onOpenCron,
     ref,
 }: {
     graph: WorkflowGraph;
@@ -126,6 +127,7 @@ export default function Canvas({
     modelReasoning: Map<string, boolean>;
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
+    onOpenCron?: OpenCronHandler;
     ref?: Ref<CanvasHandle>;
 }) {
     const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
@@ -418,6 +420,7 @@ export default function Canvas({
                             }
                             onPortPointerDown={onPortPointerDown}
                             onOpenPicker={onOpenPicker}
+                            onOpenCron={onOpenCron}
                         />
                     );
                 })}

@@ -41,6 +41,13 @@ export const MAX_TOOL_CALLS_PER_TURN = 5;
 export const MAX_GRANTED_TOOLS = 20;
 export const MAX_GRANTED_SKILLS = 10;
 
+// sentinel toolName of the "general MCP server" grant chip (node type
+// "mcp:<uuid>:*"). It resolves like any tool ref but expands server-side to
+// the server's every enabled + callable tool — no real tool is ever named
+// "*" (registry skips one that is), so the sentinel can't collide.
+export const ALL_TOOLS = "*";
+export const isAllToolsRef = (ref: AgentToolRef): boolean => ref.toolName === ALL_TOOLS;
+
 // grants resolve statically from the source chip node's type, never by
 // evaluating it as a value. Node types are "mcp:<36-char-uuid>:<toolName>"
 // and "skill:<uuid>" — fixed-offset slices, never split: tool names may

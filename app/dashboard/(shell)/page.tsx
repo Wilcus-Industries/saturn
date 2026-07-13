@@ -2,12 +2,10 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import ConnectAgent from "@/app/dashboard/connectAgent";
 import { auth } from "@/lib/auth";
-import { nextCronOccurrence } from "@/lib/cron";
 import { getCreditUsage } from "@/lib/credits.server";
 import { db } from "@/lib/db";
 import { baseUrl } from "@/lib/subscription";
 import GettingStarted, { type ChecklistStep } from "./gettingStarted";
-import NextRuns, { type ScheduledWorkflow } from "./nextRuns";
 import RecentRuns, { type RecentRun } from "./recentRuns";
 import RunsGraph, { type RunDay } from "./runsGraph";
 import UsagePanel from "./usagePanel";
@@ -53,9 +51,9 @@ export default async function Dashboard() {
                  group by 1`,
                 [session.user.id, WINDOW_DAYS],
             ),
-            // all workflows (≤100 at the top tier cap) — feeds next-scheduled, counts, checklist
-            db.query<{ id: string; name: string; emoji: string; cron: string; active: boolean }>(
-                `select id, name, emoji, cron, active
+            // all workflows (≤100 at the top tier cap) — feeds counts, checklist
+            db.query<{ id: string; name: string; emoji: string; active: boolean }>(
+                `select id, name, emoji, active
                  from workflow where user_id = $1 order by created_at desc`,
                 [session.user.id],
             ),
@@ -94,13 +92,6 @@ export default async function Dashboard() {
     const totalRuns = days.reduce((sum, d) => sum + d.runs, 0);
     const weeks = weekGrid(new Map(days.map((d) => [d.day, d.runs])), meta[0].today);
 
-    // upcoming firings for active workflows, soonest first (no occurrence sorts last)
-    const scheduled: ScheduledWorkflow[] = workflows
-        .filter((w) => w.active)
-        .map((w) => ({ ...w, next: nextCronOccurrence(w.cron, now) }))
-        .sort((a, b) => (a.next?.getTime() ?? Infinity) - (b.next?.getTime() ?? Infinity))
-        .slice(0, 10);
-
     const steps: ChecklistStep[] = [
         { label: "pick a plan", href: "/activate", done: credits.level !== null },
         { label: "add an MCP server", href: "/dashboard/settings", done: meta[0].mcp_count > 0 },
@@ -137,10 +128,7 @@ export default async function Dashboard() {
                 <RunsGraph weeks={weeks} />
             </section>
 
-            <div className={"grid gap-6 md:grid-cols-2"}>
-                <RecentRuns runs={recent} now={now} />
-                <NextRuns workflows={scheduled} now={now} />
-            </div>
+            <RecentRuns runs={recent} now={now} />
 
             <UsagePanel credits={credits} workflowCount={workflows.length} mcpCount={meta[0].mcp_count} />
 
