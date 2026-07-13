@@ -1,4 +1,10 @@
-import type { CatalogEntry, ConfigField, WorkflowNode } from "@/lib/workflow";
+import type {
+    CatalogEntry,
+    ConfigField,
+    PortSpec,
+    WorkflowGraph,
+    WorkflowNode,
+} from "@/lib/workflow";
 
 // Single source of truth for node metrics. node.tsx must render to these
 // exact values and edges.tsx computes endpoints from them — never measure
@@ -13,7 +19,7 @@ export const TEXTAREA_ROW_H = 72; // h-[72px] textarea config rows
 
 // model nodes render as a circle (h-18 w-18) with a name strip (h-6) below;
 // node.tsx's circular branch must match these exactly too
-export const MODEL_D = 72;
+export const MODEL_D = 54; // 3/4 of the old 72px circle
 export const MODEL_LABEL_H = 24;
 
 // event nodes render as a curved-left block (h-12 w-14) with a label strip
@@ -21,6 +27,24 @@ export const MODEL_LABEL_H = 24;
 export const EVENT_W = 56; // w-14
 export const EVENT_H = 48; // h-12
 export const EVENT_LABEL_H = 24; // h-6 name strip below (like MODEL_LABEL_H)
+
+// agent nodes render horizontally: a header, a row of config dropdowns
+// (output + reasoning), then the value inputs (prompt/system/model/tools/
+// skills) along the BOTTOM edge — one per column, name centered above its
+// marker. The flow input "in" sits on the LEFT edge (vertically centered on
+// the top body) and the outputs "out"/"result" stack on the RIGHT edge, each
+// leaving along its own normal. node.tsx's agent branch must match these
+// exactly. Width grows with the bottom-port count.
+export const AGENT_PORT_SLOT = 48; // width of one bottom-edge port column
+export const AGENT_HEADER_H = HEADER_H; // 32
+export const AGENT_CONFIG_H = 40; // output + reasoning dropdown row
+export const AGENT_LABEL_H = 16; // port-name strip above the markers
+export const AGENT_PORT_H = 20; // bottom-edge marker row
+export const AGENT_H = AGENT_HEADER_H + AGENT_CONFIG_H + AGENT_LABEL_H + AGENT_PORT_H;
+export const AGENT_TOP_H = AGENT_HEADER_H + AGENT_CONFIG_H; // 72 — the side-port band
+export const AGENT_LEFT_GUTTER = 14; // config-row left pad clearing the "in" port
+export const AGENT_RIGHT_GUTTER = 48; // config-row right pad clearing "result"
+export const AGENT_MIN_W = AGENT_LEFT_GUTTER + AGENT_RIGHT_GUTTER + 120;
 
 // mcp/skill grant chips render as a rounded square (60px mcp / 48px skill)
 // with a label strip (h-6) below, like the model circle; node.tsx's chip
@@ -43,11 +67,32 @@ export const LIT_PAD_Y = 12; // py-1.5 top+bottom
 export const LIT_CHAR_W = 7.2; // Geist Mono advance at text-xs (12px)
 export const NUM_W = 80;
 
+// the if node renders as a headerless rounded square: the operator dropdown
+// sits in the center, the l/in/r inputs stack on the left edge and the
+// true/false flow outputs on the right edge. node.tsx's if branch must match
+// these exactly too.
+export const IF_W = 92;
+export const IF_H = 64;
+
 export const isModelEntry = (entry: CatalogEntry): boolean =>
     entry.category === "model" && !entry.missing;
 
 export const isEventEntry = (entry: CatalogEntry): boolean =>
     entry.category === "events" && !entry.missing;
+
+// the if node renders as a rounded square (see IF_W/IF_H); only the real if
+// catalog entry, never a missing placeholder mapped to "logic"
+export const isIfEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "logic" && entry.key === "if" && !entry.missing;
+
+// the single saturn node (agent) renders horizontally with bottom-edge ports
+export const isAgentEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "saturn" && !entry.missing;
+
+// the agent's value inputs, laid left→right along the bottom edge (the flow
+// "in" goes on the left edge, outputs on the right edge — see portGeometry)
+const agentBottomPorts = (entry: CatalogEntry): PortSpec[] =>
+    entry.inputs.filter((p) => p.kind !== "flow");
 
 // per-tool mcp nodes (key "mcp:<uuid>:<toolName>") and skill nodes render as
 // grant chips. The legacy generic mcp:<uuid> entry has no toolName → rect
@@ -83,6 +128,9 @@ function literalMetrics(value: string): { width: number; height: number } {
 export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number => {
     if (isModelEntry(entry)) return MODEL_D;
     if (isEventEntry(entry)) return EVENT_W;
+    if (isIfEntry(entry)) return IF_W;
+    if (isAgentEntry(entry))
+        return Math.max(AGENT_MIN_W, agentBottomPorts(entry).length * AGENT_PORT_SLOT);
     if (isChipEntry(entry)) return chipSize(entry);
     if (isLiteralEntry(entry))
         return entry.key === "number" ? NUM_W : literalMetrics(node?.config.value ?? "").width;
@@ -99,6 +147,8 @@ const portRows = (entry: CatalogEntry): number =>
 export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
     if (isModelEntry(entry)) return MODEL_D + MODEL_LABEL_H;
     if (isEventEntry(entry)) return EVENT_H + EVENT_LABEL_H;
+    if (isIfEntry(entry)) return IF_H;
+    if (isAgentEntry(entry)) return AGENT_H;
     if (isChipEntry(entry)) return chipSize(entry) + CHIP_LABEL_H;
     if (isLiteralEntry(entry))
         return entry.key === "number"
@@ -112,20 +162,79 @@ export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
     );
 }
 
-// inputs sit on the left edge (x = node.x), outputs on the right
-// (x = node.x + NODE_W); y is the vertical center of the port's row
-export function portPosition(
+// vertical offset from node.y to the node's canonical (primary) port line —
+// the axis grid snapping aligns so cross-shape edges between same-level nodes
+// stay horizontal. Mirrors the y-offset portGeometry gives each shape's main
+// port (model/event/chip/literal center, if "in" input, agent flow "in", or a
+// generic rect's first port row), so snapping this offset onto the grid puts
+// that exact port on a grid line. Branch order matches nodeHeight/portGeometry.
+export function anchorOffsetY(entry: CatalogEntry, node?: WorkflowNode): number {
+    if (isModelEntry(entry)) return MODEL_D / 2;
+    if (isEventEntry(entry)) return EVENT_H / 2;
+    if (isIfEntry(entry)) return IF_H / 2; // the middle "in" input
+    if (isAgentEntry(entry)) return AGENT_TOP_H / 2; // flow "in" on the left edge
+    if (isChipEntry(entry)) return chipSize(entry) / 2;
+    if (isLiteralEntry(entry)) return nodeHeight(entry, node) / 2;
+    return HEADER_H + PORT_ROW_H / 2; // generic rect: first port row
+}
+
+// centroid of the anchors this node's outputs connect to; null when the node
+// feeds nothing. Target anchors are resolved statically (no graph passed on),
+// so this never recurses — chip/model outputs only ever feed agent nodes,
+// whose ports don't depend on the source position.
+function outputTargetCentroid(
+    node: WorkflowNode,
+    graph: WorkflowGraph,
+    byKey: Record<string, CatalogEntry>,
+): { x: number; y: number } | null {
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (const e of graph.edges) {
+        if (e.from.nodeId !== node.id) continue;
+        const tn = graph.nodes.find((x) => x.id === e.to.nodeId);
+        if (!tn) continue;
+        const te = byKey[tn.type];
+        if (!te) continue;
+        const p = portPosition(tn, te, e.to.portId);
+        sx += p.x;
+        sy += p.y;
+        n += 1;
+    }
+    return n ? { x: sx / n, y: sy / n } : null;
+}
+
+// anchor + outward unit normal (the direction the edge leaves the port) for
+// one port. The normal drives the bezier's control points so each end exits
+// along its own edge — right-edge ports leave horizontally, the agent's
+// bottom-edge ports leave downward, rotated chip/model outputs leave along
+// their rotation. Circular model nodes and mcp/skill chips rotate their single
+// output around the block toward the agent they feed (graph+byKey supplied);
+// unconnected (or graph omitted) they fall back to the right-edge midpoint.
+export type PortGeometry = { x: number; y: number; nx: number; ny: number };
+
+export function portGeometry(
     node: WorkflowNode,
     entry: CatalogEntry,
     portId: string,
-): { x: number; y: number } {
-    // model circle: ports anchor on the horizontal midline (output on the
-    // right edge; no inputs exist, the left branch is defensive)
+    graph?: WorkflowGraph,
+    byKey?: Record<string, CatalogEntry>,
+): PortGeometry {
+    // model circle: output rides the circle's perimeter toward its target
+    // (right-edge midline when unconnected); no inputs, the left branch is
+    // defensive
     if (isModelEntry(entry)) {
-        const y = node.y + MODEL_D / 2;
-        return entry.inputs.some((p) => p.id === portId)
-            ? { x: node.x, y }
-            : { x: node.x + MODEL_D, y };
+        const r = MODEL_D / 2;
+        const cx = node.x + r;
+        const cy = node.y + r;
+        if (entry.inputs.some((p) => p.id === portId))
+            return { x: node.x, y: cy, nx: -1, ny: 0 };
+        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        if (!target) return { x: node.x + MODEL_D, y: cy, nx: 1, ny: 0 };
+        const vx = target.x - cx;
+        const vy = target.y - cy;
+        const len = Math.hypot(vx, vy) || 1;
+        return { x: cx + (r * vx) / len, y: cy + (r * vy) / len, nx: vx / len, ny: vy / len };
     }
 
     // event block: output anchors on the right-edge midline (start has one
@@ -133,34 +242,108 @@ export function portPosition(
     if (isEventEntry(entry)) {
         const y = node.y + EVENT_H / 2;
         return entry.inputs.some((p) => p.id === portId)
-            ? { x: node.x, y }
-            : { x: node.x + EVENT_W, y };
+            ? { x: node.x, y, nx: -1, ny: 0 }
+            : { x: node.x + EVENT_W, y, nx: 1, ny: 0 };
     }
 
-    // grant chip: only a single value output, on the right-edge midline (no
-    // inputs — the left branch is defensive, like the model circle)
+    // agent: the flow "in" leaves the left edge, the outputs stack on the
+    // right edge, and the value inputs sit one-per-column along the bottom.
+    if (isAgentEntry(entry)) {
+        const width = nodeWidth(entry);
+        // flow input on the left edge, centered on the top (header+config) band
+        const input = entry.inputs.find((p) => p.id === portId);
+        if (input?.kind === "flow")
+            return { x: node.x, y: node.y + AGENT_TOP_H / 2, nx: -1, ny: 0 };
+        // outputs on the right edge, evenly stacked across the top band
+        const outIdx = entry.outputs.findIndex((p) => p.id === portId);
+        if (outIdx !== -1) {
+            const y = (AGENT_TOP_H * (outIdx + 1)) / (entry.outputs.length + 1);
+            return { x: node.x + width, y: node.y + y, nx: 1, ny: 0 };
+        }
+        // value inputs along the bottom edge — edges leave downward
+        const bottom = agentBottomPorts(entry);
+        const col = Math.max(0, bottom.findIndex((p) => p.id === portId));
+        return {
+            x: node.x + col * AGENT_PORT_SLOT + AGENT_PORT_SLOT / 2,
+            y: node.y + AGENT_H,
+            nx: 0,
+            ny: 1,
+        };
+    }
+
+    // grant chip: its single value output rides the square's perimeter toward
+    // the agent it feeds (right-edge midline when unconnected); no inputs, the
+    // left branch is defensive, like the model circle
     if (isChipEntry(entry)) {
         const size = chipSize(entry);
-        const y = node.y + size / 2;
-        return entry.inputs.some((p) => p.id === portId)
-            ? { x: node.x, y }
-            : { x: node.x + size, y };
+        const half = size / 2;
+        const cx = node.x + half;
+        const cy = node.y + half;
+        if (entry.inputs.some((p) => p.id === portId))
+            return { x: node.x, y: cy, nx: -1, ny: 0 };
+        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        if (!target) return { x: node.x + size, y: cy, nx: 1, ny: 0 };
+        const vx = target.x - cx;
+        const vy = target.y - cy;
+        // project the ray onto the square boundary (chebyshev scaling)
+        const m = Math.max(Math.abs(vx), Math.abs(vy)) || 1;
+        const t = half / m;
+        const len = Math.hypot(vx, vy) || 1;
+        return { x: cx + vx * t, y: cy + vy * t, nx: vx / len, ny: vy / len };
     }
 
-    // literal box: only a value output, on the right edge at the box midline
-    // (width/height derive from its content)
+    // literal box: its single value output rides the box perimeter toward the
+    // node it feeds (right-edge midline when unconnected), like the model
+    // circle / grant chip but projected onto a rectangle (width/height derive
+    // from content). No inputs — the left branch is defensive.
     if (isLiteralEntry(entry)) {
-        const y = node.y + nodeHeight(entry, node) / 2;
-        return entry.inputs.some((p) => p.id === portId)
-            ? { x: node.x, y }
-            : { x: node.x + nodeWidth(entry, node), y };
+        const w = nodeWidth(entry, node);
+        const h = nodeHeight(entry, node);
+        const cx = node.x + w / 2;
+        const cy = node.y + h / 2;
+        if (entry.inputs.some((p) => p.id === portId))
+            return { x: node.x, y: cy, nx: -1, ny: 0 };
+        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        if (!target) return { x: node.x + w, y: cy, nx: 1, ny: 0 };
+        const vx = target.x - cx;
+        const vy = target.y - cy;
+        // project the ray onto the rectangle boundary
+        const t = 1 / Math.max(Math.abs(vx) / (w / 2), Math.abs(vy) / (h / 2), Number.EPSILON);
+        const len = Math.hypot(vx, vy) || 1;
+        return { x: cx + vx * t, y: cy + vy * t, nx: vx / len, ny: vy / len };
+    }
+
+    // if node: l/in/r stack on the left edge (input array order top→bottom),
+    // true/false on the right edge, each evenly spaced and leaving horizontally
+    if (isIfEntry(entry)) {
+        const inputRow = entry.inputs.findIndex((p) => p.id === portId);
+        if (inputRow !== -1) {
+            const y = node.y + (IF_H * (inputRow + 1)) / (entry.inputs.length + 1);
+            return { x: node.x, y, nx: -1, ny: 0 };
+        }
+        const outRow = entry.outputs.findIndex((p) => p.id === portId);
+        const y = node.y + (IF_H * (Math.max(outRow, 0) + 1)) / (entry.outputs.length + 1);
+        return { x: node.x + IF_W, y, nx: 1, ny: 0 };
     }
 
     const rowY = (row: number) => node.y + HEADER_H + row * PORT_ROW_H + PORT_ROW_H / 2;
 
     const inputRow = entry.inputs.findIndex((p) => p.id === portId);
-    if (inputRow !== -1) return { x: node.x, y: rowY(inputRow) };
+    if (inputRow !== -1) return { x: node.x, y: rowY(inputRow), nx: -1, ny: 0 };
 
     const outputRow = entry.outputs.findIndex((p) => p.id === portId);
-    return { x: node.x + NODE_W, y: rowY(Math.max(outputRow, 0)) };
+    return { x: node.x + NODE_W, y: rowY(Math.max(outputRow, 0)), nx: 1, ny: 0 };
+}
+
+// position-only view of portGeometry — used where the normal is irrelevant
+// (canvas rotated-marker offset, output-centroid resolution)
+export function portPosition(
+    node: WorkflowNode,
+    entry: CatalogEntry,
+    portId: string,
+    graph?: WorkflowGraph,
+    byKey?: Record<string, CatalogEntry>,
+): { x: number; y: number } {
+    const g = portGeometry(node, entry, portId, graph, byKey);
+    return { x: g.x, y: g.y };
 }

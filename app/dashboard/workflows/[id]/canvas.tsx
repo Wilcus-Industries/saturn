@@ -13,7 +13,15 @@ import {
 } from "react";
 import type { CatalogEntry, WorkflowGraph, WorkflowNode } from "@/lib/workflow";
 import Edges, { type PendingEdge } from "./edges";
-import { GRID, nodeHeight, nodeWidth } from "./geometry";
+import {
+    GRID,
+    isChipEntry,
+    isLiteralEntry,
+    isModelEntry,
+    nodeHeight,
+    nodeWidth,
+    portPosition,
+} from "./geometry";
 import type { GraphAction } from "./graphReducer";
 import Node, { type OpenPickerHandler, type PortPointerDownHandler } from "./node";
 
@@ -372,11 +380,23 @@ export default function Canvas({
                     )
                         ? agentReasoningOptions(graph, node, modelReasoning)
                         : "";
+                    // chip/model output anchor, rotated toward the agent it
+                    // feeds — a "lx,ly" local offset so Node's memo can compare
+                    // it as a string (matches the edge anchor from geometry).
+                    let outAnchor = "";
+                    if (isModelEntry(entry) || isChipEntry(entry) || isLiteralEntry(entry)) {
+                        const out = entry.outputs[0];
+                        if (out) {
+                            const p = portPosition(node, entry, out.id, graph, byKey);
+                            outAnchor = `${p.x - node.x},${p.y - node.y}`;
+                        }
+                    }
                     return (
                         <Node
                             key={node.id}
                             node={node}
                             entry={entry}
+                            byKey={byKey}
                             graphRef={graphRef}
                             selected={selection.has(node.id)}
                             selectionRef={selectionRef}
@@ -386,6 +406,7 @@ export default function Canvas({
                             overriddenIds={overriddenIds}
                             outputOptions={outputOptions}
                             reasoningOptions={reasoningOptions}
+                            outAnchor={outAnchor}
                             pendingKind={
                                 pending && pending.from.nodeId !== node.id ? pending.kind : null
                             }

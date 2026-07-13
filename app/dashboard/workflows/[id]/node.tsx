@@ -11,6 +11,7 @@ import {
 import {
     CATEGORY_STYLES,
     type CatalogEntry,
+    type ConfigField,
     type PortKind,
     type PortSpec,
     type WorkflowGraph,
@@ -19,13 +20,28 @@ import {
 import McpLogo from "@/app/dashboard/mcpLogo";
 import EntryIcon from "./entryIcon";
 import {
+    AGENT_CONFIG_H,
+    AGENT_HEADER_H,
+    AGENT_LABEL_H,
+    AGENT_LEFT_GUTTER,
+    AGENT_PORT_H,
+    AGENT_PORT_SLOT,
+    AGENT_RIGHT_GUTTER,
+    AGENT_TOP_H,
+    anchorOffsetY,
     GRID,
+    HEADER_H,
+    IF_H,
+    IF_W,
+    isAgentEntry,
     isEventEntry,
+    isIfEntry,
     isLiteralEntry,
     isMcpChipEntry,
     isModelEntry,
     isSkillChipEntry,
     MCP_CHIP,
+    MODEL_D,
     nodeHeight,
     nodeWidth,
     SKILL_CHIP,
@@ -82,6 +98,7 @@ type DragState = {
 export default memo(function Node({
     node,
     entry,
+    byKey,
     graphRef,
     selected,
     selectionRef,
@@ -91,12 +108,17 @@ export default memo(function Node({
     overriddenIds,
     outputOptions,
     reasoningOptions,
+    outAnchor,
     pendingKind,
     onPortPointerDown,
     onOpenPicker,
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
+    // combined catalog — resolves each dragged node's entry at drag-end so its
+    // primary port axis (not the top-left corner) settles onto the grid; a
+    // stable useMemo reference, so it doesn't defeat this component's memo
+    byKey: Record<string, CatalogEntry>;
     graphRef: RefObject<WorkflowGraph>;
     selected: boolean;
     selectionRef: RefObject<Set<string>>;
@@ -113,6 +135,10 @@ export default memo(function Node({
     // comma-joined options for the agent's reasoning dynamicOptions select —
     // "" means the resolved model's reasoning capability is unknown (locked).
     reasoningOptions: string;
+    // "lx,ly" local offset of a chip/model node's rotated output port (empty
+    // for every other node) — computed by the canvas from geometry so it
+    // matches the edge anchor and Node's memo can compare it as a string
+    outAnchor: string;
     // kind of the in-flight edge drag (null when none, or when it started on
     // this node) — matching ports scale up as a drop affordance
     pendingKind: PortKind | null;
@@ -120,6 +146,11 @@ export default memo(function Node({
     onOpenPicker?: OpenPickerHandler;
 }) {
     const styles = CATEGORY_STYLES[entry.category];
+    // local (x,y) offset of a rotated chip/model output marker; null → the
+    // branch's right-edge default
+    const parsedOutAnchor: [number, number] | null = outAnchor
+        ? (outAnchor.split(",").map(Number) as [number, number])
+        : null;
     const dragRef = useRef<DragState | null>(null);
     const configBeforeRef = useRef<WorkflowGraph | null>(null);
     // literal box: a click (press with no drag) focuses the value field so
@@ -200,12 +231,16 @@ export default memo(function Node({
         const drag = dragRef.current;
         dragRef.current = null;
         if (!drag?.active) return;
-        // settle each dragged node onto the grid, then record one undo step
+        // settle each dragged node onto the grid, then record one undo step.
+        // x snaps the left edge; y snaps the node's primary port axis (node.y +
+        // anchorOffsetY) so differently-shaped nodes left at the same level get
+        // their ports on the same grid line and edges between them stay flat.
         for (const id of drag.ids) {
             const n = graphRef.current.nodes.find((candidate) => candidate.id === id);
             if (!n) continue;
+            const off = byKey[n.type] ? anchorOffsetY(byKey[n.type], n) : HEADER_H / 2;
             const dx = Math.round(n.x / GRID) * GRID - n.x;
-            const dy = Math.round(n.y / GRID) * GRID - n.y;
+            const dy = Math.round((n.y + off) / GRID) * GRID - off - n.y;
             if (dx || dy) dispatch({ type: "moveNodes", ids: [id], dx, dy });
         }
         dispatch({ type: "commitDrag", before: drag.before });
@@ -270,34 +305,44 @@ export default memo(function Node({
         return (
             <div
                 data-node-id={node.id}
-                style={{ left: node.x, top: node.y }}
-                className={"absolute w-18 font-mono text-xs"}
+                style={{ left: node.x, top: node.y, width: MODEL_D }}
+                className={"absolute font-mono text-xs"}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
             >
                 <div
-                    className={`relative flex h-18 w-18 cursor-grab items-center justify-center rounded-full border border-foreground/25 bg-background ${styles.headerBg} ${
+                    style={{ width: MODEL_D, height: MODEL_D }}
+                    className={`relative flex cursor-grab items-center justify-center rounded-full border border-foreground/25 bg-background ${styles.headerBg} ${
                         selected ? "outline outline-1 outline-foreground" : ""
                     }`}
                 >
                     {/* logo fills the circle; clip here (not on the circle
                         div) so the edge-straddling port isn't cut off */}
-                    <span className={"flex h-18 w-18 overflow-hidden rounded-full"}>
-                        <ModelLogo slug={node.config.model ?? ""} name={name} size={72} />
+                    <span
+                        style={{ width: MODEL_D, height: MODEL_D }}
+                        className={"flex overflow-hidden rounded-full"}
+                    >
+                        <ModelLogo slug={node.config.model ?? ""} name={name} size={MODEL_D} />
                     </span>
-                    {output && (
-                        <span
-                            className={
-                                "absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/2"
-                            }
-                        >
-                            {port(output, "out", "")}
-                        </span>
-                    )}
+                    {output &&
+                        (() => {
+                            const [ax, ay] = parsedOutAnchor ?? [MODEL_D, MODEL_D / 2];
+                            return (
+                                <span
+                                    className={"absolute flex"}
+                                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                                >
+                                    {port(output, "out", "")}
+                                </span>
+                            );
+                        })()}
                 </div>
-                <div className={"flex h-6 w-18 items-center justify-center"}>
+                <div
+                    style={{ width: MODEL_D }}
+                    className={"flex h-6 items-center justify-center"}
+                >
                     {readOnly ? (
                         <span
                             // two 12px lines fill the h-6 strip exactly —
@@ -421,15 +466,18 @@ export default memo(function Node({
                     ) : (
                         <span className={"text-2xl leading-none"}>{entry.emoji}</span>
                     )}
-                    {output && (
-                        <span
-                            className={
-                                "absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/2"
-                            }
-                        >
-                            {port(output, "out", "")}
-                        </span>
-                    )}
+                    {output &&
+                        (() => {
+                            const [ax, ay] = parsedOutAnchor ?? [size, size / 2];
+                            return (
+                                <span
+                                    className={"absolute flex"}
+                                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                                >
+                                    {port(output, "out", "")}
+                                </span>
+                            );
+                        })()}
                 </div>
                 <div className={"flex h-6 items-center justify-center"}>
                     <span
@@ -520,15 +568,282 @@ export default memo(function Node({
                             className={`${fieldClass} resize-none overflow-hidden whitespace-pre`}
                         />
                     )}
-                    {output && (
-                        <span
-                            className={
-                                "absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/2"
-                            }
+                    {output &&
+                        (() => {
+                            const [ax, ay] = parsedOutAnchor ?? [width, height / 2];
+                            return (
+                                <span
+                                    className={"absolute flex"}
+                                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                                >
+                                    {port(output, "out", "")}
+                                </span>
+                            );
+                        })()}
+                </div>
+            </div>
+        );
+    }
+
+    // agent nodes render horizontally: a header, the output + reasoning
+    // dropdowns in a row, the value inputs laid along the BOTTOM edge (name
+    // centered above each marker), the flow "in" on the LEFT edge, and the
+    // outputs "out"/"result" stacked on the RIGHT edge (geometry.ts
+    // isAgentEntry — the side ports are absolutely positioned to match).
+    if (isAgentEntry(entry)) {
+        const bottomPorts = entry.inputs.filter((p) => p.kind !== "flow");
+        const flowInput = entry.inputs.find((p) => p.kind === "flow");
+        const width = nodeWidth(entry);
+
+        // one output/reasoning dropdown — mirrors the generic select branch's
+        // dynamicOptions handling, gated on the resolved model
+        const renderSelect = (field: ConfigField) => {
+            const dynStr = field.id === "reasoning" ? reasoningOptions : outputOptions;
+            const options = field.dynamicOptions
+                ? dynStr
+                    ? dynStr.split(",")
+                    : []
+                : (field.options ?? []);
+            const locked = field.dynamicOptions && options.length === 0;
+            return (
+                <label key={field.id} className={"flex min-w-0 flex-1 flex-col gap-0.5"}>
+                    <span className={"truncate text-[9px] text-gray-400"}>{field.label}</span>
+                    <select
+                        value={node.config[field.id] ?? ""}
+                        disabled={locked}
+                        title={
+                            locked
+                                ? field.id === "reasoning"
+                                    ? "model has no reasoning setting — pick a reasoning-capable model"
+                                    : "output modalities unknown — set a model from the OpenRouter list"
+                                : undefined
+                        }
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onFocus={onConfigFocus}
+                        onBlur={onConfigBlur}
+                        onChange={(e) =>
+                            dispatch({
+                                type: "setConfig",
+                                nodeId: node.id,
+                                field: field.id,
+                                value: e.target.value,
+                            })
+                        }
+                        className={`w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 font-mono text-[10px] ${
+                            locked ? "opacity-40" : ""
+                        }`}
+                    >
+                        <option value={""} hidden />
+                        {options.map((opt) => (
+                            <option key={opt} value={opt}>
+                                {opt}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            );
+        };
+
+        return (
+            <div
+                data-node-id={node.id}
+                style={{ left: node.x, top: node.y, width, borderTopColor: styles.edge }}
+                className={`absolute border border-foreground/25 border-t-2 bg-background font-mono text-xs ${
+                    selected ? "outline outline-1 outline-foreground" : ""
+                }`}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+            >
+                <div
+                    style={{ height: AGENT_HEADER_H }}
+                    className={`flex cursor-grab items-center gap-1 px-2 ${styles.headerBg}`}
+                >
+                    <EntryIcon entry={entry} />
+                    <span className={"truncate"}>{entry.label}</span>
+                </div>
+
+                <div
+                    style={{
+                        height: AGENT_CONFIG_H,
+                        paddingLeft: AGENT_LEFT_GUTTER,
+                        paddingRight: AGENT_RIGHT_GUTTER,
+                    }}
+                    className={"flex items-center gap-1.5"}
+                >
+                    {(entry.config ?? []).map(renderSelect)}
+                </div>
+
+                <div className={"flex"} style={{ height: AGENT_LABEL_H + AGENT_PORT_H }}>
+                    {bottomPorts.map((spec) => (
+                        <div
+                            key={spec.id}
+                            style={{ width: AGENT_PORT_SLOT }}
+                            className={"relative flex justify-center"}
                         >
-                            {port(output, "out", "")}
+                            <span
+                                style={{ height: AGENT_LABEL_H }}
+                                className={
+                                    "w-full truncate px-0.5 text-center text-[9px] leading-4 text-gray-400"
+                                }
+                            >
+                                {spec.label}
+                            </span>
+                            <span
+                                className={
+                                    "absolute bottom-0 left-1/2 flex -translate-x-1/2 translate-y-1/2"
+                                }
+                            >
+                                {port(spec, "in", "")}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+
+                {/* flow "in" on the left edge, centered on the top band */}
+                {flowInput && (
+                    <span
+                        className={"absolute flex"}
+                        style={{ left: 0, top: AGENT_TOP_H / 2, transform: "translate(-50%, -50%)" }}
+                    >
+                        {port(flowInput, "in", "")}
+                    </span>
+                )}
+
+                {/* outputs stacked on the right edge, matching geometry.ts */}
+                {entry.outputs.map((spec, i) => {
+                    const y = (AGENT_TOP_H * (i + 1)) / (entry.outputs.length + 1);
+                    return (
+                        <span
+                            key={spec.id}
+                            className={"absolute flex items-center"}
+                            style={{ right: 0, top: y, transform: "translateY(-50%)" }}
+                        >
+                            {!isGenericLabel(spec.label) && (
+                                <span className={"mr-1 text-[9px] leading-none text-gray-400"}>
+                                    {spec.label}
+                                </span>
+                            )}
+                            <span className={"flex translate-x-1/2"}>{port(spec, "out", "")}</span>
                         </span>
-                    )}
+                    );
+                })}
+            </div>
+        );
+    }
+
+    // if nodes render as a headerless rounded square (IF_W × IF_H): the
+    // operator dropdown sits dead center (glyph + ▾ caret), the l/in/r inputs
+    // stack on the left edge and the true/false flow outputs on the right,
+    // each marker absolutely placed on its geometry.ts anchor. No header, no
+    // bottom label strip.
+    if (isIfEntry(entry)) {
+        const operatorField = entry.config?.find((f) => f.id === "operator");
+        const operatorOptions = operatorField?.options ?? [];
+        return (
+            <div
+                data-node-id={node.id}
+                style={{ left: node.x, top: node.y, width: IF_W }}
+                className={"absolute font-mono text-xs"}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+            >
+                <div
+                    style={{ height: IF_H, borderColor: styles.edge }}
+                    className={`relative cursor-grab rounded-2xl border bg-background ${styles.headerBg} ${
+                        selected ? "outline outline-1 outline-foreground" : ""
+                    }`}
+                >
+                    {/* centered operator glyph + ▾ caret. The visible unit is
+                        pointer-events-none; a transparent <select> overlays
+                        just this spot so clicking it opens the dropdown while
+                        the rest of the square stays draggable. stopPropagation
+                        keeps opening it from starting a node drag. */}
+                    <div
+                        className={
+                            "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                        }
+                    >
+                        <div
+                            className={`pointer-events-none flex items-center gap-0.5 whitespace-nowrap text-base font-semibold leading-none ${styles.text}`}
+                        >
+                            <span>{node.config.operator || "=="}</span>
+                            <span className={"text-[8px] text-gray-400"}>{"▾"}</span>
+                        </div>
+                        <select
+                            value={node.config.operator ?? ""}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onFocus={onConfigFocus}
+                            onBlur={onConfigBlur}
+                            onChange={(e) =>
+                                dispatch({
+                                    type: "setConfig",
+                                    nodeId: node.id,
+                                    field: "operator",
+                                    value: e.target.value,
+                                })
+                            }
+                            className={"absolute inset-0 cursor-pointer opacity-0"}
+                        >
+                            <option value={""} hidden />
+                            {operatorOptions.map((opt) => (
+                                <option key={opt} value={opt}>
+                                    {opt}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* l / in / r on the left edge, top→bottom in input order */}
+                    {entry.inputs.map((spec, i) => {
+                        const y = (IF_H * (i + 1)) / (entry.inputs.length + 1);
+                        return (
+                            <span key={spec.id}>
+                                <span
+                                    className={"absolute flex"}
+                                    style={{ left: 0, top: y, transform: "translate(-50%, -50%)" }}
+                                >
+                                    {port(spec, "in", "")}
+                                </span>
+                                {!isGenericLabel(spec.label) && (
+                                    <span
+                                        className={"absolute text-[9px] leading-none text-gray-400"}
+                                        style={{ left: 8, top: y, transform: "translateY(-50%)" }}
+                                    >
+                                        {spec.label}
+                                    </span>
+                                )}
+                            </span>
+                        );
+                    })}
+
+                    {/* true / false flow outputs on the right edge */}
+                    {entry.outputs.map((spec, j) => {
+                        const y = (IF_H * (j + 1)) / (entry.outputs.length + 1);
+                        return (
+                            <span key={spec.id}>
+                                <span
+                                    className={"absolute flex"}
+                                    style={{ left: IF_W, top: y, transform: "translate(-50%, -50%)" }}
+                                >
+                                    {port(spec, "out", "")}
+                                </span>
+                                <span
+                                    className={"absolute text-[9px] leading-none text-gray-400"}
+                                    style={{
+                                        left: IF_W - 8,
+                                        top: y,
+                                        transform: "translate(-100%, -50%)",
+                                    }}
+                                >
+                                    {spec.label}
+                                </span>
+                            </span>
+                        );
+                    })}
                 </div>
             </div>
         );

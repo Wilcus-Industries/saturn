@@ -14,10 +14,12 @@ import {
     CATEGORY_STYLES,
     type CatalogEntry,
     canConnect,
+    defaultNodeConfig,
     edgesToReplace,
     missingEntry,
     type PortKind,
     type WorkflowGraph,
+    type WorkflowNode,
     type WorkflowRow,
 } from "@/lib/workflow";
 import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
@@ -29,12 +31,15 @@ import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
 import EntryIcon from "./entryIcon";
 import {
+    anchorOffsetY,
     chipSize,
     EVENT_H,
     GRID,
     HEADER_H,
+    IF_H,
     isChipEntry,
     isEventEntry,
+    isIfEntry,
     isModelEntry,
     MODEL_D,
     NODE_W,
@@ -221,16 +226,25 @@ export default function Designer({
                       ? EVENT_H / 2
                       : entry && isChipEntry(entry)
                         ? chipSize(entry) / 2
-                        : HEADER_H / 2;
+                        : entry && isIfEntry(entry)
+                          ? IF_H / 2
+                          : HEADER_H / 2;
+            // fresh object per spawn — never share a mutable config; catalog
+            // field defaults seed first, a toolbox preset wins
+            const config = { ...(entry ? defaultNodeConfig(entry) : {}), ...(preset ?? {}) };
+            // x snaps the left edge; y snaps the node's primary port axis (the
+            // literal box's height needs the config) so it drops grid-aligned to
+            // the same axis drag-end settles onto — see anchorOffsetY
+            const off = entry ? anchorOffsetY(entry, { config } as WorkflowNode) : HEADER_H / 2;
+            const rawY = point.y - dy;
             dispatch({
                 type: "addNode",
                 node: {
                     id: crypto.randomUUID(),
                     type: spawnKey,
                     x: snap(point.x - w / 2),
-                    y: snap(point.y - dy),
-                    // fresh object per spawn — never share a mutable config
-                    config: { ...(preset ?? {}) },
+                    y: Math.round((rawY + off) / GRID) * GRID - off,
+                    config,
                 },
             });
         },
