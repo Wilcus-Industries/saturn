@@ -71,6 +71,45 @@ function ModelChip({
     );
 }
 
+// grid cell for one mcp tool grant chip: rounded-square favicon tile over a
+// 2-line name, mirroring ModelChip (the per-server "All tools" chip stays a Chip row)
+function McpToolChip({
+    entry,
+    onSpawnStart,
+}: {
+    entry: CatalogEntry;
+    onSpawnStart: SpawnStart;
+}) {
+    return (
+        <div
+            title={entry.label}
+            className={
+                "flex touch-none cursor-grab flex-col items-center gap-1 py-1 transition-colors duration-200 hover:bg-foreground/5"
+            }
+            onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                // the entry key (mcp:<uuid>:<toolName>) encodes everything — no preset
+                onSpawnStart(entry.key, e.clientX, e.clientY);
+            }}
+        >
+            <span
+                className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-foreground/15 ${CATEGORY_STYLES.mcp.headerBg}`}
+            >
+                {entry.logoDomain ? (
+                    <McpLogo domain={entry.logoDomain} name={entry.label} size={"fill"} />
+                ) : (
+                    <EntryIcon entry={entry} />
+                )}
+            </span>
+            <span className={"line-clamp-2 w-full break-words text-center text-[10px] leading-tight"}>
+                {entry.label}
+            </span>
+        </div>
+    );
+}
+
 function Chip({
     entry,
     enabled,
@@ -184,24 +223,28 @@ export default function Toolbox({
                                     connect a tool to an agent&apos;s tools port
                                 </p>
                             )}
-                            {[...groups].map(([server, entries]) => (
-                                <div key={server} className={"flex flex-col gap-1"}>
-                                    <div
-                                        className={
-                                            "flex items-center gap-1.5 text-[10px] text-gray-400"
-                                        }
-                                    >
-                                        {entries[0].logoDomain && (
-                                            <McpLogo
-                                                domain={entries[0].logoDomain}
-                                                name={server}
-                                                size={16}
-                                            />
-                                        )}
-                                        <span className={"truncate"}>{server}</span>
-                                    </div>
-                                    <div className={"flex flex-col gap-1"}>
-                                        {entries.map((entry) => (
+                            {[...groups].map(([server, entries]) => {
+                                // "All tools" chip stays a list-row; per-tool
+                                // chips render as a grid of rounded squares
+                                const allTools = entries.filter((e) => e.toolName === "*");
+                                const tools = entries.filter((e) => e.toolName !== "*");
+                                return (
+                                    <div key={server} className={"flex flex-col gap-1"}>
+                                        <div
+                                            className={
+                                                "flex items-center gap-1.5 text-[10px] text-gray-400"
+                                            }
+                                        >
+                                            {entries[0].logoDomain && (
+                                                <McpLogo
+                                                    domain={entries[0].logoDomain}
+                                                    name={server}
+                                                    size={16}
+                                                />
+                                            )}
+                                            <span className={"truncate"}>{server}</span>
+                                        </div>
+                                        {allTools.map((entry) => (
                                             <Chip
                                                 key={entry.key}
                                                 entry={entry}
@@ -210,9 +253,20 @@ export default function Toolbox({
                                                 onSpawnStart={onSpawnStart}
                                             />
                                         ))}
+                                        {tools.length > 0 && (
+                                            <div className={"grid grid-cols-3 gap-1"}>
+                                                {tools.map((entry) => (
+                                                    <McpToolChip
+                                                        key={entry.key}
+                                                        entry={entry}
+                                                        onSpawnStart={onSpawnStart}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </section>
                     );
                 }
