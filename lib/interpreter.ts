@@ -489,9 +489,11 @@ export async function runWorkflow(
                 case "if": {
                     const op = node.config.operator;
                     if (!op) fail("if: no operator selected");
-                    const a = evalInput(node, "a", ctx);
-                    const b = incomingValueEdge(node.id, "b")
-                        ? evalInput(node, "b", ctx)
+                    const a = evalInput(node, "l", ctx);
+                    // b_literal is a removed config field kept as a legacy
+                    // fallback for pre-rename graphs where r was unconnected
+                    const b = incomingValueEdge(node.id, "r")
+                        ? evalInput(node, "r", ctx)
                         : (node.config.b_literal ?? "");
                     next = compare(a, b, op!) ? "true" : "false";
                     break;

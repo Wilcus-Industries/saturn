@@ -35,7 +35,7 @@ export const modelAuthorDomain = (slug: string): string | null =>
     AUTHOR_DOMAINS[slug.split("/")[0]] ?? null;
 
 // literal classes for Tailwind
-const PX = { 16: "h-4 w-4", 32: "h-8 w-8", 48: "h-12 w-12", 72: "h-18 w-18" } as const;
+const PX = { 16: "h-4 w-4", 32: "h-8 w-8", 48: "h-12 w-12", 54: "h-[54px] w-[54px]" } as const;
 
 // company favicon for an openrouter model slug; unknown author or a failed
 // favicon load falls back to a generic robot icon
@@ -46,7 +46,7 @@ export default function ModelLogo({
 }: {
     slug: string;
     name: string;
-    size: 16 | 32 | 48 | 72;
+    size: 16 | 32 | 48 | 54;
 }) {
     // track the failing domain (not a boolean) so an editable node whose
     // slug changes to a new author retries the favicon

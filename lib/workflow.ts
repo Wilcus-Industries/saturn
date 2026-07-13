@@ -61,6 +61,18 @@ export type ConfigField = {
     // modalities); the static `options` list is the full universe, kept as
     // documentation for MCP get_catalog consumers
     dynamicOptions?: boolean;
+    // seeded into a freshly spawned node's config (defaultNodeConfig) — e.g.
+    // the if operator defaults to "==" so a new if node is runnable at once
+    default?: string;
+};
+
+// initial config for a node spawned from `entry` — the config fields' `default`
+// values keyed by field id (empty when none declare one). Merged UNDER any
+// toolbox preset at spawn so a preset still wins.
+export const defaultNodeConfig = (entry: CatalogEntry): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const f of entry.config ?? []) if (f.default !== undefined) out[f.id] = f.default;
+    return out;
 };
 
 export type CatalogEntry = {
@@ -126,14 +138,16 @@ export const CATALOG: CatalogEntry[] = [
     // logic — control flow + boolean ops
     {
         key: "if", category: "logic", label: "if",
-        inputs: [flowIn, v("a"), v("b")],
+        // l / r operands on the left edge with the flow "in" between them;
+        // rendered as a rounded square by node.tsx's if branch (geometry.ts
+        // isIfEntry). Port order here IS the left-edge top→bottom order.
+        inputs: [v("l"), flowIn, v("r")],
         outputs: [
             { id: "true", label: "true", kind: "flow" },
             { id: "false", label: "false", kind: "flow" },
         ],
         config: [
-            { id: "operator", label: "operator", input: "select", options: IF_OPERATORS },
-            { ...text("b_literal", "b (literal)"), overriddenBy: "b" },
+            { id: "operator", label: "operator", input: "select", options: IF_OPERATORS, default: "==" },
         ],
     },
     {

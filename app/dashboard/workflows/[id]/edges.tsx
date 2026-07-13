@@ -8,7 +8,7 @@ import {
     type PortKind,
     type WorkflowGraph,
 } from "@/lib/workflow";
-import { portPosition } from "./geometry";
+import { portGeometry, type PortGeometry } from "./geometry";
 import type { GraphAction } from "./graphReducer";
 
 // single SVG in world coordinates, mounted under the nodes. Endpoints come
@@ -21,12 +21,15 @@ export type PendingEdge = {
 };
 
 type PortRef = { nodeId: string; portId: string };
-type End = { x: number; y: number; category: NodeCategory };
+type End = PortGeometry & { category: NodeCategory };
 
-// horizontal cubic bezier between two port anchors
-function bezier(x1: number, y1: number, x2: number, y2: number): string {
-    const dx = Math.max(40, Math.abs(x2 - x1) / 2);
-    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+// cubic bezier between two ports; each control point pushes off its port's
+// outward normal so the curve leaves along that edge (right-edge ports exit
+// horizontally, the agent's bottom-edge ports exit downward, rotated chip
+// outputs exit along their rotation). A zero normal (drag cursor) exits straight.
+function bezier(a: PortGeometry, b: PortGeometry): string {
+    const d = Math.max(40, Math.hypot(b.x - a.x, b.y - a.y) / 2);
+    return `M ${a.x} ${a.y} C ${a.x + a.nx * d} ${a.y + a.ny * d}, ${b.x + b.nx * d} ${b.y + b.ny * d}, ${b.x} ${b.y}`;
 }
 
 // memoized so a drag only re-renders edges whose `d` actually moved
@@ -96,7 +99,8 @@ function resolveEnd(
     if (!entry) return null;
     const ports = dir === "in" ? entry.inputs : entry.outputs;
     if (!ports.some((p) => p.id === ref.portId)) return null;
-    return { ...portPosition(node, entry, ref.portId), category: entry.category };
+    // graph+byKey let chip/model outputs rotate toward the agent they feed
+    return { ...portGeometry(node, entry, ref.portId, graph, byKey), category: entry.category };
 }
 
 export default function Edges({
@@ -117,9 +121,11 @@ export default function Edges({
     const outAnchor = pending ? resolveEnd(graph, byKey, pending.from, "out") : null;
     const inAnchor = pending && !outAnchor ? resolveEnd(graph, byKey, pending.from, "in") : null;
     const tp = pending?.toWorldPoint;
+    // the dragged end follows the cursor with no edge to exit along (zero normal)
+    const cursor = tp ? { x: tp.x, y: tp.y, nx: 0, ny: 0 } : null;
     let pendingD: string | null = null;
-    if (tp && outAnchor) pendingD = bezier(outAnchor.x, outAnchor.y, tp.x, tp.y);
-    else if (tp && inAnchor) pendingD = bezier(tp.x, tp.y, inAnchor.x, inAnchor.y);
+    if (cursor && outAnchor) pendingD = bezier(outAnchor, cursor);
+    else if (cursor && inAnchor) pendingD = bezier(cursor, inAnchor);
 
     return (
         <svg
@@ -136,7 +142,7 @@ export default function Edges({
                     <EdgePath
                         key={edge.id}
                         id={edge.id}
-                        d={bezier(from.x, from.y, to.x, to.y)}
+                        d={bezier(from, to)}
                         flow={edge.kind === "flow"}
                         color={CATEGORY_STYLES[from.category].edge}
                         hovered={hovered === edge.id}
