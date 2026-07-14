@@ -35,8 +35,10 @@ export default function Privacy() {
             <LegalSection heading={"3. How we use it"}>
                 <p>
                     To operate the service: run your workflows, bill subscriptions, enforce
-                    tier limits, and provide support. We show no ads, sell no data, and run
-                    no third-party analytics or tracking.
+                    tier limits, and provide support. We may also email you at your account
+                    address for required service and account messages and for optional
+                    product announcements you can opt out of. We show no ads, sell no data,
+                    and run no third-party analytics or tracking.
                 </p>
             </LegalSection>
             <LegalSection heading={"4. Cookies"}>

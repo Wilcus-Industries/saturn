@@ -31,7 +31,20 @@ export default function Terms() {
                     everything done with it.
                 </p>
             </LegalSection>
-            <LegalSection heading={"4. Acceptable use"}>
+            <LegalSection heading={"4. Communications"}>
+                <p>
+                    We may email you at the address on your account. Service and account
+                    messages are required while you hold an account and cannot be opted out
+                    of: security and emergency notices, billing receipts, and material
+                    changes to the service or these terms. Separately, {ORG_NAME} may email
+                    all users about product announcements, such as new features; these are
+                    infrequent and you can opt out of them at any time by emailing us at the
+                    address in the Contact section or by replying to an announcement email
+                    with an opt-out request. We do not sell your address or use it for
+                    third-party marketing.
+                </p>
+            </LegalSection>
+            <LegalSection heading={"5. Acceptable use"}>
                 <p>
                     Do not use {SITE_NAME} for anything unlawful, do not abuse or disrupt the
                     service, and do not use workflows to harm, spam, or gain unauthorized
@@ -39,13 +52,13 @@ export default function Terms() {
                     services they call. We may suspend accounts that violate this section.
                 </p>
             </LegalSection>
-            <LegalSection heading={"5. Your content"}>
+            <LegalSection heading={"6. Your content"}>
                 <p>
                     You own your workflows and data. You grant us the limited license needed
                     to store and execute them in order to provide the service.
                 </p>
             </LegalSection>
-            <LegalSection heading={"6. Third-party services and model output"}>
+            <LegalSection heading={"7. Third-party services and model output"}>
                 <p>
                     API keys, MCP servers, and webhooks you connect are governed by their
                     providers&apos; terms, and you are responsible for how your workflows use
@@ -53,7 +66,7 @@ export default function Terms() {
                     relying on it.
                 </p>
             </LegalSection>
-            <LegalSection heading={"7. Paid plans"}>
+            <LegalSection heading={"8. Paid plans"}>
                 <p>
                     Paid tiers are billed monthly through Stripe and renew automatically. You
                     can cancel anytime; access continues until the end of the paid period.
@@ -61,32 +74,32 @@ export default function Terms() {
                     and pricing may change with notice.
                 </p>
             </LegalSection>
-            <LegalSection heading={"8. Termination"}>
+            <LegalSection heading={"9. Termination"}>
                 <p>
                     You may stop using {SITE_NAME} and delete your workflows at any time. We
                     may suspend or terminate accounts that violate these terms.
                 </p>
             </LegalSection>
-            <LegalSection heading={"9. Disclaimer and liability"}>
+            <LegalSection heading={"10. Disclaimer and liability"}>
                 <p>
                     {SITE_NAME} is provided as is, without warranties of any kind. To the
                     maximum extent permitted by law, our total liability is capped at the
                     fees you paid us in the 12 months before the claim.
                 </p>
             </LegalSection>
-            <LegalSection heading={"10. Changes"}>
+            <LegalSection heading={"11. Changes"}>
                 <p>
                     We may update these terms. Updates are posted on this page, and continued
                     use after an update means you accept it.
                 </p>
             </LegalSection>
-            <LegalSection heading={"11. Governing law"}>
+            <LegalSection heading={"12. Governing law"}>
                 <p>
                     These terms are governed by the laws of the State of California, United
                     States.
                 </p>
             </LegalSection>
-            <LegalSection heading={"12. Contact"}>
+            <LegalSection heading={"13. Contact"}>
                 <p>
                     <a href={`mailto:${CONTACT_EMAIL}`}
                        className={"underline underline-offset-4 hover:text-foreground transition-colors"}>

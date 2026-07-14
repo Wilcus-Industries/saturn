@@ -14,7 +14,7 @@ export default function LegalPage({ title, children }: {
                 <div className={"mx-auto flex w-full max-w-3xl flex-col gap-8 px-8 py-16"}>
                     <div className={"flex flex-col gap-2"}>
                         <h1 className={"text-4xl font-mono"}>{title}</h1>
-                        <p className={"font-mono text-xs text-gray-400"}>Last updated: July 12, 2026</p>
+                        <p className={"font-mono text-xs text-gray-400"}>Last updated: July 14, 2026</p>
                     </div>
                     {children}
                     <div className={"font-mono text-xs text-gray-400"}>
