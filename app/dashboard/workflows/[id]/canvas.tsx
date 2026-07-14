@@ -17,6 +17,7 @@ import {
     GRID,
     isChipEntry,
     isEventEntry,
+    isIntegrationEntry,
     isLiteralEntry,
     isModelEntry,
     nodeHeight,
@@ -24,7 +25,12 @@ import {
     portPosition,
 } from "./geometry";
 import type { GraphAction } from "./graphReducer";
-import Node, { type OpenCronHandler, type OpenPickerHandler, type PortPointerDownHandler } from "./node";
+import Node, {
+    type OpenConfigHandler,
+    type OpenCronHandler,
+    type OpenPickerHandler,
+    type PortPointerDownHandler,
+} from "./node";
 
 // imperative surface for the designer (toolbox drag-spawn drops through it)
 export type CanvasHandle = {
@@ -109,6 +115,7 @@ export default function Canvas({
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
+    onOpenConfig,
     ref,
 }: {
     graph: WorkflowGraph;
@@ -128,6 +135,7 @@ export default function Canvas({
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
+    onOpenConfig?: OpenConfigHandler;
     ref?: Ref<CanvasHandle>;
 }) {
     const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
@@ -386,6 +394,8 @@ export default function Canvas({
                     // chip/model output anchor, rotated toward the agent it
                     // feeds — a "lx,ly" local offset so Node's memo can compare
                     // it as a string (matches the edge anchor from geometry).
+                    // Integration circles pivot all three ports, so they carry a
+                    // "portId=lx,ly;…" map instead of a single pair.
                     let outAnchor = "";
                     if (
                         isModelEntry(entry) ||
@@ -398,6 +408,13 @@ export default function Canvas({
                             const p = portPosition(node, entry, out.id, graph, byKey);
                             outAnchor = `${p.x - node.x},${p.y - node.y}`;
                         }
+                    } else if (isIntegrationEntry(entry)) {
+                        outAnchor = [...entry.inputs, ...entry.outputs]
+                            .map((p) => {
+                                const pos = portPosition(node, entry, p.id, graph, byKey);
+                                return `${p.id}=${pos.x - node.x},${pos.y - node.y}`;
+                            })
+                            .join(";");
                     }
                     return (
                         <Node
@@ -421,6 +438,7 @@ export default function Canvas({
                             onPortPointerDown={onPortPointerDown}
                             onOpenPicker={onOpenPicker}
                             onOpenCron={onOpenCron}
+                            onOpenConfig={onOpenConfig}
                         />
                     );
                 })}

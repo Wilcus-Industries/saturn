@@ -28,6 +28,13 @@ export const EVENT_W = 48; // w-12 (diameter — kept square so the node is roun
 export const EVENT_H = 48; // h-12
 export const EVENT_LABEL_H = 24; // h-6 name strip below (like MODEL_LABEL_H)
 
+// integration ("app") nodes render as a circle (same size as event nodes) with
+// a label strip below, but carry three ports on fixed perimeter points: flow
+// "in" on the left edge, flow "out" on the right edge, and the "message" value
+// input on the top edge. node.tsx's integration branch must match these exactly.
+export const INTEGRATION_D = 48; // diameter (matches EVENT_W/H)
+export const INTEGRATION_LABEL_H = 24; // h-6 label strip below
+
 // agent nodes render horizontally: a header, a row of config dropdowns
 // (output + reasoning), then the value inputs (prompt/system/model/tools/
 // skills) along the BOTTOM edge — one per column, name centered above its
@@ -80,6 +87,11 @@ export const isModelEntry = (entry: CatalogEntry): boolean =>
 export const isEventEntry = (entry: CatalogEntry): boolean =>
     entry.category === "events" && !entry.missing;
 
+// integration nodes render as a circle (see INTEGRATION_D); missing
+// placeholders map to category "integration" but carry entry.missing
+export const isIntegrationEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "integration" && !entry.missing;
+
 // the if node renders as a rounded square (see IF_W/IF_H); only the real if
 // catalog entry, never a missing placeholder mapped to "logic"
 export const isIfEntry = (entry: CatalogEntry): boolean =>
@@ -128,6 +140,7 @@ function literalMetrics(value: string): { width: number; height: number } {
 export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number => {
     if (isModelEntry(entry)) return MODEL_D;
     if (isEventEntry(entry)) return EVENT_W;
+    if (isIntegrationEntry(entry)) return INTEGRATION_D;
     if (isIfEntry(entry)) return IF_W;
     if (isAgentEntry(entry))
         return Math.max(AGENT_MIN_W, agentBottomPorts(entry).length * AGENT_PORT_SLOT);
@@ -147,6 +160,7 @@ const portRows = (entry: CatalogEntry): number =>
 export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
     if (isModelEntry(entry)) return MODEL_D + MODEL_LABEL_H;
     if (isEventEntry(entry)) return EVENT_H + EVENT_LABEL_H;
+    if (isIntegrationEntry(entry)) return INTEGRATION_D + INTEGRATION_LABEL_H;
     if (isIfEntry(entry)) return IF_H;
     if (isAgentEntry(entry)) return AGENT_H;
     if (isChipEntry(entry)) return chipSize(entry) + CHIP_LABEL_H;
@@ -171,6 +185,7 @@ export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
 export function anchorOffsetY(entry: CatalogEntry, node?: WorkflowNode): number {
     if (isModelEntry(entry)) return MODEL_D / 2;
     if (isEventEntry(entry)) return EVENT_H / 2;
+    if (isIntegrationEntry(entry)) return INTEGRATION_D / 2; // the flow in/out line
     if (isIfEntry(entry)) return IF_H / 2; // the middle "in" input
     if (isAgentEntry(entry)) return AGENT_TOP_H / 2; // flow "in" on the left edge
     if (isChipEntry(entry)) return chipSize(entry) / 2;
@@ -197,6 +212,37 @@ function outputTargetCentroid(
         const te = byKey[tn.type];
         if (!te) continue;
         const p = portPosition(tn, te, e.to.portId);
+        sx += p.x;
+        sy += p.y;
+        n += 1;
+    }
+    return n ? { x: sx / n, y: sy / n } : null;
+}
+
+// centroid of the anchors a single port connects to — for an input port, the
+// source outputs feeding it; for an output port, the target inputs it feeds.
+// Peer anchors are resolved statically (no graph passed on) so this never
+// recurses, like outputTargetCentroid. Used by the integration circle, whose
+// three ports each pivot toward their own connection.
+function portPeerCentroid(
+    node: WorkflowNode,
+    portId: string,
+    isInput: boolean,
+    graph: WorkflowGraph,
+    byKey: Record<string, CatalogEntry>,
+): { x: number; y: number } | null {
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (const e of graph.edges) {
+        const self = isInput ? e.to : e.from;
+        const peer = isInput ? e.from : e.to;
+        if (self.nodeId !== node.id || self.portId !== portId) continue;
+        const pn = graph.nodes.find((x) => x.id === peer.nodeId);
+        if (!pn) continue;
+        const pe = byKey[pn.type];
+        if (!pe) continue;
+        const p = portPosition(pn, pe, peer.portId);
         sx += p.x;
         sy += p.y;
         n += 1;
@@ -250,6 +296,30 @@ export function portGeometry(
         if (!target) return { x: node.x + EVENT_W, y: cy, nx: 1, ny: 0 };
         const vx = target.x - cx;
         const vy = target.y - cy;
+        const len = Math.hypot(vx, vy) || 1;
+        return { x: cx + (r * vx) / len, y: cy + (r * vy) / len, nx: vx / len, ny: vy / len };
+    }
+
+    // integration circle: each of the three ports rides the circle perimeter
+    // toward the node it connects to — inputs toward their source, the output
+    // toward its target (like the model/event/chip output pivot, extended to
+    // inputs). Unconnected, each port falls back to its home edge: flow "in" on
+    // the left, "message" value input on top, flow "out" on the right.
+    if (isIntegrationEntry(entry)) {
+        const r = INTEGRATION_D / 2;
+        const cx = node.x + r;
+        const cy = node.y + r;
+        const input = entry.inputs.find((p) => p.id === portId);
+        const home: PortGeometry = input
+            ? input.kind === "flow"
+                ? { x: node.x, y: cy, nx: -1, ny: 0 } // flow in on the left edge
+                : { x: cx, y: node.y, nx: 0, ny: -1 } // message value in on top
+            : { x: node.x + INTEGRATION_D, y: cy, nx: 1, ny: 0 }; // flow out right
+        const peer =
+            graph && byKey ? portPeerCentroid(node, portId, !!input, graph, byKey) : null;
+        if (!peer) return home;
+        const vx = peer.x - cx;
+        const vy = peer.y - cy;
         const len = Math.hypot(vx, vy) || 1;
         return { x: cx + (r * vx) / len, y: cy + (r * vy) / len, nx: vx / len, ny: vy / len };
     }

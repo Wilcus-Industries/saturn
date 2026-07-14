@@ -17,6 +17,7 @@ import {
     type WorkflowGraph,
     type WorkflowNode,
 } from "@/lib/workflow";
+import { ALL_TOOLS } from "@/lib/agent";
 import { describeCron } from "@/lib/cron";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import EntryIcon from "./entryIcon";
@@ -36,9 +37,11 @@ import {
     HEADER_H,
     IF_H,
     IF_W,
+    INTEGRATION_D,
     isAgentEntry,
     isEventEntry,
     isIfEntry,
+    isIntegrationEntry,
     isLiteralEntry,
     isMcpChipEntry,
     isModelEntry,
@@ -77,6 +80,13 @@ export type OpenPickerHandler = (
 // a schedule event node opens the cron popover when clicked (press with no
 // drag); the anchor is the node's client-space bottom-left corner
 export type OpenCronHandler = (
+    anchor: { x: number; y: number },
+    nodeId: string,
+) => void;
+
+// an integration node opens its config popover when clicked (press with no
+// drag); the anchor is the node's client-space bottom-left corner, like cron
+export type OpenConfigHandler = (
     anchor: { x: number; y: number },
     nodeId: string,
 ) => void;
@@ -123,6 +133,7 @@ export default memo(function Node({
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
+    onOpenConfig,
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
@@ -156,6 +167,7 @@ export default memo(function Node({
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
+    onOpenConfig?: OpenConfigHandler;
 }) {
     const styles = CATEGORY_STYLES[entry.category];
     // local (x,y) offset of a rotated chip/model output marker; null → the
@@ -481,6 +493,95 @@ export default memo(function Node({
         );
     }
 
+    // integration ("app") nodes render as a circle (INTEGRATION_D, h-6 label
+    // strip = INTEGRATION_LABEL_H) with the provider favicon centered and the
+    // provider label underneath. Each of the three ports rides the circle
+    // perimeter toward its connection per geometry.ts (flow "in" left, "message"
+    // value in top, flow "out" right when unconnected), with the marker rotated
+    // to face its normal — outward for the output, inward for the inputs so the
+    // flow arrowhead reads as arriving. A click (press with no drag) opens the
+    // config popover, mirroring the schedule event's cron popover.
+    if (isIntegrationEntry(entry)) {
+        const flowIn = entry.inputs.find((p) => p.kind === "flow");
+        const msgIn = entry.inputs.find((p) => p.kind !== "flow");
+        const flowOut = entry.outputs[0];
+        const half = INTEGRATION_D / 2;
+
+        const integrationEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+            const wasClick = !!dragRef.current && !dragRef.current.active;
+            endDrag();
+            if (wasClick && onOpenConfig) {
+                const r = e.currentTarget.getBoundingClientRect();
+                onOpenConfig({ x: r.left, y: r.bottom + 4 }, node.id);
+            }
+        };
+
+        // per-port "portId=lx,ly" local anchors from the canvas (rotated toward
+        // each port's connection, matching the edge anchors from geometry)
+        const anchors = new Map<string, [number, number]>();
+        if (outAnchor)
+            for (const part of outAnchor.split(";")) {
+                const [id, xy] = part.split("=");
+                if (!xy) continue;
+                const [x, y] = xy.split(",").map(Number);
+                anchors.set(id, [x, y]);
+            }
+
+        const at = (spec: PortSpec, dir: "in" | "out", home: [number, number]) => {
+            const [ax, ay] = anchors.get(spec.id) ?? home;
+            // rotate the marker to face its outward normal; inputs flip 180° so
+            // the flow arrowhead points into the node (○ is rotation-agnostic)
+            let deg = (Math.atan2(ay - half, ax - half) * 180) / Math.PI;
+            if (dir === "in") deg += 180;
+            return (
+                <span
+                    className={"absolute flex"}
+                    style={{ left: ax, top: ay, transform: `translate(-50%, -50%) rotate(${deg}deg)` }}
+                >
+                    {port(spec, dir, "")}
+                </span>
+            );
+        };
+
+        return (
+            <div
+                data-node-id={node.id}
+                style={{ left: node.x, top: node.y, width: INTEGRATION_D }}
+                className={"absolute font-mono text-xs"}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={integrationEndDrag}
+                onPointerCancel={endDrag}
+            >
+                <div
+                    // border tinted to the category color (same hex the edges use)
+                    style={{ borderColor: styles.edge, width: INTEGRATION_D, height: INTEGRATION_D }}
+                    className={`relative flex cursor-pointer items-center justify-center rounded-full border bg-background ${styles.headerBg} ${
+                        selected ? "outline outline-1 outline-foreground" : ""
+                    }`}
+                >
+                    <McpLogo domain={entry.logoDomain ?? ""} name={entry.label} size={32} />
+                    {msgIn && at(msgIn, "in", [half, 0])}
+                    {flowIn && at(flowIn, "in", [0, half])}
+                    {flowOut && at(flowOut, "out", [INTEGRATION_D, half])}
+                </div>
+                <div
+                    style={{ width: INTEGRATION_D }}
+                    className={"flex h-6 items-center justify-center"}
+                >
+                    <span
+                        className={
+                            "line-clamp-2 max-w-full break-words text-center text-[10px] leading-3"
+                        }
+                        title={entry.label}
+                    >
+                        {entry.label}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
     // mcp/skill grant chips render as a rounded square (60px mcp / 48px skill
     // = MCP_CHIP/SKILL_CHIP, h-6 label strip = CHIP_LABEL_H) with the server
     // favicon / skill emoji centered and a single value output on the
@@ -492,6 +593,9 @@ export default memo(function Node({
         const mcp = isMcpChipEntry(entry);
         const size = mcp ? MCP_CHIP : SKILL_CHIP;
         const border = mcp ? "border-purple-500" : "border-green-500";
+        // the "All tools" server chip carries the tool name as the label; on
+        // the canvas show the server name (its group) instead
+        const chipLabel = mcp && entry.toolName === ALL_TOOLS ? (entry.group ?? entry.label) : entry.label;
         return (
             <div
                 data-node-id={node.id}
@@ -533,7 +637,7 @@ export default memo(function Node({
                         }
                         title={mcp ? `${entry.group} · ${entry.label}` : entry.label}
                     >
-                        {entry.label}
+                        {chipLabel}
                     </span>
                 </div>
             </div>

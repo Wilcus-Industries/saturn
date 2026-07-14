@@ -373,7 +373,8 @@ export function isWorkflowGraph(g: unknown): g is WorkflowGraph {
         // placeholders (user registry entries resolve per-owner at read time,
         // and removed static catalog entries must not brick saved graphs)
         if (typeof n.type !== "string" || n.type.length > MAX_NODE_TYPE_LENGTH) return false;
-        // multiple event nodes are valid — each is an independent entry point
+        // event-node count (max one per workflow) is a semantic rule enforced
+        // by the designer UI and validateGraphStrict, not this shape guard
         if (typeof n.x !== "number" || !Number.isFinite(n.x)) return false;
         if (typeof n.y !== "number" || !Number.isFinite(n.y)) return false;
         if (!isRecord(n.config)) return false;
@@ -451,10 +452,11 @@ export function canConnect(
 // (the MCP server's validate_graph/save_graph tools). Assumes the graph
 // already passed isWorkflowGraph. Errors are states the canvas can't produce
 // (bad ports, kind mismatches, duplicate edges, fan-in on single-edge value
-// inputs, a chip wired into a mismatched accepts port); warnings are
-// legal-but-probably-unintended states (unknown node types resolve as inert
-// "(deleted)" placeholders, no event node means the workflow never triggers,
-// a chip output wired into an ordinary value input grants nothing).
+// inputs, a chip wired into a mismatched accepts port, more than one event
+// node); warnings are legal-but-probably-unintended states (unknown node types
+// resolve as inert "(deleted)" placeholders, no event node means the workflow
+// never triggers, a chip output wired into an ordinary value input grants
+// nothing).
 export function validateGraphStrict(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
@@ -474,10 +476,14 @@ export function validateGraphStrict(
         }
     }
     // entry points are event-category nodes (schedule, legacy start, future
-    // events); without one nothing can trigger the graph
+    // events); a workflow must have exactly one — none can never trigger, two+
+    // is disallowed (the designer permits only one)
     const isEvent = (node: WorkflowNode) => known(node)?.category === "events";
-    if (!graph.nodes.some(isEvent)) {
+    const eventCount = graph.nodes.filter(isEvent).length;
+    if (eventCount === 0) {
         warnings.push("no event node — add a 'scheduled to run' block so the workflow can trigger");
+    } else if (eventCount > 1) {
+        errors.push(`a workflow may have only one event node, but this graph has ${eventCount}`);
     }
     // a schedule node with a blank/invalid cron never fires
     for (const node of graph.nodes) {

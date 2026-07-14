@@ -47,8 +47,14 @@ import {
 } from "./geometry";
 import ModelLogo from "./modelLogo";
 import { graphReducer, initHistory } from "./graphReducer";
-import type { OpenCronHandler, OpenPickerHandler, PortPointerDownHandler } from "./node";
+import type {
+    OpenConfigHandler,
+    OpenCronHandler,
+    OpenPickerHandler,
+    PortPointerDownHandler,
+} from "./node";
 import CronPopover from "./cronPopover";
+import ConfigPopover from "./configPopover";
 import { describeCron } from "@/lib/cron";
 import PathPicker, { type PickerSample } from "./pathPicker";
 import Toolbox from "./toolbox";
@@ -248,6 +254,9 @@ export default function Designer({
             setSpawn(null);
             const point = canvasRef.current?.clientToWorld(e.clientX, e.clientY);
             if (!point || !spawnKey) return; // dropped outside the canvas — cancel
+            // one event node per workflow — the toolbox chip is already disabled
+            // when one exists; this guards any other drop path
+            if (byKey[spawnKey]?.category === "events" && events.length > 0) return;
             // same grid as the canvas dots and drag-end snapping
             const snap = (value: number) => Math.round(value / GRID) * GRID;
             // rectangles drop with the header centered under the pointer;
@@ -419,6 +428,29 @@ export default function Designer({
         setCronEdit(null);
     };
 
+    // integration-node config popover: same before/commit undo coalescing as
+    // the cron popover — one undo step for the whole editing session
+    const [configEdit, setConfigEdit] = useState<{
+        nodeId: string;
+        anchor: { x: number; y: number };
+        before: WorkflowGraph;
+    } | null>(null);
+
+    const openConfig: OpenConfigHandler = useCallback((anchor, nodeId) => {
+        setConfigEdit({ nodeId, anchor, before: graphRef.current });
+    }, []);
+
+    const handleConfigChange = (field: string, value: string) => {
+        setConfigEdit((cur) => {
+            if (cur) dispatch({ type: "setConfig", nodeId: cur.nodeId, field, value });
+            return cur;
+        });
+    };
+    const closeConfig = () => {
+        if (configEdit) dispatch({ type: "commitConfig", before: configEdit.before });
+        setConfigEdit(null);
+    };
+
     const [saving, startSaving] = useTransition();
     const save = () => {
         if (saving || !dirty) return;
@@ -483,7 +515,11 @@ export default function Designer({
     // Cmd/Ctrl+D: copies of the selected nodes plus the edges running between
     // them, offset a grid cell, selected afterwards; one undo step
     const duplicateSelection = () => {
-        const copyable = present.nodes.filter((n) => selection.has(n.id));
+        // one event node per workflow — never copy event nodes (duplicating a
+        // graph that already has one would create a second)
+        const copyable = present.nodes.filter(
+            (n) => selection.has(n.id) && byKey[n.type]?.category !== "events",
+        );
         if (!copyable.length) return;
         const idMap = new Map(copyable.map((n) => [n.id, crypto.randomUUID()]));
         const nodes = copyable.map((n) => ({
@@ -548,6 +584,7 @@ export default function Designer({
                 dispatch({ type: "commitDrag", before });
             } else if (e.key === "Escape") {
                 if (cronEdit) closeCron();
+                else if (configEdit) closeConfig();
                 else if (picker) setPicker(null);
                 else if (pendingDrag) {
                     setPendingDrag(null);
@@ -580,6 +617,7 @@ export default function Designer({
                 <Toolbox
                     userCatalog={userCatalog}
                     openrouterModels={openrouterModels}
+                    hasEvent={events.length > 0}
                     onSpawnStart={(key, x, y, preset) =>
                         setSpawn({ key, x, y, config: preset?.config, label: preset?.label })
                     }
@@ -599,6 +637,7 @@ export default function Designer({
                     onPortPointerDown={startEdgeDrag}
                     onOpenPicker={openPicker}
                     onOpenCron={openCron}
+                    onOpenConfig={openConfig}
                 />
             </div>
 
@@ -630,6 +669,39 @@ export default function Designer({
                     onClose={closeCron}
                 />
             )}
+
+            {configEdit &&
+                (() => {
+                    const node = present.nodes.find((n) => n.id === configEdit.nodeId);
+                    const entry = node ? byKey[node.type] : undefined;
+                    if (!node || !entry) return null;
+                    // config fields whose value port is connected — dimmed as
+                    // overridden (mirrors the canvas's per-node computation)
+                    const valueTargets = new Set(
+                        present.edges
+                            .filter((e) => e.kind === "value")
+                            .map((e) => `${e.to.nodeId}:${e.to.portId}`),
+                    );
+                    const overriddenIds =
+                        entry.config
+                            ?.filter(
+                                (f) =>
+                                    f.overriddenBy !== undefined &&
+                                    valueTargets.has(`${node.id}:${f.overriddenBy}`),
+                            )
+                            .map((f) => f.id)
+                            .join(",") ?? "";
+                    return (
+                        <ConfigPopover
+                            anchor={configEdit.anchor}
+                            entry={entry}
+                            config={node.config}
+                            overriddenIds={overriddenIds}
+                            onChange={handleConfigChange}
+                            onClose={closeConfig}
+                        />
+                    );
+                })()}
 
             {/* drag-spawn ghost chip following the pointer */}
             {spawn && spawnEntry && (

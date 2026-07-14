@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import type { IconType } from "react-icons";
+import { FaBrain, FaCubes, FaPlug, FaRobot } from "react-icons/fa6";
 import McpLogo from "@/app/dashboard/mcpLogo";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
@@ -23,6 +25,15 @@ const SECTIONS: { category: NodeCategory; heading: string }[] = [
     { category: "mcp", heading: "tools" },
     { category: "skill", heading: "skills" },
     { category: "model", heading: "openrouter models" },
+];
+
+// the 8 catalog categories collapse into 4 selectable toolbox groups, each a
+// tab icon at the top; only the active group's SECTIONS render below
+const GROUPS: { id: string; label: string; Icon: IconType; categories: NodeCategory[] }[] = [
+    { id: "blocks", label: "Blocks", Icon: FaCubes, categories: ["events", "logic", "data"] },
+    { id: "integrations", label: "Apps", Icon: FaPlug, categories: ["integration"] },
+    { id: "agents", label: "Agents", Icon: FaRobot, categories: ["saturn", "mcp", "skill"] },
+    { id: "models", label: "Models", Icon: FaBrain, categories: ["model"] },
 ];
 
 // preset: chip-supplied initial node config + ghost label (openrouter model
@@ -159,24 +170,22 @@ export default function Toolbox({
     userCatalog,
     openrouterModels,
     onSpawnStart,
+    hasEvent,
 }: {
     userCatalog: CatalogEntry[];
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
     onSpawnStart: SpawnStart;
+    // a workflow may hold only one event node — event chips disable once the
+    // graph already has one
+    hasEvent: boolean;
 }) {
+    const [group, setGroup] = useState("blocks");
+    const active = GROUPS.find((g) => g.id === group) ?? GROUPS[0];
+
     // registered servers can carry dozens of tools each — filter by node
     // label or server name
     const [query, setQuery] = useState("");
-    // collapsed mcp server groups, keyed by server/group name
-    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-    const toggleGroup = (server: string) =>
-        setCollapsedGroups((prev) => {
-            const next = new Set(prev);
-            if (next.has(server)) next.delete(server);
-            else next.add(server);
-            return next;
-        });
     const q = query.trim().toLowerCase();
     const matches = (entry: CatalogEntry) =>
         !q ||
@@ -195,6 +204,40 @@ export default function Toolbox({
                 "flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-foreground/15 bg-background p-3 font-mono text-xs"
             }
         >
+            {/* group tabs: faint circular Saturn-ringed backing per icon */}
+            <div className={"flex justify-between gap-1"}>
+                {GROUPS.map(({ id, label, Icon }) => {
+                    const on = id === active.id;
+                    return (
+                        <button
+                            key={id}
+                            type={"button"}
+                            title={label}
+                            aria-label={label}
+                            aria-pressed={on}
+                            onClick={() => setGroup(id)}
+                            className={
+                                "flex flex-1 flex-col items-center gap-1 transition-opacity duration-200"
+                            }
+                        >
+                            <span
+                                className={`flex h-10 w-10 items-center justify-center rounded-full ring-1 transition-colors duration-200 ${
+                                    on
+                                        ? "bg-foreground/10 ring-foreground/40"
+                                        : "bg-foreground/5 ring-foreground/10 hover:bg-foreground/10"
+                                }`}
+                            >
+                                <Icon
+                                    className={`h-4 w-4 transition-opacity duration-200 ${on ? "opacity-100" : "opacity-50"}`}
+                                />
+                            </span>
+                            <span className={`text-[9px] ${on ? "text-foreground" : "text-gray-400"}`}>
+                                {label}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
             <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -204,7 +247,7 @@ export default function Toolbox({
                     "border border-foreground/15 bg-background px-2 py-1.5 font-mono text-xs"
                 }
             />
-            {SECTIONS.map(({ category, heading }) => {
+            {SECTIONS.filter((s) => active.categories.includes(s.category)).map(({ category, heading }) => {
                 const styles = CATEGORY_STYLES[category];
 
                 // mcp: one chip per enabled tool, grouped under a server
@@ -229,50 +272,23 @@ export default function Toolbox({
                                 </p>
                             )}
                             {[...groups].map(([server, entries]) => {
-                                // "All tools" chip stays a list-row; per-tool
-                                // chips render as a grid of rounded squares
+                                // the "All tools" chip is the server's list-row
+                                // (labelled with the server name); per-tool chips
+                                // render below as a grid of rounded squares
                                 const allTools = entries.filter((e) => e.toolName === "*");
                                 const tools = entries.filter((e) => e.toolName !== "*");
-                                const collapsed = collapsedGroups.has(server);
                                 return (
                                     <div key={server} className={"flex flex-col gap-1"}>
-                                        <button
-                                            type={"button"}
-                                            onClick={() => toggleGroup(server)}
-                                            className={
-                                                "flex items-center gap-1.5 text-[10px] text-gray-400 transition-colors hover:text-foreground"
-                                            }
-                                        >
-                                            {entries[0].logoDomain && (
-                                                <McpLogo
-                                                    domain={entries[0].logoDomain}
-                                                    name={server}
-                                                    size={16}
-                                                />
-                                            )}
-                                            <span className={"truncate"}>{server}</span>
-                                            <span
-                                                className={"ml-auto inline-block w-2 shrink-0 text-center text-xs leading-none"}
-                                            >
-                                                {collapsed ? "▸" : "▾"}
-                                            </span>
-                                        </button>
-                                        {!collapsed && allTools.length > 0 && (
-                                            <div className={"grid grid-cols-3 gap-1"}>
-                                                {allTools.map((entry) => (
-                                                    <div
-                                                        key={entry.key}
-                                                        className={"col-start-2"}
-                                                    >
-                                                        <McpToolChip
-                                                            entry={entry}
-                                                            onSpawnStart={onSpawnStart}
-                                                        />
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {!collapsed && tools.length > 0 && (
+                                        {allTools.map((entry) => (
+                                            <Chip
+                                                key={entry.key}
+                                                entry={{ ...entry, label: server }}
+                                                enabled
+                                                borderL={styles.borderL}
+                                                onSpawnStart={onSpawnStart}
+                                            />
+                                        ))}
+                                        {tools.length > 0 && (
                                             <div className={"grid grid-cols-4 gap-1"}>
                                                 {tools.map((entry) => (
                                                     <McpToolChip
@@ -350,11 +366,17 @@ export default function Toolbox({
                                 {q ? "no matches" : "none yet — add in settings"}
                             </p>
                         )}
+                        {category === "events" && hasEvent && (
+                            <p className={"text-[10px] text-gray-400"}>
+                                one event per workflow — remove it to add another
+                            </p>
+                        )}
                         {entries.map((entry) => (
                             <Chip
                                 key={entry.key}
                                 entry={entry}
-                                enabled={true}
+                                // only one event node allowed per graph
+                                enabled={category !== "events" || !hasEvent}
                                 borderL={styles.borderL}
                                 onSpawnStart={onSpawnStart}
                             />
