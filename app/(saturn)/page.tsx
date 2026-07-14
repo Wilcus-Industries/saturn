@@ -79,6 +79,7 @@ export default function Home() {
                 </p>
                 <p className={"w-full max-w-100 font-sans"}>
                     Fully open-source on <a href={"https://github.com/Wilcus-Industries/saturn"}
+                       target={"_blank"} rel={"noopener noreferrer"}
                        className={"underline underline-offset-4 hover:text-gray-400 transition-colors"}>
                         GitHub
                     </a>.
@@ -153,6 +154,7 @@ export default function Home() {
                         </div>
                         <div className={"flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-gray-400"}>
                             <a href={"https://github.com/Wilcus-Industries/saturn"}
+                               target={"_blank"} rel={"noopener noreferrer"}
                                className={"underline underline-offset-4 hover:text-foreground transition-colors"}>
                                 GitHub
                             </a>
