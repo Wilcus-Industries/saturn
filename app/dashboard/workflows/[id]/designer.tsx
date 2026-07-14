@@ -417,12 +417,12 @@ export default function Designer({
         setCronEdit({ nodeId, anchor, initial: node?.config.cron ?? "", before: graph });
     }, []);
 
-    const handleCronChange = (cron: string) => {
+    const handleCronChange = useCallback((cron: string) => {
         setCronEdit((cur) => {
             if (cur) dispatch({ type: "setConfig", nodeId: cur.nodeId, field: "cron", value: cron });
             return cur;
         });
-    };
+    }, []);
     const closeCron = () => {
         if (cronEdit) dispatch({ type: "commitConfig", before: cronEdit.before });
         setCronEdit(null);
