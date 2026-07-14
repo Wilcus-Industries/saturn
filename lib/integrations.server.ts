@@ -6,8 +6,10 @@
 import type { McpCallResult } from "@/lib/agent";
 import { INTEGRATIONS_BY_ID } from "@/lib/integrations";
 
-const MAX_INTEGRATION_MESSAGE = 4096; // mirrors MAX_TOOL_INPUT
+const MAX_INTEGRATION_MESSAGE = 4096; // text cap (mirrors MAX_TOOL_INPUT)
+const MAX_INTEGRATION_IMAGE = 4_194_304; // image data-URL cap (mirrors runner MAX_IMAGE_DATA_URL)
 const DISCORD_CONTENT_LIMIT = 2000; // Discord's hard cap on `content`
+const DISCORD_UPLOAD_LIMIT = 8_388_608; // 8 MiB — Discord free webhook attachment cap
 const SEND_TIMEOUT_MS = 15_000;
 
 // userId is unused by webhook senders but threaded through so bot-token
@@ -39,6 +41,37 @@ async function sendDiscordWebhook(
         return { error: "webhook url must look like https://discord.com/api/webhooks/…" };
     }
     if (!message.trim()) return { error: "message is empty" };
+    // Image data URL -> upload as a file attachment (multipart), not text content
+    if (message.startsWith("data:image/")) {
+        const marker = ";base64,";
+        const markerIdx = message.indexOf(marker);
+        if (markerIdx === -1) return { error: "unsupported image encoding (expected base64)" };
+
+        const mime = message.slice(5, markerIdx); // "image/png" | "image/svg+xml"
+        const b64 = message.slice(markerIdx + marker.length);
+        const bytes = Buffer.from(b64, "base64"); // never throws
+        if (bytes.length === 0) return { error: "image data is empty" };
+        if (bytes.length > DISCORD_UPLOAD_LIMIT) {
+            return { error: `image too large (max ${DISCORD_UPLOAD_LIMIT} bytes)` };
+        }
+
+        const subtype = mime.split("/")[1] ?? "png";
+        const ext = (subtype.split("+")[0] || "png").toLowerCase(); // svg+xml -> svg
+        const form = new FormData();
+        form.append("files[0]", new Blob([bytes], { type: mime }), `image.${ext}`);
+
+        const imgRes = await fetch(url, {
+            // no content-type header — fetch sets the multipart boundary
+            method: "POST",
+            body: form,
+            signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+        });
+        if (!imgRes.ok) {
+            const body = (await imgRes.text().catch(() => "")).slice(0, 200);
+            return { error: `discord webhook failed (${imgRes.status})${body ? `: ${body}` : ""}` };
+        }
+        return { text: "sent" };
+    }
     const content =
         message.length > DISCORD_CONTENT_LIMIT
             ? `${message.slice(0, DISCORD_CONTENT_LIMIT - 1)}…`
@@ -70,8 +103,12 @@ export async function executeIntegration(
     const send = typeof providerId === "string" ? SENDERS[providerId] : undefined;
     if (!send || !INTEGRATIONS_BY_ID[providerId]) return { error: "unknown integration" };
     if (typeof message !== "string") return { error: "invalid message" };
-    if (message.length > MAX_INTEGRATION_MESSAGE) {
-        return { error: `message too long (max ${MAX_INTEGRATION_MESSAGE} chars)` };
+    const isImage = message.startsWith("data:image/");
+    const cap = isImage ? MAX_INTEGRATION_IMAGE : MAX_INTEGRATION_MESSAGE;
+    if (message.length > cap) {
+        return isImage
+            ? { error: `image too large (max ${MAX_INTEGRATION_IMAGE} chars)` }
+            : { error: `message too long (max ${MAX_INTEGRATION_MESSAGE} chars)` };
     }
     if (
         typeof config !== "object" ||
