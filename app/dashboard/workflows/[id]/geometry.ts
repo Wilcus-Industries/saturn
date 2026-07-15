@@ -12,7 +12,7 @@ import type {
 
 export const GRID = 24;
 export const NODE_W = 176; // w-44
-export const HEADER_H = 32;
+export const HEADER_H = 24; // h-6 — the icon+label band every headered node shares
 export const PORT_ROW_H = 24;
 export const CONFIG_ROW_H = 36;
 export const TEXTAREA_ROW_H = 72; // h-[72px] textarea config rows
@@ -39,16 +39,18 @@ export const INTEGRATION_LABEL_H = 24; // h-6 label strip below
 // (output + reasoning), then the value inputs (prompt/system/model/tools/
 // skills) along the BOTTOM edge — one per column, name centered above its
 // marker. The flow input "in" sits on the LEFT edge (vertically centered on
-// the top body) and the outputs "out"/"result" stack on the RIGHT edge, each
-// leaving along its own normal. node.tsx's agent branch must match these
-// exactly. Width grows with the bottom-port count.
+// the body band) and the outputs "out"/"result" stack on the RIGHT edge, each
+// leaving along its own normal. Side ports live in the body band only — never
+// over the header — mirroring the if node's IF_HEADER_H/IF_BODY_H split.
+// node.tsx's agent branch must match these exactly. Width grows with the
+// bottom-port count.
 export const AGENT_PORT_SLOT = 48; // width of one bottom-edge port column
-export const AGENT_HEADER_H = HEADER_H; // 32
+export const AGENT_HEADER_H = HEADER_H; // 24
 export const AGENT_CONFIG_H = 40; // output + reasoning dropdown row
 export const AGENT_LABEL_H = 16; // port-name strip above the markers
 export const AGENT_PORT_H = 20; // bottom-edge marker row
 export const AGENT_H = AGENT_HEADER_H + AGENT_CONFIG_H + AGENT_LABEL_H + AGENT_PORT_H;
-export const AGENT_TOP_H = AGENT_HEADER_H + AGENT_CONFIG_H; // 72 — the side-port band
+export const AGENT_BODY_H = AGENT_CONFIG_H; // 40 — the side-port band, below the header
 export const AGENT_LEFT_GUTTER = 14; // config-row left pad clearing the "in" port
 export const AGENT_RIGHT_GUTTER = 48; // config-row right pad clearing "result"
 export const AGENT_MIN_W = AGENT_LEFT_GUTTER + AGENT_RIGHT_GUTTER + 120;
@@ -74,12 +76,15 @@ export const LIT_PAD_Y = 12; // py-1.5 top+bottom
 export const LIT_CHAR_W = 7.2; // Geist Mono advance at text-xs (12px)
 export const NUM_W = 80;
 
-// the if node renders as a headerless rounded square: the operator dropdown
-// sits in the center, the l/in/r inputs stack on the left edge and the
-// true/false flow outputs on the right edge. node.tsx's if branch must match
-// these exactly too.
+// the if node renders as a compact square carrying the agent node's frame: a
+// header band on top, then a body whose center holds the operator dropdown,
+// with the l/in/r inputs stacked on the body's left edge and the true/false
+// flow outputs on its right edge. node.tsx's if branch must match these
+// exactly too.
 export const IF_W = 92;
-export const IF_H = 64;
+export const IF_HEADER_H = HEADER_H; // 24
+export const IF_BODY_H = 64; // operator + side-port band
+export const IF_H = IF_HEADER_H + IF_BODY_H;
 
 export const isModelEntry = (entry: CatalogEntry): boolean =>
     entry.category === "model" && !entry.missing;
@@ -92,7 +97,7 @@ export const isEventEntry = (entry: CatalogEntry): boolean =>
 export const isIntegrationEntry = (entry: CatalogEntry): boolean =>
     entry.category === "integration" && !entry.missing;
 
-// the if node renders as a rounded square (see IF_W/IF_H); only the real if
+// the if node renders as a compact square (see IF_W/IF_H); only the real if
 // catalog entry, never a missing placeholder mapped to "logic"
 export const isIfEntry = (entry: CatalogEntry): boolean =>
     entry.category === "logic" && entry.key === "if" && !entry.missing;
@@ -186,8 +191,8 @@ export function anchorOffsetY(entry: CatalogEntry, node?: WorkflowNode): number 
     if (isModelEntry(entry)) return MODEL_D / 2;
     if (isEventEntry(entry)) return EVENT_H / 2;
     if (isIntegrationEntry(entry)) return INTEGRATION_D / 2; // the flow in/out line
-    if (isIfEntry(entry)) return IF_H / 2; // the middle "in" input
-    if (isAgentEntry(entry)) return AGENT_TOP_H / 2; // flow "in" on the left edge
+    if (isIfEntry(entry)) return IF_HEADER_H + IF_BODY_H / 2; // the middle "in" input
+    if (isAgentEntry(entry)) return AGENT_HEADER_H + AGENT_BODY_H / 2; // flow "in" on the left edge
     if (isChipEntry(entry)) return chipSize(entry) / 2;
     if (isLiteralEntry(entry)) return nodeHeight(entry, node) / 2;
     return HEADER_H + PORT_ROW_H / 2; // generic rect: first port row
@@ -328,14 +333,14 @@ export function portGeometry(
     // right edge, and the value inputs sit one-per-column along the bottom.
     if (isAgentEntry(entry)) {
         const width = nodeWidth(entry);
-        // flow input on the left edge, centered on the top (header+config) band
+        // flow input on the left edge, centered on the body band
         const input = entry.inputs.find((p) => p.id === portId);
         if (input?.kind === "flow")
-            return { x: node.x, y: node.y + AGENT_TOP_H / 2, nx: -1, ny: 0 };
-        // outputs on the right edge, evenly stacked across the top band
+            return { x: node.x, y: node.y + AGENT_HEADER_H + AGENT_BODY_H / 2, nx: -1, ny: 0 };
+        // outputs on the right edge, evenly stacked across the body band
         const outIdx = entry.outputs.findIndex((p) => p.id === portId);
         if (outIdx !== -1) {
-            const y = (AGENT_TOP_H * (outIdx + 1)) / (entry.outputs.length + 1);
+            const y = AGENT_HEADER_H + (AGENT_BODY_H * (outIdx + 1)) / (entry.outputs.length + 1);
             return { x: node.x + width, y: node.y + y, nx: 1, ny: 0 };
         }
         // value inputs along the bottom edge — edges leave downward
@@ -391,16 +396,18 @@ export function portGeometry(
         return { x: cx + vx * t, y: cy + vy * t, nx: vx / len, ny: vy / len };
     }
 
-    // if node: l/in/r stack on the left edge (input array order top→bottom),
-    // true/false on the right edge, each evenly spaced and leaving horizontally
+    // if node: l/in/r stack on the body's left edge (input array order
+    // top→bottom), true/false on its right edge, each evenly spaced below the
+    // header band and leaving horizontally
     if (isIfEntry(entry)) {
+        const bodyY = (row: number, count: number) =>
+            node.y + IF_HEADER_H + (IF_BODY_H * (row + 1)) / (count + 1);
         const inputRow = entry.inputs.findIndex((p) => p.id === portId);
         if (inputRow !== -1) {
-            const y = node.y + (IF_H * (inputRow + 1)) / (entry.inputs.length + 1);
-            return { x: node.x, y, nx: -1, ny: 0 };
+            return { x: node.x, y: bodyY(inputRow, entry.inputs.length), nx: -1, ny: 0 };
         }
         const outRow = entry.outputs.findIndex((p) => p.id === portId);
-        const y = node.y + (IF_H * (Math.max(outRow, 0) + 1)) / (entry.outputs.length + 1);
+        const y = bodyY(Math.max(outRow, 0), entry.outputs.length);
         return { x: node.x + IF_W, y, nx: 1, ny: 0 };
     }
 

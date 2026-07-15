@@ -21,7 +21,9 @@ import { ALL_TOOLS } from "@/lib/agent";
 import { describeCron } from "@/lib/cron";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import EntryIcon from "./entryIcon";
+import NodeFrame from "./nodeFrame";
 import {
+    AGENT_BODY_H,
     AGENT_CONFIG_H,
     AGENT_HEADER_H,
     AGENT_LABEL_H,
@@ -29,13 +31,13 @@ import {
     AGENT_PORT_H,
     AGENT_PORT_SLOT,
     AGENT_RIGHT_GUTTER,
-    AGENT_TOP_H,
     anchorOffsetY,
     GRID,
     EVENT_H,
     EVENT_W,
     HEADER_H,
-    IF_H,
+    IF_BODY_H,
+    IF_HEADER_H,
     IF_W,
     INTEGRATION_D,
     isAgentEntry,
@@ -56,7 +58,7 @@ import type { GraphAction } from "./graphReducer";
 import ModelLogo from "./modelLogo";
 
 // generic single-io labels ("in"/"out") add no signal over the port marker
-// (▶/○) and its side, so they're hidden — named ports (a/b/prompt/true…) stay
+// (◆/○) and its side, so they're hidden — named ports (a/b/prompt/true…) stay
 const isGenericLabel = (label: string) => label === "in" || label === "out";
 
 // a press on a port starts an edge drag (owned by the designer); the port
@@ -91,13 +93,16 @@ export type OpenConfigHandler = (
     nodeId: string,
 ) => void;
 
-// renders to the geometry.ts metrics exactly: w-44 = NODE_W 176, h-8 header
-// = HEADER_H 32, h-6 port rows = PORT_ROW_H 24, h-9 config rows =
+// renders to the geometry.ts metrics exactly: w-44 = NODE_W 176, the header
+// band's height comes straight from HEADER_H, h-6 port rows = PORT_ROW_H 24,
+// h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
 // bottom pad. Model nodes render circular: h-18 w-18 = MODEL_D 72 plus an
 // h-6 name strip = MODEL_LABEL_H 24. Event nodes render circular too:
 // h-12 w-12 = EVENT_H 48 × EVENT_W 48 plus an h-6 label strip = EVENT_LABEL_H
-// 24. Change sizes only via geometry.ts.
+// 24. Change sizes only via geometry.ts. Frames come from NodeFrame (an inset
+// overlay) — a real `border` on a node box would shift its ports off those
+// metrics; see nodeFrame.tsx.
 
 const DRAG_SLOP = 4; // client px below which a press counts as a click
 
@@ -304,13 +309,22 @@ export default memo(function Node({
                 e.currentTarget.setPointerCapture(e.pointerId);
                 onPortPointerDown(e, node.id, spec.id, spec.kind, dir);
             }}
-            className={`shrink-0 cursor-crosshair text-[10px] leading-none transition-transform ${marginClass} ${
+            className={`flex shrink-0 cursor-crosshair items-center justify-center text-[10px] leading-none transition-transform ${marginClass} ${
                 spec.kind === "flow" ? "text-foreground" : styles.text
             } ${
                 pendingKind === spec.kind ? "scale-125" : ""
             }`}
         >
-            {spec.kind === "flow" ? "▶" : "○"}
+            {/* flow ports are a filled diamond (a 45°-tilted square), value
+                ports a hollow circle. The diamond's 7px box keeps the layout
+                width of the glyph it replaced; the rotation overflows it
+                visually without moving the row's other content, and both
+                markers are rotation-agnostic so no branch needs to spin them. */}
+            {spec.kind === "flow" ? (
+                <span className={"h-[7px] w-[7px] rotate-45 bg-current"} />
+            ) : (
+                "○"
+            )}
         </button>
     );
 
@@ -350,19 +364,22 @@ export default memo(function Node({
                     >
                         <ModelLogo slug={node.config.model ?? ""} name={name} size={MODEL_D} />
                     </span>
-                    {output &&
-                        (() => {
-                            const [ax, ay] = parsedOutAnchor ?? [MODEL_D, MODEL_D / 2];
-                            return (
-                                <span
-                                    className={"absolute flex"}
-                                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-                                >
-                                    {port(output, "out", "")}
-                                </span>
-                            );
-                        })()}
                 </div>
+                {/* the port hangs off the borderless outer box, so its anchor
+                    is node.x/node.y exactly — inside the bordered circle it
+                    would drift by the border width, off geometry.ts's anchor */}
+                {output &&
+                    (() => {
+                        const [ax, ay] = parsedOutAnchor ?? [MODEL_D, MODEL_D / 2];
+                        return (
+                            <span
+                                className={"absolute flex"}
+                                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                            >
+                                {port(output, "out", "")}
+                            </span>
+                        );
+                    })()}
                 <div
                     style={{ width: MODEL_D }}
                     className={"flex h-6 items-center justify-center"}
@@ -456,26 +473,24 @@ export default memo(function Node({
                             {"▶"}
                         </span>
                     )}
-                    {output &&
-                        (() => {
-                            const [ax, ay] = parsedOutAnchor ?? [EVENT_W, EVENT_H / 2];
-                            // point the ▶ along the outward normal it rotated to
-                            const deg =
-                                (Math.atan2(ay - EVENT_H / 2, ax - EVENT_W / 2) * 180) / Math.PI;
-                            return (
-                                <span
-                                    className={"absolute flex"}
-                                    style={{
-                                        left: ax,
-                                        top: ay,
-                                        transform: `translate(-50%, -50%) rotate(${deg}deg)`,
-                                    }}
-                                >
-                                    {port(output, "out", "")}
-                                </span>
-                            );
-                        })()}
                 </div>
+                {/* port on the borderless outer box — see the model branch */}
+                {output &&
+                    (() => {
+                        const [ax, ay] = parsedOutAnchor ?? [EVENT_W, EVENT_H / 2];
+                        return (
+                            <span
+                                className={"absolute flex"}
+                                style={{
+                                    left: ax,
+                                    top: ay,
+                                    transform: "translate(-50%, -50%)",
+                                }}
+                            >
+                                {port(output, "out", "")}
+                            </span>
+                        );
+                    })()}
                 <div
                     style={{ width: EVENT_W }}
                     className={"flex h-6 items-center justify-center"}
@@ -497,10 +512,8 @@ export default memo(function Node({
     // strip = INTEGRATION_LABEL_H) with the provider favicon centered and the
     // provider label underneath. Each of the three ports rides the circle
     // perimeter toward its connection per geometry.ts (flow "in" left, "message"
-    // value in top, flow "out" right when unconnected), with the marker rotated
-    // to face its normal — outward for the output, inward for the inputs so the
-    // flow arrowhead reads as arriving. A click (press with no drag) opens the
-    // config popover, mirroring the schedule event's cron popover.
+    // value in top, flow "out" right when unconnected). A click (press with no
+    // drag) opens the config popover, mirroring the schedule event's cron popover.
     if (isIntegrationEntry(entry)) {
         const flowIn = entry.inputs.find((p) => p.kind === "flow");
         const msgIn = entry.inputs.find((p) => p.kind !== "flow");
@@ -529,14 +542,10 @@ export default memo(function Node({
 
         const at = (spec: PortSpec, dir: "in" | "out", home: [number, number]) => {
             const [ax, ay] = anchors.get(spec.id) ?? home;
-            // rotate the marker to face its outward normal; inputs flip 180° so
-            // the flow arrowhead points into the node (○ is rotation-agnostic)
-            let deg = (Math.atan2(ay - half, ax - half) * 180) / Math.PI;
-            if (dir === "in") deg += 180;
             return (
                 <span
                     className={"absolute flex"}
-                    style={{ left: ax, top: ay, transform: `translate(-50%, -50%) rotate(${deg}deg)` }}
+                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
                 >
                     {port(spec, dir, "")}
                 </span>
@@ -561,10 +570,11 @@ export default memo(function Node({
                     }`}
                 >
                     <McpLogo domain={entry.logoDomain ?? ""} name={entry.label} size={32} />
-                    {msgIn && at(msgIn, "in", [half, 0])}
-                    {flowIn && at(flowIn, "in", [0, half])}
-                    {flowOut && at(flowOut, "out", [INTEGRATION_D, half])}
                 </div>
+                {/* ports on the borderless outer box — see the model branch */}
+                {msgIn && at(msgIn, "in", [half, 0])}
+                {flowIn && at(flowIn, "in", [0, half])}
+                {flowOut && at(flowOut, "out", [INTEGRATION_D, half])}
                 <div
                     style={{ width: INTEGRATION_D }}
                     className={"flex h-6 items-center justify-center"}
@@ -617,19 +627,21 @@ export default memo(function Node({
                     ) : (
                         <span className={"text-2xl leading-none"}>{entry.emoji}</span>
                     )}
-                    {output &&
-                        (() => {
-                            const [ax, ay] = parsedOutAnchor ?? [size, size / 2];
-                            return (
-                                <span
-                                    className={"absolute flex"}
-                                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-                                >
-                                    {port(output, "out", "")}
-                                </span>
-                            );
-                        })()}
                 </div>
+                {/* port on the borderless outer box — see the model branch.
+                    Chips carry border-2, so nesting it would skew 2px */}
+                {output &&
+                    (() => {
+                        const [ax, ay] = parsedOutAnchor ?? [size, size / 2];
+                        return (
+                            <span
+                                className={"absolute flex"}
+                                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                            >
+                                {port(output, "out", "")}
+                            </span>
+                        );
+                    })()}
                 <div className={"flex h-6 items-center justify-center"}>
                     <span
                         className={
@@ -719,19 +731,20 @@ export default memo(function Node({
                             className={`${fieldClass} resize-none overflow-hidden whitespace-pre`}
                         />
                     )}
-                    {output &&
-                        (() => {
-                            const [ax, ay] = parsedOutAnchor ?? [width, height / 2];
-                            return (
-                                <span
-                                    className={"absolute flex"}
-                                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-                                >
-                                    {port(output, "out", "")}
-                                </span>
-                            );
-                        })()}
                 </div>
+                {/* port on the borderless outer box — see the model branch */}
+                {output &&
+                    (() => {
+                        const [ax, ay] = parsedOutAnchor ?? [width, height / 2];
+                        return (
+                            <span
+                                className={"absolute flex"}
+                                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                            >
+                                {port(output, "out", "")}
+                            </span>
+                        );
+                    })()}
             </div>
         );
     }
@@ -798,8 +811,8 @@ export default memo(function Node({
         return (
             <div
                 data-node-id={node.id}
-                style={{ left: node.x, top: node.y, width, borderTopColor: styles.edge }}
-                className={`absolute border border-foreground/25 border-t-2 bg-background font-mono text-xs ${
+                style={{ left: node.x, top: node.y, width }}
+                className={`absolute bg-background font-mono text-xs ${
                     selected ? "outline outline-1 outline-foreground" : ""
                 }`}
                 onPointerDown={onPointerDown}
@@ -807,6 +820,8 @@ export default memo(function Node({
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
             >
+                <NodeFrame accent={styles.edge} />
+
                 <div
                     style={{ height: AGENT_HEADER_H }}
                     className={`flex cursor-grab items-center gap-1 px-2 ${styles.headerBg}`}
@@ -852,19 +867,23 @@ export default memo(function Node({
                     ))}
                 </div>
 
-                {/* flow "in" on the left edge, centered on the top band */}
+                {/* flow "in" on the left edge, centered on the body band */}
                 {flowInput && (
                     <span
                         className={"absolute flex"}
-                        style={{ left: 0, top: AGENT_TOP_H / 2, transform: "translate(-50%, -50%)" }}
+                        style={{
+                            left: 0,
+                            top: AGENT_HEADER_H + AGENT_BODY_H / 2,
+                            transform: "translate(-50%, -50%)",
+                        }}
                     >
                         {port(flowInput, "in", "")}
                     </span>
                 )}
 
-                {/* outputs stacked on the right edge, matching geometry.ts */}
+                {/* outputs stacked on the right edge of the body, matching geometry.ts */}
                 {entry.outputs.map((spec, i) => {
-                    const y = (AGENT_TOP_H * (i + 1)) / (entry.outputs.length + 1);
+                    const y = AGENT_HEADER_H + (AGENT_BODY_H * (i + 1)) / (entry.outputs.length + 1);
                     return (
                         <span
                             key={spec.id}
@@ -884,11 +903,11 @@ export default memo(function Node({
         );
     }
 
-    // if nodes render as a headerless rounded square (IF_W × IF_H): the
-    // operator dropdown sits dead center (glyph + ▾ caret), the l/in/r inputs
-    // stack on the left edge and the true/false flow outputs on the right,
-    // each marker absolutely placed on its geometry.ts anchor. No header, no
-    // bottom label strip.
+    // if nodes render as a compact square (IF_W × IF_H) wearing the agent
+    // node's frame: an icon+label header band on top, then a body whose center
+    // holds the operator dropdown (glyph + ▾ caret), with the l/in/r inputs on
+    // the body's left edge and the true/false flow outputs on its right, each
+    // marker absolutely placed on its geometry.ts anchor. No bottom label strip.
     if (isIfEntry(entry)) {
         const operatorField = entry.config?.find((f) => f.id === "operator");
         const operatorOptions = operatorField?.options ?? [];
@@ -896,18 +915,25 @@ export default memo(function Node({
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width: IF_W }}
-                className={"absolute font-mono text-xs"}
+                className={`absolute bg-background font-mono text-xs ${
+                    selected ? "outline outline-1 outline-foreground" : ""
+                }`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
             >
+                <NodeFrame accent={styles.edge} />
+
                 <div
-                    style={{ height: IF_H, borderColor: styles.edge }}
-                    className={`relative cursor-grab rounded-2xl border bg-background ${styles.headerBg} ${
-                        selected ? "outline outline-1 outline-foreground" : ""
-                    }`}
+                    style={{ height: IF_HEADER_H }}
+                    className={`flex cursor-grab items-center gap-1 px-2 ${styles.headerBg}`}
                 >
+                    <EntryIcon entry={entry} />
+                    <span className={"truncate"}>{entry.label}</span>
+                </div>
+
+                <div style={{ height: IF_BODY_H }} className={"relative cursor-grab"}>
                     {/* centered operator glyph + ▾ caret. The visible unit is
                         pointer-events-none; a transparent <select> overlays
                         just this spot so clicking it opens the dropdown while
@@ -948,9 +974,9 @@ export default memo(function Node({
                         </select>
                     </div>
 
-                    {/* l / in / r on the left edge, top→bottom in input order */}
+                    {/* l / in / r on the body's left edge, top→bottom in input order */}
                     {entry.inputs.map((spec, i) => {
-                        const y = (IF_H * (i + 1)) / (entry.inputs.length + 1);
+                        const y = (IF_BODY_H * (i + 1)) / (entry.inputs.length + 1);
                         return (
                             <span key={spec.id}>
                                 <span
@@ -971,24 +997,20 @@ export default memo(function Node({
                         );
                     })}
 
-                    {/* true / false flow outputs on the right edge */}
+                    {/* true / false flow outputs on the body's right edge */}
                     {entry.outputs.map((spec, j) => {
-                        const y = (IF_H * (j + 1)) / (entry.outputs.length + 1);
+                        const y = (IF_BODY_H * (j + 1)) / (entry.outputs.length + 1);
                         return (
                             <span key={spec.id}>
                                 <span
                                     className={"absolute flex"}
-                                    style={{ left: IF_W, top: y, transform: "translate(-50%, -50%)" }}
+                                    style={{ right: 0, top: y, transform: "translate(50%, -50%)" }}
                                 >
                                     {port(spec, "out", "")}
                                 </span>
                                 <span
                                     className={"absolute text-[9px] leading-none text-gray-400"}
-                                    style={{
-                                        left: IF_W - 8,
-                                        top: y,
-                                        transform: "translate(-100%, -50%)",
-                                    }}
+                                    style={{ right: 8, top: y, transform: "translateY(-50%)" }}
                                 >
                                     {spec.label}
                                 </span>
@@ -1012,15 +1034,21 @@ export default memo(function Node({
         <div
             data-node-id={node.id}
             style={{ left: node.x, top: node.y }}
-            className={`absolute w-44 border border-foreground/25 border-l-2 bg-background pb-1 font-mono text-xs ${styles.borderL} ${
+            className={`absolute w-44 bg-background pb-1 font-mono text-xs ${
                 selected ? "outline outline-1 outline-foreground" : ""
-            } ${entry.missing ? "border-dashed opacity-50" : ""}`}
+            } ${entry.missing ? "opacity-50" : ""}`}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
         >
-            <div className={`flex h-8 cursor-grab items-center gap-1 px-2 ${styles.headerBg}`}>
+            <NodeFrame
+                className={`border-l-2 ${styles.borderL} ${entry.missing ? "border-dashed" : ""}`}
+            />
+            <div
+                style={{ height: HEADER_H }}
+                className={`flex cursor-grab items-center gap-1 px-2 ${styles.headerBg}`}
+            >
                 <EntryIcon entry={entry} />
                 <span className={`truncate ${entry.missing ? "text-gray-400" : ""}`}>
                     {entry.label}
