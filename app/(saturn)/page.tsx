@@ -124,7 +124,7 @@ export default function Home() {
                         <Eyebrow>:: features</Eyebrow>
                         <h2 className={"text-3xl sm:text-4xl font-mono"}>Every piece is a node.</h2>
                         <p className={"max-w-xl font-sans text-foreground/70"}>
-                            Agents, tools, and schedules — drop them on a canvas, wire them
+                            Agents, tools, and schedules: drop them on a canvas, wire them
                             together, and Saturn runs the graph on your schedule.
                         </p>
                     </div>
