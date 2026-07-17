@@ -33,7 +33,7 @@ export const baseUrl = process.env.BETTER_AUTH_URL as string;
 // gets it: getCreditUsage zeroes the allowance for level=null, unlike the
 // other limits (limitsFor treats null as free).
 export const PLAN_LIMITS = {
-    free: { workflows: 3, mcpServers: 1, cronFloorMinutes: 60, modelCredits: 1_000 },
+    free: { workflows: 3, mcpServers: 3, cronFloorMinutes: 60, modelCredits: 1_000 },
     pro: { workflows: 20, mcpServers: 10, cronFloorMinutes: 5, modelCredits: 15_000 },
     max: { workflows: 100, mcpServers: 50, cronFloorMinutes: 1, modelCredits: 60_000 },
 } as const satisfies Record<

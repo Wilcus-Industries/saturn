@@ -10,7 +10,7 @@ const TIERS = {
         hover: "hover:bg-foreground hover:text-background",
         features: [
             "3 workflows",
-            "1 MCP server connection",
+            "3 MCP server connections",
             "Hourly schedules",
             "1,000 model credits/mo",
             "All features of Saturn, with the flexibility of your own keys.",
