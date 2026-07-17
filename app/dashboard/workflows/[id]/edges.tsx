@@ -2,9 +2,8 @@
 
 import { type Dispatch, memo, type SetStateAction, useState } from "react";
 import {
-    CATEGORY_STYLES,
     type CatalogEntry,
-    type NodeCategory,
+    entryStyles,
     type PortKind,
     type WorkflowGraph,
 } from "@/lib/workflow";
@@ -21,7 +20,9 @@ export type PendingEdge = {
 };
 
 type PortRef = { nodeId: string; portId: string };
-type End = PortGeometry & { category: NodeCategory };
+// `color` is resolved here rather than kept as a category: an integration node
+// draws in its section's color, not its own category's (entryStyles)
+type End = PortGeometry & { color: string };
 
 // cubic bezier between two ports; each control point pushes off its port's
 // outward normal so the curve leaves along that edge (right-edge ports exit
@@ -100,7 +101,7 @@ function resolveEnd(
     const ports = dir === "in" ? entry.inputs : entry.outputs;
     if (!ports.some((p) => p.id === ref.portId)) return null;
     // graph+byKey let chip/model outputs rotate toward the agent they feed
-    return { ...portGeometry(node, entry, ref.portId, graph, byKey), category: entry.category };
+    return { ...portGeometry(node, entry, ref.portId, graph, byKey), color: entryStyles(entry).edge };
 }
 
 export default function Edges({
@@ -144,7 +145,7 @@ export default function Edges({
                         id={edge.id}
                         d={bezier(from, to)}
                         flow={edge.kind === "flow"}
-                        color={CATEGORY_STYLES[from.category].edge}
+                        color={from.color}
                         hovered={hovered === edge.id}
                         setHovered={setHovered}
                         dispatch={dispatch}

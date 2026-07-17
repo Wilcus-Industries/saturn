@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { IconType } from "react-icons";
 import { FaBrain, FaCubes, FaPlug, FaRobot } from "react-icons/fa6";
 import McpLogo from "@/app/dashboard/mcpLogo";
@@ -11,6 +11,7 @@ import {
     CATALOG_BY_KEY,
     CATEGORY_STYLES,
     type CatalogEntry,
+    entryStyles,
     type NodeCategory,
 } from "@/lib/workflow";
 import EntryIcon from "./entryIcon";
@@ -21,10 +22,12 @@ const SECTIONS: { category: NodeCategory; heading: string }[] = [
     { category: "logic", heading: "logic" },
     { category: "data", heading: "data" },
     { category: "saturn", heading: "agents" },
+    // integration renders one heading per app, so this heading is unused —
+    // the branch below replaces it
     { category: "integration", heading: "integrations" },
     { category: "mcp", heading: "tools" },
     { category: "skill", heading: "skills" },
-    { category: "model", heading: "openrouter models" },
+    { category: "model", heading: "models" },
 ];
 
 // the 8 catalog categories collapse into 4 selectable toolbox groups, each a
@@ -249,6 +252,53 @@ export default function Toolbox({
             />
             {SECTIONS.filter((s) => active.categories.includes(s.category)).map(({ category, heading }) => {
                 const styles = CATEGORY_STYLES[category];
+
+                // integration: one headed section per app (entry.group), in
+                // INTEGRATIONS order; chips still paint in their Blocks
+                // section's color, mirroring the Blocks group
+                if (category === "integration") {
+                    const apps = new Map<string, CatalogEntry[]>();
+                    for (const entry of CATALOG) {
+                        if (entry.category !== "integration" || entry.legacy || !matches(entry)) {
+                            continue;
+                        }
+                        const app = entry.group ?? entry.label;
+                        const list = apps.get(app);
+                        if (list) list.push(entry);
+                        else apps.set(app, [entry]);
+                    }
+                    return (
+                        <Fragment key={category}>
+                            {apps.size === 0 && (
+                                <p className={"text-[10px] text-gray-400"}>
+                                    {q ? "no matches" : "none yet"}
+                                </p>
+                            )}
+                            {[...apps].map(([app, entries]) => (
+                                <section key={app} className={"flex flex-col gap-1.5"}>
+                                    <h2
+                                        className={
+                                            "text-[10px] uppercase tracking-wider text-gray-400"
+                                        }
+                                    >
+                                        {app}
+                                    </h2>
+                                    {entries.map((entry) => (
+                                        <Chip
+                                            key={entry.key}
+                                            entry={entry}
+                                            enabled
+                                            // section color, not the integration
+                                            // category's — mirrors Blocks
+                                            borderL={entryStyles(entry).borderL}
+                                            onSpawnStart={onSpawnStart}
+                                        />
+                                    ))}
+                                </section>
+                            ))}
+                        </Fragment>
+                    );
+                }
 
                 // mcp: one chip per enabled tool, grouped under a server
                 // subheader (the hidden legacy per-server entries are skipped)

@@ -366,7 +366,10 @@ export async function dispatchTool(
                     key: e.key,
                     label: e.label,
                     category: e.category,
-                    ...(e.group ? { server: e.group } : {}),
+                    // group names an mcp entry's server and an integration's app
+                    ...(e.group
+                        ? { [e.category === "integration" ? "app" : "server"]: e.group }
+                        : {}),
                     inputs: e.inputs.map((p) => ({
                         id: p.id,
                         kind: p.kind,

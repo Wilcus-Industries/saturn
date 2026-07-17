@@ -86,7 +86,12 @@ export type CatalogEntry = {
     emoji?: string; // user skill icon
     logoDomain?: string; // user mcp favicon host
     missing?: boolean; // placeholder for a deleted registry entry
-    group?: string; // toolbox subheader (per-tool mcp node: the server name)
+    // toolbox subheader (per-tool mcp node: the server name; integration node:
+    // the app's name)
+    group?: string;
+    // the category this entry borrows its color from, overriding its own
+    // (integration node: INTEGRATION_SECTIONS). See entryStyles().
+    section?: NodeCategory;
     legacy?: boolean; // resolvable for saved graphs but hidden from the toolbox
     toolName?: string; // per-tool mcp node: the tool this node calls
 };
@@ -265,7 +270,7 @@ export const CATALOG: CatalogEntry[] = [
     // lib/integrations.server.ts via the interpreter's callIntegration hook
     ...INTEGRATIONS.map((p): CatalogEntry => ({
         key: integrationKey(p.id), category: "integration", label: p.label,
-        logoDomain: p.logoDomain,
+        group: p.app, section: p.section, logoDomain: p.logoDomain,
         inputs: [flowIn, v("message")], outputs: [flowOut],
         config: p.config,
     })),
@@ -348,6 +353,12 @@ export const CATEGORY_STYLES = {
         edge: "#f97316",
     },
 } as const satisfies Record<NodeCategory, { borderL: string; headerBg: string; text: string; edge: string }>;
+
+// an entry's colors: its own category, unless it declares a `section` to borrow
+// from (integration nodes mirror their Blocks section — a discord webhook in
+// "data" paints teal like the print node). Prefer this over indexing
+// CATEGORY_STYLES by entry.category directly, or integrations lose their color.
+export const entryStyles = (entry: CatalogEntry) => CATEGORY_STYLES[entry.section ?? entry.category];
 
 type PortRef = { nodeId: string; portId: string };
 

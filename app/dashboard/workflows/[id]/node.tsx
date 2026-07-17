@@ -9,9 +9,9 @@ import {
     useRef,
 } from "react";
 import {
-    CATEGORY_STYLES,
     type CatalogEntry,
     type ConfigField,
+    entryStyles,
     type PortKind,
     type PortSpec,
     type WorkflowGraph,
@@ -174,7 +174,7 @@ export default memo(function Node({
     onOpenCron?: OpenCronHandler;
     onOpenConfig?: OpenConfigHandler;
 }) {
-    const styles = CATEGORY_STYLES[entry.category];
+    const styles = entryStyles(entry);
     // local (x,y) offset of a rotated chip/model output marker; null → the
     // branch's right-edge default
     const parsedOutAnchor: [number, number] | null = outAnchor

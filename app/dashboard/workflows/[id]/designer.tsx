@@ -11,11 +11,11 @@ import {
 } from "react";
 import {
     CATALOG_BY_KEY,
-    CATEGORY_STYLES,
-    type CatalogEntry,
     canConnect,
+    type CatalogEntry,
     defaultNodeConfig,
     edgesToReplace,
+    entryStyles,
     missingEntry,
     type PortKind,
     type WorkflowGraph,
@@ -708,7 +708,7 @@ export default function Designer({
                 <div
                     style={{ left: spawn.x + 10, top: spawn.y + 6 }}
                     className={`pointer-events-none fixed z-50 flex items-center gap-2 border border-foreground/15 border-l-2 bg-background px-2 py-1.5 font-mono text-xs ${
-                        CATEGORY_STYLES[spawnEntry.category].borderL
+                        entryStyles(spawnEntry).borderL
                     }`}
                 >
                     {isModelEntry(spawnEntry) ? (
