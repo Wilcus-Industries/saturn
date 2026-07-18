@@ -12,7 +12,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type RunRow = {
     id: string;
-    trigger: "cron" | "manual";
+    trigger: "cron" | "manual" | "event";
     status: "running" | "success" | "error";
     error: string;
     log: { kind: string; text: string }[];

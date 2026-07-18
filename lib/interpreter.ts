@@ -145,7 +145,7 @@ export async function runWorkflow(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
     { emit, callMcp, callIntegration, callAgent, onValue, signal }: RunHooks,
-    opts: { entryNodeIds?: string[] } = {},
+    opts: { entryNodeIds?: string[]; eventPayloads?: Record<string, string> } = {},
 ): Promise<void> {
     let steps = 0;
     let agentMcpCalls = 0;
@@ -305,6 +305,10 @@ export async function runWorkflow(
                     return stored;
                 }
                 default: {
+                    // event nodes carry the trigger payload on their value
+                    // output (the sole "payload" port) — a test run seeds it
+                    // from sampleEventPayload, a real event run from the ingress
+                    if (entry?.category === "events") return opts.eventPayloads?.[nodeId] ?? "";
                     // mcp/skill nodes are grant chips — never evaluated as values
                     if (entry?.category === "mcp" || entry?.category === "skill") return "";
                     warn(`cannot evaluate output "${portId}" of ${label(node)} — using ""`);
@@ -538,10 +542,6 @@ export async function runWorkflow(
                     next = "out";
                     break;
                 }
-                case "start":
-                case "schedule":
-                    next = "out"; // event nodes: only reachable via a flow cycle
-                    break;
                 case "agent": {
                     // anything other than "image" (incl. legacy "plan") runs as text
                     const outputImage = node.config.output === "image";
@@ -613,7 +613,12 @@ export async function runWorkflow(
                     break;
                 }
                 default:
-                    if (entry?.category === "integration") {
+                    if (entry?.category === "events") {
+                        // event nodes are entry points; the normal path runs
+                        // their "out" via execFrom, so this only fires when a
+                        // flow cycle re-enters one
+                        next = "out";
+                    } else if (entry?.category === "integration") {
                         if (++integrationCalls > MAX_INTEGRATION_CALLS) {
                             fail(`integration call limit (${MAX_INTEGRATION_CALLS}) exceeded for one run`);
                         }

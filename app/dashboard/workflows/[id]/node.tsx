@@ -34,6 +34,7 @@ import {
     anchorOffsetY,
     GRID,
     EVENT_H,
+    EVENT_LABEL_W,
     EVENT_W,
     HEADER_H,
     IF_BODY_H,
@@ -421,11 +422,15 @@ export default memo(function Node({
     }
 
     // event nodes render as a circle (h-12 w-12 = EVENT_H × EVENT_W, h-6 label
-    // strip = EVENT_LABEL_H) with the icon centered and the label underneath —
-    // the single flow output anchors on the circle's right-edge midpoint per
-    // geometry.ts, mirroring the model branch above.
+    // strip = EVENT_LABEL_H) with the icon centered and the label underneath.
+    // A schedule event carries only a flow output (right-edge midpoint);
+    // platform events (a Discord mention) add a "payload" value output on the
+    // bottom edge — each anchors per geometry.ts, mirroring the integration
+    // branch below. Icon: the platform favicon (logoDomain), else the emoji,
+    // else the ▶ fallback.
     if (isEventEntry(entry)) {
-        const output = entry.outputs[0];
+        const flowOut = entry.outputs.find((p) => p.kind === "flow");
+        const payloadOut = entry.outputs.find((p) => p.kind !== "flow");
         // a schedule event carries a cron config field, authored via the cron
         // popover (not an inline field); the label strip shows its humanized
         // schedule so the node reads "daily at 09:00" under the clock
@@ -436,16 +441,48 @@ export default memo(function Node({
                 ? describeCron(cron)
                 : "not scheduled"
             : entry.label;
+        // a click routes to the cron popover for a schedule, else to the generic
+        // config popover when the event has any config fields (a platform
+        // event's bot token / filters), else nothing — the node just drags
+        const clickOpens: "cron" | "config" | null = hasCron
+            ? "cron"
+            : entry.config?.length
+              ? "config"
+              : null;
 
         // a press that stayed under the drag threshold is a click → open the
-        // cron popover (mirrors the literal box's click-to-focus)
+        // relevant popover (mirrors the integration node's click-to-config)
         const eventEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
             const wasClick = !!dragRef.current && !dragRef.current.active;
             endDrag();
-            if (wasClick && hasCron && onOpenCron) {
-                const r = e.currentTarget.getBoundingClientRect();
-                onOpenCron({ x: r.left, y: r.bottom + 4 }, node.id);
+            if (!wasClick) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            const anchor = { x: r.left, y: r.bottom + 4 };
+            if (clickOpens === "cron" && onOpenCron) onOpenCron(anchor, node.id);
+            else if (clickOpens === "config" && onOpenConfig) onOpenConfig(anchor, node.id);
+        };
+
+        // per-port "portId=lx,ly" local anchors from the canvas (rotated toward
+        // each port's connection, matching the edge anchors from geometry) —
+        // same map format the integration branch parses
+        const anchors = new Map<string, [number, number]>();
+        if (outAnchor)
+            for (const part of outAnchor.split(";")) {
+                const [id, xy] = part.split("=");
+                if (!xy) continue;
+                const [x, y] = xy.split(",").map(Number);
+                anchors.set(id, [x, y]);
             }
+        const at = (spec: PortSpec, home: [number, number]) => {
+            const [ax, ay] = anchors.get(spec.id) ?? home;
+            return (
+                <span
+                    className={"absolute flex"}
+                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                >
+                    {port(spec, "out", "")}
+                </span>
+            );
         };
 
         return (
@@ -455,17 +492,19 @@ export default memo(function Node({
                 className={"absolute font-mono text-xs"}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
-                onPointerUp={hasCron ? eventEndDrag : endDrag}
+                onPointerUp={clickOpens ? eventEndDrag : endDrag}
                 onPointerCancel={endDrag}
             >
                 <div
                     // border tinted to the category color (same hex the edges use)
                     style={{ borderColor: styles.edge, width: EVENT_W, height: EVENT_H }}
-                    className={`relative flex ${hasCron ? "cursor-pointer" : "cursor-grab"} items-center justify-center rounded-full border bg-background ${styles.headerBg} ${
+                    className={`relative flex ${clickOpens ? "cursor-pointer" : "cursor-grab"} items-center justify-center rounded-full border bg-background ${styles.headerBg} ${
                         selected ? "outline outline-1 outline-foreground" : ""
                     }`}
                 >
-                    {entry.emoji ? (
+                    {entry.logoDomain ? (
+                        <McpLogo domain={entry.logoDomain} name={entry.label} size={32} />
+                    ) : entry.emoji ? (
                         <span className={"text-2xl leading-none"}>{entry.emoji}</span>
                     ) : (
                         // ▶ glyph's mass leans left; nudge right to optically center
@@ -474,25 +513,14 @@ export default memo(function Node({
                         </span>
                     )}
                 </div>
-                {/* port on the borderless outer box — see the model branch */}
-                {output &&
-                    (() => {
-                        const [ax, ay] = parsedOutAnchor ?? [EVENT_W, EVENT_H / 2];
-                        return (
-                            <span
-                                className={"absolute flex"}
-                                style={{
-                                    left: ax,
-                                    top: ay,
-                                    transform: "translate(-50%, -50%)",
-                                }}
-                            >
-                                {port(output, "out", "")}
-                            </span>
-                        );
-                    })()}
+                {/* ports on the borderless outer box — see the model branch */}
+                {flowOut && at(flowOut, [EVENT_W, EVENT_H / 2])}
+                {payloadOut && at(payloadOut, [EVENT_W / 2, EVENT_H])}
+                {/* strip is wider than the circle (EVENT_LABEL_W, centered via
+                    negative margin) so multi-word labels fit — render-only,
+                    ports/edges anchor on the circle above */}
                 <div
-                    style={{ width: EVENT_W }}
+                    style={{ width: EVENT_LABEL_W, marginLeft: (EVENT_W - EVENT_LABEL_W) / 2 }}
                     className={"flex h-6 items-center justify-center"}
                 >
                     <span

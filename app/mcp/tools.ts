@@ -6,6 +6,7 @@
 
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
 import { db } from "@/lib/db";
+import { EVENT_PREFIX, EXTENSION_EVENTS, eventNodeKey } from "@/lib/integrations";
 import type { ConsoleLine } from "@/lib/interpreter";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
@@ -148,6 +149,17 @@ export const TOOL_DEFS: ToolDef[] = [
 // authoring guide embedded in get_catalog
 // ---------------------------------------------------------------------------
 
+// one bullet per platform event descriptor — config, filters and the payload
+// JSON shape are read straight from the descriptor so this never drifts
+const EVENT_NODE_DOCS = EXTENSION_EVENTS.map((e) => {
+    const filters = e.config.map((f) => f.id).filter((id) => !e.requiredConfig.includes(id));
+    return `- ${eventNodeKey(e.id)} (${e.app} "${e.label}"): config ${
+        e.config.map((f) => f.id).join(", ")
+    } — required ${e.requiredConfig.join(", ") || "none"}${
+        filters.length ? `, optional filters ${filters.join(", ")}` : ""
+    }. Its "payload" value output is a JSON string shaped ${e.payloadDoc} — wire it into an extract node to pull a field (e.g. path "content").`;
+}).join("\n");
+
 const GRAPH_DOCS = `# Authoring Saturn workflow graphs
 
 A graph is {"nodes": [...], "edges": [...]}.
@@ -157,7 +169,7 @@ Edge: {"id": "<unique string>", "from": {"nodeId", "portId"}, "to": {"nodeId", "
 ## Ports
 - flow ports sequence execution. A flow output may fan out into several edges: the branches run CONCURRENTLY.
 - value ports carry data (always strings; JSON for structured data). A value input accepts exactly ONE incoming edge — except ports marked "multi" (only await.values).
-- A graph triggers from event nodes (category "events"). The main one is "schedule" — its config.cron (5-field UTC expression: each field "*" or a plain integer, "*/n" with n 2-30 in the minute field only, e.g. "0 9 * * *" daily 09:00, "*/5 * * * *" every 5 min) sets when it fires. A graph may hold several event nodes; each is an independent entry point and execution follows flow edges from it. No event node ⇒ the workflow never triggers (a manual run_workflow still fires all event nodes).
+- A graph triggers from an event node (category "events"). The main one is "schedule" — its config.cron (5-field UTC expression: each field "*" or a plain integer, "*/n" with n 2-30 in the minute field only, e.g. "0 9 * * *" daily 09:00, "*/5 * * * *" every 5 min) sets when it fires; the platform "event:<id>" nodes (see below) fire in real time instead. A graph holds AT MOST ONE event node — it is the single entry point and execution follows flow edges from it (saving a graph with two or more is rejected). No event node ⇒ the workflow never triggers (a manual run_workflow still fires the event node).
 
 ## Config vs ports
 Config fields hold literal strings. A field with "overriddenBy" is ignored when its named input port is connected. Numbers/booleans are written as strings.
@@ -174,6 +186,11 @@ LLM loop over built-in model credits (paid plans) with the user's OpenRouter key
 
 ## Integration nodes (keys "integration:<provider>")
 Outbound message nodes, e.g. "integration:discord-webhook". Inputs: flow in, message (value — overrides config.message when connected). Output: flow out. config.webhookUrl must be a real https://discord.com/api/webhooks/… URL (validated server-side at run time); Discord truncates messages to 2000 chars.
+
+## Event nodes (keys "event:<id>")
+Inbound platform triggers that fire a run in real time (no cron). Category "events" like "schedule", so the one-event-per-graph rule applies: an event graph uses this node as its single entry point and has no "schedule" node. Each has a flow output "out" and a value output "payload" carrying the event as a JSON string. Delivery is gated by the workflow's active flag and rate-limited to one run per 30 seconds per workflow (excess events are dropped, no catch-up).
+${EVENT_NODE_DOCS}
+event:discord-mentioned fires when the user's Discord bot is @-mentioned in a server it belongs to; messages authored by any bot are ignored (loop guard). Leave guildId/channelId blank to fire on every mention, or set them to restrict to one server/channel.
 
 ## Layout
 Positions are free-form; the designer snaps to a 24px grid. Readable default: columns left-to-right, x += 264 per step, y += 168 per parallel branch.
@@ -366,9 +383,14 @@ export async function dispatchTool(
                     key: e.key,
                     label: e.label,
                     category: e.category,
-                    // group names an mcp entry's server and an integration's app
+                    // group names an mcp entry's server and an integration's or
+                    // event's app
                     ...(e.group
-                        ? { [e.category === "integration" ? "app" : "server"]: e.group }
+                        ? {
+                              [e.category === "integration" || e.key.startsWith(EVENT_PREFIX)
+                                  ? "app"
+                                  : "server"]: e.group,
+                          }
                         : {}),
                     inputs: e.inputs.map((p) => ({
                         id: p.id,

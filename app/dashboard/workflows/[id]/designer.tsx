@@ -23,6 +23,7 @@ import {
     type WorkflowRow,
 } from "@/lib/workflow";
 import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
+import { sampleEventPayload } from "@/lib/integrations";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
 import { callAgentModel, callIntegration, callMcpTool, saveWorkflow } from "./actions";
@@ -201,6 +202,14 @@ export default function Designer({
         const controller = new AbortController();
         abortRef.current = controller;
         const emit = (line: ConsoleLine) => setConsoleLines((prev) => [...(prev ?? []), line]);
+        // seed each platform event node with its canned sample payload so a
+        // payload → extract chain runs against realistic data in a test run;
+        // schedule/unknown events have no sample (empty string, skipped)
+        const eventPayloads: Record<string, string> = {};
+        for (const n of present.nodes) {
+            const payload = sampleEventPayload(n.type);
+            if (payload) eventPayloads[n.id] = payload;
+        }
         try {
             await runWorkflow(present, byKey, {
                 emit,
@@ -210,7 +219,10 @@ export default function Designer({
                 onValue: (nodeId, portId, text) =>
                     samplesRef.current.set(`${nodeId}:${portId}`, text),
                 signal: controller.signal,
-            }, { entryNodeIds: selectedEventId ? [selectedEventId] : undefined });
+            }, {
+                entryNodeIds: selectedEventId ? [selectedEventId] : undefined,
+                eventPayloads,
+            });
         } catch (err) {
             emit({ kind: "error", text: `run crashed: ${String(err)}` });
         } finally {

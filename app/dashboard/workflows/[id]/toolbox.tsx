@@ -254,14 +254,19 @@ export default function Toolbox({
                 const styles = CATEGORY_STYLES[category];
 
                 // integration: one headed section per app (entry.group), in
-                // INTEGRATIONS order; chips still paint in their Blocks
-                // section's color, mirroring the Blocks group
+                // CATALOG order; a platform's outbound actions (integration) and
+                // inbound events (category "events" carrying an app group) live
+                // together under the app header. Action chips paint in their
+                // Blocks section's color (mirrors the Blocks group); event chips
+                // paint amber (their events category, no section) and obey the
+                // one-event-per-workflow rule.
                 if (category === "integration") {
                     const apps = new Map<string, CatalogEntry[]>();
                     for (const entry of CATALOG) {
-                        if (entry.category !== "integration" || entry.legacy || !matches(entry)) {
-                            continue;
-                        }
+                        const isApp =
+                            entry.category === "integration" ||
+                            (entry.category === "events" && entry.group !== undefined);
+                        if (!isApp || entry.legacy || !matches(entry)) continue;
                         const app = entry.group ?? entry.label;
                         const list = apps.get(app);
                         if (list) list.push(entry);
@@ -287,7 +292,9 @@ export default function Toolbox({
                                         <Chip
                                             key={entry.key}
                                             entry={entry}
-                                            enabled
+                                            // event chips obey the one-event rule;
+                                            // action chips are always spawnable
+                                            enabled={entry.category !== "events" || !hasEvent}
                                             // section color, not the integration
                                             // category's — mirrors Blocks
                                             borderL={entryStyles(entry).borderL}
@@ -397,7 +404,12 @@ export default function Toolbox({
                 }
 
                 const entries = [
-                    ...CATALOG.filter((entry) => entry.category === category && !entry.legacy),
+                    // extension events carry an app `group` and live in the Apps
+                    // tab, not here — keep the Blocks events section to ungrouped
+                    // nodes (the schedule node)
+                    ...CATALOG.filter(
+                        (entry) => entry.category === category && !entry.legacy && !entry.group,
+                    ),
                     // user registry entries follow the static ones
                     ...userCatalog.filter((entry) => entry.category === category),
                 ].filter(matches);

@@ -95,7 +95,7 @@ export async function executeMcpTool(
 export async function executeAgentTurn(
     userId: string,
     req: CallAgentRequest,
-    source: "designer" | "cron" | "manual",
+    source: "designer" | "cron" | "manual" | "event",
 ): Promise<AgentModelResult> {
     if (typeof req.model !== "string" || !MODEL_ID.test(req.model)) {
         return { error: "invalid model id" };
@@ -322,11 +322,17 @@ export type WorkflowRunResult = {
 
 // shared execution core: records a workflow_run, executes the graph with the
 // owner's registry catalog and the server hooks, persists status/log, prunes
-// history. Never rejects — the cron tick (trigger 'cron') and the MCP
-// server's run_workflow tool (trigger 'manual') both consume errors as values.
+// history. Never rejects — the cron tick (trigger 'cron'), the MCP server's
+// run_workflow tool (trigger 'manual'), and the event ingress (trigger
+// 'event') all consume errors as values.
 export async function executeWorkflowRun(
     wf: { id: string; user_id: string; graph: WorkflowGraph },
-    opts: { trigger: "cron" | "manual"; timeoutMs?: number; entryNodeIds?: string[] },
+    opts: {
+        trigger: "cron" | "manual" | "event";
+        timeoutMs?: number;
+        entryNodeIds?: string[];
+        eventPayloads?: Record<string, string>;
+    },
 ): Promise<WorkflowRunResult> {
     const timeoutMs = Math.min(opts.timeoutMs ?? RUN_TIMEOUT_MS, RUN_TIMEOUT_MS);
     let runId: string;
@@ -389,7 +395,7 @@ export async function executeWorkflowRun(
                     executeIntegration(wf.user_id, providerId, config, message),
                 callAgent: (req) => executeAgentTurn(wf.user_id, req, opts.trigger),
                 signal: controller.signal,
-            }, { entryNodeIds: opts.entryNodeIds });
+            }, { entryNodeIds: opts.entryNodeIds, eventPayloads: opts.eventPayloads });
         } catch (err) {
             thrown = err instanceof Error ? err.message : "run failed";
         } finally {

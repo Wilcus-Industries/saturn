@@ -27,6 +27,10 @@ export const MODEL_LABEL_H = 24;
 export const EVENT_W = 48; // w-12 (diameter — kept square so the node is round)
 export const EVENT_H = 48; // h-12
 export const EVENT_LABEL_H = 24; // h-6 name strip below (like MODEL_LABEL_H)
+// label strip may be wider than the circle so names like "was mentioned" or
+// "every 30 minutes" fit — render-only: ports/edges anchor on the circle, so
+// this never feeds an anchor computation
+export const EVENT_LABEL_W = 96;
 
 // integration ("app") nodes render as a circle (same size as event nodes) with
 // a label strip below, but carry three ports on fixed perimeter points: flow
@@ -288,19 +292,27 @@ export function portGeometry(
         return { x: cx + (r * vx) / len, y: cy + (r * vy) / len, nx: vx / len, ny: vy / len };
     }
 
-    // event circle: output rides the circle's perimeter toward its target
-    // (right-edge midline when unconnected), same as the model branch; no
-    // inputs, the left branch is defensive
+    // event circle: each output rides the circle perimeter toward the node it
+    // feeds — like the integration branch, extended to two outputs. Unconnected,
+    // each falls back to its home edge: the flow "out" on the right, the
+    // "payload" value out on the bottom. The schedule/start events carry only
+    // the flow output, so they resolve to the right-edge midline as before. No
+    // inputs — the left branch is defensive.
     if (isEventEntry(entry)) {
         const r = EVENT_W / 2;
         const cx = node.x + r;
         const cy = node.y + EVENT_H / 2;
         if (entry.inputs.some((p) => p.id === portId))
             return { x: node.x, y: cy, nx: -1, ny: 0 };
-        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
-        if (!target) return { x: node.x + EVENT_W, y: cy, nx: 1, ny: 0 };
-        const vx = target.x - cx;
-        const vy = target.y - cy;
+        const out = entry.outputs.find((p) => p.id === portId);
+        const home: PortGeometry =
+            out && out.kind !== "flow"
+                ? { x: cx, y: node.y + EVENT_H, nx: 0, ny: 1 } // payload value out on the bottom
+                : { x: node.x + EVENT_W, y: cy, nx: 1, ny: 0 }; // flow out on the right
+        const peer = graph && byKey ? portPeerCentroid(node, portId, false, graph, byKey) : null;
+        if (!peer) return home;
+        const vx = peer.x - cx;
+        const vy = peer.y - cy;
         const len = Math.hypot(vx, vy) || 1;
         return { x: cx + (r * vx) / len, y: cy + (r * vy) / len, nx: vx / len, ny: vy / len };
     }

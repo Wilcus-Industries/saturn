@@ -4,6 +4,10 @@
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
 import { isValidCron } from "@/lib/cron";
 import {
+    EVENT_PREFIX,
+    EXTENSION_EVENTS,
+    EXTENSION_EVENTS_BY_KEY,
+    eventNodeKey,
     INTEGRATION_PREFIX,
     INTEGRATIONS,
     INTEGRATIONS_BY_ID,
@@ -273,6 +277,19 @@ export const CATALOG: CatalogEntry[] = [
         group: p.app, section: p.section, logoDomain: p.logoDomain,
         inputs: [flowIn, v("message")], outputs: [flowOut],
         config: p.config,
+    })),
+
+    // extension events — inbound trigger nodes generated from the platform
+    // descriptors in lib/integrations.ts (a Discord mention etc.). They render
+    // like the schedule node (events category → circle), but delivery is
+    // real-time via /api/events; the single "payload" value port carries the
+    // event as a JSON string. No `section` — unlike integration actions they
+    // paint with the events color, and the `group` heads their Apps subsection.
+    ...EXTENSION_EVENTS.map((e): CatalogEntry => ({
+        key: eventNodeKey(e.id), category: "events", label: e.label,
+        group: e.app, logoDomain: e.logoDomain, emoji: e.emoji,
+        inputs: [], outputs: [flowOut, v("payload")],
+        config: e.config,
     })),
 ];
 // mcp and skill nodes come exclusively from the user registry (lib/registry.ts)
@@ -607,6 +624,21 @@ export function validateGraphStrict(
             if (!(node.config[field] ?? "").trim()) {
                 warnings.push(
                     `${provider.label} "${node.id}" has no ${field} — the run will fail`,
+                );
+            }
+        }
+    }
+
+    // extension event nodes never fire without their required config (e.g. a
+    // Discord "mentioned" node with a blank bot token)
+    for (const node of graph.nodes) {
+        if (!node.type.startsWith(EVENT_PREFIX)) continue;
+        const event = EXTENSION_EVENTS_BY_KEY[node.type];
+        if (!event) continue; // unknown-type warning already covers it
+        for (const field of event.requiredConfig) {
+            if (!(node.config[field] ?? "").trim()) {
+                warnings.push(
+                    `${event.label} "${node.id}" has no ${field} — the run will fail`,
                 );
             }
         }

@@ -3,7 +3,7 @@ import { relativeTime, STATUS_DOT } from "./workflows/workflowCard";
 
 export type RecentRun = {
     id: string;
-    trigger: "cron" | "manual";
+    trigger: "cron" | "manual" | "event";
     status: "running" | "success" | "error";
     started_at: Date;
     workflow_id: string;

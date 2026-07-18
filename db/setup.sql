@@ -26,7 +26,7 @@ alter table workflow alter column cron drop not null;
 create table if not exists workflow_run (
     id          uuid primary key default gen_random_uuid(),
     workflow_id uuid not null references workflow(id) on delete cascade,
-    trigger     text not null default 'cron' check (trigger in ('cron', 'manual')),
+    trigger     text not null default 'cron' check (trigger in ('cron', 'manual', 'event')),
     status      text not null default 'running' check (status in ('running', 'success', 'error')),
     error       text not null default '',
     log         jsonb not null default '[]',   -- ConsoleLine[] {kind,text}, capped in code
@@ -35,6 +35,11 @@ create table if not exists workflow_run (
 );
 create index if not exists workflow_run_workflow_started_idx
     on workflow_run (workflow_id, started_at desc);
+-- added after initial rollout; keeps existing tables in sync with the create above
+-- ('event' = real-time inbound event ingress, app/api/events/route.ts)
+alter table workflow_run drop constraint if exists workflow_run_trigger_check;
+alter table workflow_run add constraint workflow_run_trigger_check
+    check (trigger in ('cron', 'manual', 'event'));
 
 -- user-registered MCP servers and skills (settings → workflow designer nodes)
 create table if not exists registry_entry (
@@ -78,8 +83,13 @@ create table if not exists model_usage (
     cost_microdollars bigint not null default 0,
     prompt_tokens     integer not null default 0,
     completion_tokens integer not null default 0,
-    source            text not null check (source in ('designer', 'cron', 'manual')),
+    source            text not null check (source in ('designer', 'cron', 'manual', 'event')),
     created_at        timestamptz not null default now()
 );
 create index if not exists model_usage_user_created_idx
     on model_usage (user_id, created_at desc);
+-- added after initial rollout; keeps existing tables in sync with the create above
+-- ('event' = usage from a real-time event-triggered run, app/api/events/route.ts)
+alter table model_usage drop constraint if exists model_usage_source_check;
+alter table model_usage add constraint model_usage_source_check
+    check (source in ('designer', 'cron', 'manual', 'event'));

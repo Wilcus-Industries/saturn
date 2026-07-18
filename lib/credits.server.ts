@@ -84,7 +84,7 @@ export async function recordUsage(
         costUsd: number;
         promptTokens: number;
         completionTokens: number;
-        source: "designer" | "cron" | "manual";
+        source: "designer" | "cron" | "manual" | "event";
     },
 ): Promise<void> {
     try {
