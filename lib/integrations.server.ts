@@ -101,24 +101,57 @@ async function sendDiscordWebhook(
     return postDiscordMessage(url, {}, message, "discord webhook");
 }
 
+// shared bot-API config parse. The snowflake check doubles as the SSRF guard:
+// bot-API URLs are a fixed base plus this digits-only id, so untrusted config
+// never shapes the fetch target
+function botChannelConfig(
+    config: Record<string, string>,
+): { botToken: string; channelId: string } | { error: string } {
+    const botToken = (config.botToken ?? "").trim();
+    const channelId = (config.channelId ?? "").trim();
+    if (!botToken) return { error: "bot token is empty" };
+    if (!/^\d{17,20}$/.test(channelId)) return { error: "channel id must be a numeric id" };
+    return { botToken, channelId };
+}
+
 async function sendDiscordMessage(
     _userId: string,
     config: Record<string, string>,
     message: string,
 ): Promise<McpCallResult> {
-    const botToken = (config.botToken ?? "").trim();
-    const channelId = (config.channelId ?? "").trim();
-    if (!botToken) return { error: "bot token is empty" };
-    // Snowflake check doubles as the SSRF guard: the URL is a fixed base plus
-    // this digits-only id, so untrusted config never shapes the fetch target
-    if (!/^\d{17,20}$/.test(channelId)) return { error: "channel id must be a numeric id" };
-    const url = new URL(`https://discord.com/api/v10/channels/${channelId}/messages`);
-    return postDiscordMessage(url, { authorization: `Bot ${botToken}` }, message, "discord send");
+    const bot = botChannelConfig(config);
+    if ("error" in bot) return bot;
+    const url = new URL(`https://discord.com/api/v10/channels/${bot.channelId}/messages`);
+    return postDiscordMessage(url, { authorization: `Bot ${bot.botToken}` }, message, "discord send");
+}
+
+async function sendDiscordTyping(
+    _userId: string,
+    config: Record<string, string>,
+): Promise<McpCallResult> {
+    const bot = botChannelConfig(config);
+    if ("error" in bot) return bot;
+    // Discord has no cancel-typing call — the indicator expires ~10s after the
+    // last trigger (or when the bot sends a message), so "off" is a no-op
+    if ((config.status ?? "on").trim() === "off") {
+        return { text: "typing off (indicator expires on its own)" };
+    }
+    const res = await fetch(`https://discord.com/api/v10/channels/${bot.channelId}/typing`, {
+        method: "POST",
+        headers: { authorization: `Bot ${bot.botToken}` },
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+        const body = (await res.text().catch(() => "")).slice(0, 200);
+        return { error: `discord typing failed (${res.status})${body ? `: ${body}` : ""}` };
+    }
+    return { text: "typing" };
 }
 
 const SENDERS: Record<string, SendFn> = {
     "discord-webhook": sendDiscordWebhook,
     "discord-send-message": sendDiscordMessage,
+    "discord-typing": sendDiscordTyping,
 };
 
 // executes one integration send for a workflow run (test, cron, or manual)

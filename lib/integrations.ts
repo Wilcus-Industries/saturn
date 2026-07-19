@@ -105,6 +105,26 @@ export const EXTENSIONS: PlatformExtension[] = [
                 ],
                 requiredConfig: ["botToken", "channelId"],
             },
+            {
+                id: "discord-typing",
+                label: "typing status",
+                section: "data",
+                config: [
+                    {
+                        id: "status", label: "typing", input: "select",
+                        options: ["on", "off"], default: "on",
+                    },
+                    {
+                        id: "botToken", label: "bot token", input: "text",
+                        placeholder: "your bot's token",
+                    },
+                    {
+                        id: "channelId", label: "channel id", input: "text",
+                        placeholder: "channel to type in",
+                    },
+                ],
+                requiredConfig: ["botToken", "channelId"],
+            },
         ],
         events: [
             {

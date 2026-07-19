@@ -275,7 +275,12 @@ export const CATALOG: CatalogEntry[] = [
     ...INTEGRATIONS.map((p): CatalogEntry => ({
         key: integrationKey(p.id), category: "integration", label: p.label,
         group: p.app, section: p.section, logoDomain: p.logoDomain,
-        inputs: [flowIn, v("message")], outputs: [flowOut],
+        // the message port only exists when the action takes a message (a
+        // config field with id "message") — e.g. discord-typing has none
+        inputs: p.config.some((f) => f.id === "message")
+            ? [flowIn, v("message")]
+            : [flowIn],
+        outputs: [flowOut],
         config: p.config,
     })),
 
