@@ -251,6 +251,8 @@ export async function runWorkflow(
                     return truthy(evalInput(node, "a", ctx)) || truthy(evalInput(node, "b", ctx));
                 case "not":
                     return !truthy(evalInput(node, "in", ctx));
+                case "concat":
+                    return fmt(evalInput(node, "a", ctx)) + fmt(evalInput(node, "b", ctx));
                 case "extract": {
                     const path = (node.config.path ?? "").trim();
                     const raw = fmt(evalInput(node, "value", ctx));
@@ -481,14 +483,23 @@ export async function runWorkflow(
             switch (node.type) {
                 case "print": {
                     const msg = node.config.message ?? "";
-                    const hasValue = !!incomingValueEdge(node.id, "value");
-                    const value = hasValue ? fmt(evalInput(node, "value", ctx)) : "";
-                    if (hasValue && value.startsWith("data:image/")) {
-                        if (msg) emit({ kind: "print", text: msg });
+                    // connected "message" edge overrides the literal; graphs
+                    // saved before the port/field merge wired a "value" port
+                    // instead — honor it with the old prefix-concat semantics
+                    const overridden = !!incomingValueEdge(node.id, "message");
+                    const legacy = !overridden && !!incomingValueEdge(node.id, "value");
+                    const value = overridden
+                        ? fmt(evalInput(node, "message", ctx))
+                        : legacy
+                          ? fmt(evalInput(node, "value", ctx))
+                          : "";
+                    if ((overridden || legacy) && value.startsWith("data:image/")) {
+                        if (legacy && msg) emit({ kind: "print", text: msg });
                         emit({ kind: "image", text: value });
+                    } else if (legacy) {
+                        emit({ kind: "print", text: msg ? `${msg} ${value}` : value });
                     } else {
-                        const text = msg && hasValue ? `${msg} ${value}` : msg || value;
-                        emit({ kind: "print", text });
+                        emit({ kind: "print", text: overridden ? value : msg });
                     }
                     next = "out";
                     break;

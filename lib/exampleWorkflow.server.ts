@@ -47,7 +47,7 @@ const EXAMPLE_GRAPH: WorkflowGraph = {
         { id: "e2", from: { nodeId: "prompt", portId: "out" }, to: { nodeId: "agent", portId: "prompt" }, kind: "value" },
         { id: "e3", from: { nodeId: "model", portId: "model" }, to: { nodeId: "agent", portId: "model" }, kind: "value" },
         { id: "e4", from: { nodeId: "agent", portId: "out" }, to: { nodeId: "print", portId: "in" }, kind: "flow" },
-        { id: "e5", from: { nodeId: "agent", portId: "result" }, to: { nodeId: "print", portId: "value" }, kind: "value" },
+        { id: "e5", from: { nodeId: "agent", portId: "result" }, to: { nodeId: "print", portId: "message" }, kind: "value" },
         { id: "e6", from: { nodeId: "system", portId: "out" }, to: { nodeId: "agent", portId: "system" }, kind: "value" },
     ],
 };

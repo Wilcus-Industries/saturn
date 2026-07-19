@@ -219,9 +219,16 @@ export const CATALOG: CatalogEntry[] = [
     },
     // data — values, extraction, output
     {
+        // single message field with a paired port: a connected edge overrides
+        // the literal (the pre-2026-07 "value" port + prefix concat is a
+        // legacy interpreter fallback — see case "print")
         key: "print", category: "data", label: "print",
-        inputs: [flowIn, v("value")], outputs: [flowOut],
-        config: [text("message")],
+        inputs: [flowIn, v("message")], outputs: [flowOut],
+        config: [{ ...text("message"), overriddenBy: "message" }],
+    },
+    {
+        key: "concat", category: "data", label: "concat",
+        inputs: [v("a"), v("b")], outputs: [v("out")],
     },
     {
         // pull one field out of a JSON value (e.g. an MCP tool result);

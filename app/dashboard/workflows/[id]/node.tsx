@@ -51,6 +51,7 @@ import {
     nodeHeight,
     nodeWidth,
     SKILL_CHIP,
+    unpairedInputs,
 } from "./geometry";
 import type { GraphAction } from "./graphReducer";
 import ModelLogo from "./modelLogo";
@@ -507,7 +508,7 @@ export default memo(function Node({
                     }`}
                 >
                     {entry.logoDomain ? (
-                        <McpLogo domain={entry.logoDomain} name={entry.label} size={32} />
+                        <McpLogo domain={entry.logoDomain} name={entry.label} size={32} round />
                     ) : entry.emoji ? (
                         <span className={"text-2xl leading-none"}>{entry.emoji}</span>
                     ) : (
@@ -980,9 +981,12 @@ export default memo(function Node({
         );
     }
 
-    const rowCount = Math.max(entry.inputs.length, entry.outputs.length);
+    // inputs paired to a config field (overriddenBy) render inline on that
+    // row's left edge instead of a port row of their own — see geometry.ts
+    const rowInputs = unpairedInputs(entry);
+    const rowCount = Math.max(rowInputs.length, entry.outputs.length);
     const rows = Array.from({ length: rowCount }, (_, i) => ({
-        input: entry.inputs[i],
+        input: rowInputs[i],
         output: entry.outputs[i],
     }));
 
@@ -1065,13 +1069,21 @@ export default memo(function Node({
                         field: field.id,
                         value: e.target.value,
                     });
+                // the field's input port renders inline on this row's left
+                // edge (pl-0 so the -ml-1.5 marker straddles node.x exactly
+                // like a port row); geometry.ts anchors the edge at the
+                // row's vertical center
+                const pairedPort = field.overriddenBy
+                    ? entry.inputs.find((p) => p.id === field.overriddenBy)
+                    : undefined;
                 return (
                 <label
                     key={field.id}
-                    className={`flex items-center gap-1.5 px-2 ${
-                        field.input === "textarea" ? "h-[72px]" : "h-9"
-                    }`}
+                    className={`flex items-center gap-1.5 pr-2 ${
+                        pairedPort ? "pl-0" : "pl-2"
+                    } ${field.input === "textarea" ? "h-[72px]" : "h-9"}`}
                 >
+                    {pairedPort && port(pairedPort, "in")}
                     <span className={"w-14 shrink-0 truncate text-[10px] text-gray-400"}>
                         {field.label}
                     </span>

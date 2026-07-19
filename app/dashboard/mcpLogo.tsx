@@ -11,15 +11,20 @@ export default function McpLogo({
     domain,
     name,
     size,
+    round = false,
 }: {
     domain: string;
     name: string;
     size: 16 | 32 | "fill";
+    // clip to a circle — for logos sitting inside circular nodes (an opaque
+    // rounded-square favicon like Telegram's reads as a square otherwise)
+    round?: boolean;
 }) {
     const [failed, setFailed] = useState(false);
     // literal classes for Tailwind
-    const px =
-        size === 16 ? "h-4 w-4" : size === 32 ? "h-8 w-8" : "h-full w-full rounded-[10px]";
+    const px = `${size === 16 ? "h-4 w-4" : size === 32 ? "h-8 w-8" : "h-full w-full"} ${
+        round ? "rounded-full" : size === "fill" ? "rounded-[10px]" : ""
+    }`;
 
     if (failed) {
         return (

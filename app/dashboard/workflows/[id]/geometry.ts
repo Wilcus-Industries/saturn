@@ -148,9 +148,25 @@ export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number => {
 export const configRowHeight = (field: ConfigField): number =>
     field.input === "textarea" ? TEXTAREA_ROW_H : CONFIG_ROW_H;
 
-// port rows pair input i with output i on the same row
+// input ports absorbed into a config row: a field's overriddenBy names the
+// port, and the marker renders on that row's left edge instead of its own
+// port row (integration action nodes). node.tsx must skip these in the
+// zipped port rows and render them inline.
+export const pairedInputIds = (entry: CatalogEntry): Set<string> =>
+    new Set(
+        (entry.config ?? [])
+            .map((f) => f.overriddenBy)
+            .filter((id): id is string => !!id && entry.inputs.some((p) => p.id === id)),
+    );
+
+export const unpairedInputs = (entry: CatalogEntry): PortSpec[] => {
+    const paired = pairedInputIds(entry);
+    return entry.inputs.filter((p) => !paired.has(p.id));
+};
+
+// port rows pair (unpaired) input i with output i on the same row
 const portRows = (entry: CatalogEntry): number =>
-    Math.max(entry.inputs.length, entry.outputs.length);
+    Math.max(unpairedInputs(entry).length, entry.outputs.length);
 
 export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
     if (isModelEntry(entry)) return MODEL_D + MODEL_LABEL_H;
@@ -385,7 +401,18 @@ export function portGeometry(
 
     const rowY = (row: number) => node.y + HEADER_H + row * PORT_ROW_H + PORT_ROW_H / 2;
 
-    const inputRow = entry.inputs.findIndex((p) => p.id === portId);
+    // paired inputs anchor at the vertical center of their config row,
+    // below every port row
+    const fields = entry.config ?? [];
+    const pairedField = fields.findIndex((f) => f.overriddenBy === portId);
+    if (pairedField !== -1 && entry.inputs.some((p) => p.id === portId)) {
+        let y = node.y + HEADER_H + portRows(entry) * PORT_ROW_H;
+        for (let i = 0; i < pairedField; i++) y += configRowHeight(fields[i]);
+        y += configRowHeight(fields[pairedField]) / 2;
+        return { x: node.x, y, nx: -1, ny: 0 };
+    }
+
+    const inputRow = unpairedInputs(entry).findIndex((p) => p.id === portId);
     if (inputRow !== -1) return { x: node.x, y: rowY(inputRow), nx: -1, ny: 0 };
 
     const outputRow = entry.outputs.findIndex((p) => p.id === portId);
