@@ -10,7 +10,18 @@ const MAX_INTEGRATION_MESSAGE = 4096; // text cap (mirrors MAX_TOOL_INPUT)
 const MAX_INTEGRATION_IMAGE = 4_194_304; // image data-URL cap (mirrors runner MAX_IMAGE_DATA_URL)
 const DISCORD_CONTENT_LIMIT = 2000; // Discord's hard cap on `content`
 const DISCORD_UPLOAD_LIMIT = 8_388_608; // 8 MiB — Discord free webhook attachment cap
+const TELEGRAM_TEXT_LIMIT = 4096; // Telegram's sendMessage cap (== MAX_INTEGRATION_MESSAGE)
+const TELEGRAM_UPLOAD_LIMIT = 10_485_760; // 10 MiB — Telegram photo upload cap
 const SEND_TIMEOUT_MS = 15_000;
+
+// SSRF guard analog of the Discord snowflake check: the token rides in the
+// URL *path* (api.telegram.org/bot<token>/<method>), so a strict charset
+// regex (no "/", "?", "#", "%") keeps untrusted config from shaping the
+// fetch target. chat_id only ever travels in the JSON body / form field, but
+// gets the same strictness: a numeric id (negative for groups, -100… for
+// supergroups/channels) or a public @channelusername.
+const TELEGRAM_TOKEN = /^\d{1,20}:[A-Za-z0-9_-]{25,64}$/;
+const TELEGRAM_CHAT_ID = /^(-?\d{1,20}|@[A-Za-z0-9_]{5,32})$/;
 
 // userId is unused by webhook senders but threaded through so bot-token
 // providers can resolve per-user secrets later
@@ -148,10 +159,109 @@ async function sendDiscordTyping(
     return { text: "typing" };
 }
 
+// shared Telegram config parse; the regexes above double as the SSRF guard
+function telegramConfig(
+    config: Record<string, string>,
+): { botToken: string; chatId: string } | { error: string } {
+    const botToken = (config.botToken ?? "").trim();
+    const chatId = (config.chatId ?? "").trim();
+    if (!TELEGRAM_TOKEN.test(botToken)) return { error: "bot token must look like 123456:ABC…" };
+    if (!TELEGRAM_CHAT_ID.test(chatId)) {
+        return { error: "chat id must be a numeric id or @channelusername" };
+    }
+    return { botToken, chatId };
+}
+
+const telegramUrl = (botToken: string, method: string) =>
+    new URL(`https://api.telegram.org/bot${botToken}/${method}`);
+
+async function sendTelegramMessage(
+    _userId: string,
+    config: Record<string, string>,
+    message: string,
+): Promise<McpCallResult> {
+    const bot = telegramConfig(config);
+    if ("error" in bot) return bot;
+    if (!message.trim()) return { error: "message is empty" };
+    // Image data URL -> upload via sendPhoto (multipart), not text
+    if (message.startsWith("data:image/")) {
+        const marker = ";base64,";
+        const markerIdx = message.indexOf(marker);
+        if (markerIdx === -1) return { error: "unsupported image encoding (expected base64)" };
+
+        const mime = message.slice(5, markerIdx); // "image/png" | "image/svg+xml"
+        const b64 = message.slice(markerIdx + marker.length);
+        const bytes = Buffer.from(b64, "base64"); // never throws
+        if (bytes.length === 0) return { error: "image data is empty" };
+        if (bytes.length > TELEGRAM_UPLOAD_LIMIT) {
+            return { error: `image too large (max ${TELEGRAM_UPLOAD_LIMIT} bytes)` };
+        }
+
+        const subtype = mime.split("/")[1] ?? "png";
+        const ext = (subtype.split("+")[0] || "png").toLowerCase(); // svg+xml -> svg
+        const form = new FormData();
+        form.append("chat_id", bot.chatId);
+        form.append("photo", new Blob([bytes], { type: mime }), `image.${ext}`);
+
+        const imgRes = await fetch(telegramUrl(bot.botToken, "sendPhoto"), {
+            // no content-type header — fetch sets the multipart boundary
+            method: "POST",
+            body: form,
+            signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+        });
+        if (!imgRes.ok) {
+            const body = (await imgRes.text().catch(() => "")).slice(0, 200);
+            return { error: `telegram send failed (${imgRes.status})${body ? `: ${body}` : ""}` };
+        }
+        return { text: "sent" };
+    }
+    const text =
+        message.length > TELEGRAM_TEXT_LIMIT
+            ? `${message.slice(0, TELEGRAM_TEXT_LIMIT - 1)}…`
+            : message;
+    const res = await fetch(telegramUrl(bot.botToken, "sendMessage"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: bot.chatId, text }),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+        const body = (await res.text().catch(() => "")).slice(0, 200);
+        return { error: `telegram send failed (${res.status})${body ? `: ${body}` : ""}` };
+    }
+    return { text: "sent" };
+}
+
+async function sendTelegramTyping(
+    _userId: string,
+    config: Record<string, string>,
+): Promise<McpCallResult> {
+    const bot = telegramConfig(config);
+    if ("error" in bot) return bot;
+    // Telegram has no cancel call — the indicator expires ~5s after
+    // sendChatAction (or when the bot sends a message), so "off" is a no-op
+    if ((config.status ?? "on").trim() === "off") {
+        return { text: "typing off (indicator expires on its own)" };
+    }
+    const res = await fetch(telegramUrl(bot.botToken, "sendChatAction"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: bot.chatId, action: "typing" }),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+        const body = (await res.text().catch(() => "")).slice(0, 200);
+        return { error: `telegram typing failed (${res.status})${body ? `: ${body}` : ""}` };
+    }
+    return { text: "typing" };
+}
+
 const SENDERS: Record<string, SendFn> = {
     "discord-webhook": sendDiscordWebhook,
     "discord-send-message": sendDiscordMessage,
     "discord-typing": sendDiscordTyping,
+    "telegram-send-message": sendTelegramMessage,
+    "telegram-typing": sendTelegramTyping,
 };
 
 // executes one integration send for a workflow run (test, cron, or manual)

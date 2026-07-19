@@ -61,6 +61,7 @@ const fp = (token: string) => `…${token.slice(-4)}`;
 const connections = new Map<string, BotConnection>();
 let pollTimer: NodeJS.Timeout | null = null;
 let refreshTimer: NodeJS.Timeout | null = null;
+let unsubscribe: (() => void) | null = null;
 let stopped = false;
 
 class BotConnection {
@@ -241,8 +242,8 @@ class BotConnection {
         // lands in mentions; role/@everyone mentions deliberately don't count)
         if (!d.mentions?.some((u) => u.id === this.botUserId)) return;
         for (const sub of this.subs) {
-            if (sub.guildId && sub.guildId !== d.guild_id) continue;
-            if (sub.channelId && sub.channelId !== d.channel_id) continue;
+            if (sub.config.guildId && sub.config.guildId !== d.guild_id) continue;
+            if (sub.config.channelId && sub.config.channelId !== d.channel_id) continue;
             // fire-and-forget: the run executes inline (up to RUN_TIMEOUT_MS)
             // — never block the ws message path on it
             this.dispatch(sub, d).catch((err) => {
@@ -310,7 +311,7 @@ class BotConnection {
 async function poll() {
     let subs: EventSubscription[];
     try {
-        subs = await getEventSubscriptions();
+        subs = (await getEventSubscriptions()).filter((s) => s.provider === "discord");
     } catch (err) {
         // transient DB unavailability must not tear down live Gateway
         // sessions — keep the current connection set
@@ -349,7 +350,7 @@ export function startGateway() {
     stopped = false;
     // push invalidation from workflow mutations — debounced so designer
     // autosave bursts collapse to one re-poll
-    onSubscriptionsChanged(() => {
+    unsubscribe = onSubscriptionsChanged(() => {
         if (stopped || refreshTimer) return;
         refreshTimer = setTimeout(() => {
             refreshTimer = null;
@@ -370,7 +371,8 @@ export function startGateway() {
 
 export function stopGateway() {
     stopped = true;
-    onSubscriptionsChanged(null);
+    unsubscribe?.();
+    unsubscribe = null;
     if (pollTimer) {
         clearTimeout(pollTimer);
         pollTimer = null;

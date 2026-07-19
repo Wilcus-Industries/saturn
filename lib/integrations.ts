@@ -65,6 +65,7 @@ export type IntegrationProvider = IntegrationAction & {
 
 // a flat event node = an ExtensionEvent merged with its platform's app + logo.
 export type ExtensionEventNode = ExtensionEvent & {
+    platform: string; // owning PlatformExtension.id — the ingress routes transports by this
     app: string;
     logoDomain: string;
 };
@@ -160,6 +161,80 @@ export const EXTENSIONS: PlatformExtension[] = [
             },
         ],
     },
+    {
+        id: "telegram",
+        app: "telegram",
+        logoDomain: "telegram.org",
+        actions: [
+            {
+                id: "telegram-send-message",
+                label: "send message",
+                section: "data",
+                config: [
+                    {
+                        id: "botToken", label: "bot token", input: "text",
+                        placeholder: "from @BotFather",
+                    },
+                    {
+                        id: "chatId", label: "chat id", input: "text",
+                        placeholder: "chat to post in",
+                    },
+                    { id: "message", label: "message", input: "text", overriddenBy: "message" },
+                ],
+                requiredConfig: ["botToken", "chatId"],
+            },
+            {
+                id: "telegram-typing",
+                label: "typing status",
+                section: "data",
+                config: [
+                    {
+                        id: "status", label: "typing", input: "select",
+                        options: ["on", "off"], default: "on",
+                    },
+                    {
+                        id: "botToken", label: "bot token", input: "text",
+                        placeholder: "from @BotFather",
+                    },
+                    {
+                        id: "chatId", label: "chat id", input: "text",
+                        placeholder: "chat to type in",
+                    },
+                ],
+                requiredConfig: ["botToken", "chatId"],
+            },
+        ],
+        events: [
+            {
+                id: "telegram-message",
+                label: "got a message",
+                emoji: "✈️",
+                config: [
+                    {
+                        id: "botToken", label: "bot token", input: "text",
+                        placeholder: "from @BotFather",
+                    },
+                    {
+                        id: "chatId", label: "chat id (optional)", input: "text",
+                        placeholder: "filter to one chat",
+                    },
+                ],
+                requiredConfig: ["botToken"],
+                samplePayload: {
+                    text: "hey saturn, what's the weather tomorrow?",
+                    chatId: "123456789",
+                    chatType: "private",
+                    userId: "123456789",
+                    username: "ada",
+                    firstName: "Ada",
+                    messageId: "42",
+                    date: "2026-07-18T12:34:56.000Z",
+                },
+                payloadDoc:
+                    "{text, chatId, chatType, userId, username, firstName, messageId, date}",
+            },
+        ],
+    },
 ];
 
 export const integrationKey = (id: string) => `${INTEGRATION_PREFIX}${id}`;
@@ -178,7 +253,12 @@ export const INTEGRATIONS_BY_ID: Record<string, IntegrationProvider> = Object.fr
 );
 
 export const EXTENSION_EVENTS: ExtensionEventNode[] = EXTENSIONS.flatMap((ext) =>
-    ext.events.map((event) => ({ ...event, app: ext.app, logoDomain: ext.logoDomain })),
+    ext.events.map((event) => ({
+        ...event,
+        platform: ext.id,
+        app: ext.app,
+        logoDomain: ext.logoDomain,
+    })),
 );
 
 // keyed by full node type (eventNodeKey(id) = "event:discord-mentioned"), the

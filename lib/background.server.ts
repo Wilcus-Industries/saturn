@@ -1,10 +1,12 @@
 // Lifecycle owner for in-process background work (cron scheduler + Discord
-// gateway), started once from instrumentation.ts on production server boot.
-// The globalThis guard survives dev-HMR module reloads; the process-level
-// signal hooks make shutdown best-effort — in-flight runs die with the
-// process and the runner's janitor sweep marks the stranded rows.
+// gateway + Telegram long-poller), started once from instrumentation.ts on
+// production server boot. The globalThis guard survives dev-HMR module
+// reloads; the process-level signal hooks make shutdown best-effort —
+// in-flight runs die with the process and the runner's janitor sweep marks
+// the stranded rows.
 import { startScheduler, stopScheduler } from "@/lib/scheduler.server";
 import { startGateway, stopGateway } from "@/lib/gateway.server";
+import { startTelegram, stopTelegram } from "@/lib/telegram.server";
 
 declare global {
     var __saturnBackground: boolean | undefined;
@@ -13,13 +15,15 @@ declare global {
 export function startBackground() {
     if (globalThis.__saturnBackground) return;
     globalThis.__saturnBackground = true;
-    console.log("[background] starting in-process scheduler + gateway");
+    console.log("[background] starting in-process scheduler + gateway + telegram");
     startScheduler();
     startGateway();
+    startTelegram();
     const stop = (sig: string) => {
-        console.log(`[background] ${sig} — stopping scheduler + gateway`);
+        console.log(`[background] ${sig} — stopping scheduler + gateway + telegram`);
         stopScheduler();
         stopGateway();
+        stopTelegram();
     };
     process.once("SIGTERM", () => stop("SIGTERM"));
     process.once("SIGINT", () => stop("SIGINT"));
