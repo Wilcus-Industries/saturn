@@ -1,7 +1,5 @@
-// Inbound-event cores, shared by the in-process Discord gateway
-// (lib/gateway.server.ts) and the transitional HTTP routes (/api/events,
-// /api/event-subscriptions — kept one release as the rollback path to the
-// external saturn-events deliverer).
+// Inbound-event cores (subscription feed + validate/claim/execute), consumed
+// by the in-process Discord gateway (lib/gateway.server.ts).
 import { db } from "@/lib/db";
 import { EXTENSION_EVENTS_BY_KEY } from "@/lib/integrations";
 import { executeWorkflowRun, UUID } from "@/lib/runner.server";

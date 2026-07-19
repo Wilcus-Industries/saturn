@@ -287,7 +287,7 @@ export const CATALOG: CatalogEntry[] = [
     // extension events — inbound trigger nodes generated from the platform
     // descriptors in lib/integrations.ts (a Discord mention etc.). They render
     // like the schedule node (events category → circle), but delivery is
-    // real-time via /api/events; the single "payload" value port carries the
+    // real-time via the in-process gateway; the single "payload" value port carries the
     // event as a JSON string. No `section` — unlike integration actions they
     // paint with the events color, and the `group` heads their Apps subsection.
     ...EXTENSION_EVENTS.map((e): CatalogEntry => ({

@@ -1,8 +1,8 @@
 // In-process cron scheduler — replaces the Pi's per-minute systemd timer.
 // A self-arming timeout fires just past each :00; the next arm happens only
 // after the current tick finishes, so ticks never overlap in-process. The
-// runner's claim UPDATE stays the cross-process idempotency backstop (manual
-// /api/cron curls, a transitional systemd timer, a stray second process).
+// runner's claim UPDATE stays the cross-process idempotency backstop
+// (a stray second process).
 //
 // Catch-up: a long tick or event-loop stall skips minutes; we track the last
 // processed UTC minute and run each missed one (capped) so sparse crons

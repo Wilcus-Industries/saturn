@@ -1,7 +1,7 @@
 // Platform extensions (client-safe). Each PlatformExtension bundles one app's
 // outbound `actions` (message nodes → lib/integrations.server.ts senders) and
-// inbound `events` (trigger nodes → the /api/events ingress, delivered by the
-// saturn-events deliverer, deliverer/deliverer.mjs). Adding a platform = one descriptor
+// inbound `events` (trigger nodes, delivered by the in-process gateway,
+// lib/gateway.server.ts). Adding a platform = one descriptor
 // here plus its senders/handlers server-side; interpreter/designer/toolbox
 // derive everything from the flat views at the bottom.
 // Type-only imports from workflow.ts — workflow.ts value-imports this file,

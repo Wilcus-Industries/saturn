@@ -31,25 +31,13 @@ ssh "$PI" "set -euo pipefail
   sudo install -d -o saturn -g saturn ${APP}/.next/cache
   sudo install -m 644 ${APP}/deploy/saturn.service /etc/systemd/system/saturn.service
   sudo systemctl daemon-reload
-  # event delivery runs in-process when SATURN_BACKGROUND=1 — the external
-  # deliverer must stop BEFORE the new app identifies, or two Gateway sessions
-  # deliver duplicate runs. Without the flag, keep the external unit running.
-  if [ \"\${SATURN_BACKGROUND:-}\" = \"1\" ]; then
-    sudo systemctl disable --now saturn-events 2>/dev/null || true
-  else
-    sudo install -m 644 ${APP}/deploy/saturn-events.service /etc/systemd/system/saturn-events.service
-    sudo systemctl daemon-reload
-    sudo systemctl enable saturn-events
-  fi
+  # retire the old external saturn-events deliverer if this Pi still has it
+  # (event delivery + scheduling run in-process now)
+  sudo systemctl disable --now saturn-events 2>/dev/null || true
+  sudo rm -f /etc/systemd/system/saturn-events.service
   sudo systemctl restart saturn
   sleep 2
   systemctl is-active saturn
-  systemctl --no-pager --lines=6 status saturn | tail -6
-  if [ \"\${SATURN_BACKGROUND:-}\" != \"1\" ]; then
-    # external deliverer restarts after the app so its first poll succeeds
-    sudo systemctl restart saturn-events
-    sleep 2
-    systemctl is-active saturn-events
-  fi"
+  systemctl --no-pager --lines=6 status saturn | tail -6"
 
 echo ">> deployed."

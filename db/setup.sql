@@ -36,7 +36,7 @@ create table if not exists workflow_run (
 create index if not exists workflow_run_workflow_started_idx
     on workflow_run (workflow_id, started_at desc);
 -- added after initial rollout; keeps existing tables in sync with the create above
--- ('event' = real-time inbound event ingress, app/api/events/route.ts)
+-- ('event' = real-time inbound event run, lib/events.server.ts ingestEvent)
 alter table workflow_run drop constraint if exists workflow_run_trigger_check;
 alter table workflow_run add constraint workflow_run_trigger_check
     check (trigger in ('cron', 'manual', 'event'));
@@ -89,7 +89,7 @@ create table if not exists model_usage (
 create index if not exists model_usage_user_created_idx
     on model_usage (user_id, created_at desc);
 -- added after initial rollout; keeps existing tables in sync with the create above
--- ('event' = usage from a real-time event-triggered run, app/api/events/route.ts)
+-- ('event' = usage from a real-time event-triggered run, lib/events.server.ts)
 alter table model_usage drop constraint if exists model_usage_source_check;
 alter table model_usage add constraint model_usage_source_check
     check (source in ('designer', 'cron', 'manual', 'event'));

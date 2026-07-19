@@ -1,5 +1,5 @@
 // Lifecycle owner for in-process background work (cron scheduler + Discord
-// gateway), started once from instrumentation.ts when SATURN_BACKGROUND=1.
+// gateway), started once from instrumentation.ts on production server boot.
 // The globalThis guard survives dev-HMR module reloads; the process-level
 // signal hooks make shutdown best-effort — in-flight runs die with the
 // process and the runner's janitor sweep marks the stranded rows.

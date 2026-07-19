@@ -228,8 +228,7 @@ export async function executeAgentTurn(
 // ---------------------------------------------------------------------------
 // Scheduled execution tick — driven per-minute by the in-process scheduler
 // (lib/scheduler.server.ts), which passes the UTC minute being processed so
-// missed minutes can be caught up; GET /api/cron remains as a manual trigger
-// (its default `at` is now).
+// missed minutes can be caught up.
 // ---------------------------------------------------------------------------
 
 const MAX_RUNS_PER_TICK = 25; // Pi capacity knob — concurrent runs share the app process
@@ -279,8 +278,7 @@ export async function runDueWorkflows(
         // the guard doubles as the run-time tier-floor clamp: a downgraded
         // user's '* * * * *' degrades to their floor instead of erroring.
         // -30s absorbs tick jitter; the 50s floor makes duplicate
-        // same-minute ticks (catch-up bursts, a transitional systemd timer,
-        // manual /api/cron curls) no-ops.
+        // same-minute ticks (catch-up bursts, a stray second process) no-ops.
         const guardSeconds = Math.max(CLAIM_GUARD_FLOOR_S, floor * 60 - 30);
         // atomic claim via single-statement conditional UPDATE — session
         // advisory locks are unsafe on pgbouncer transaction pooling (Neon),

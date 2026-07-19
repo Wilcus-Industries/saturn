@@ -1,6 +1,5 @@
-// In-process Discord Gateway listener — successor to the external
-// saturn-events deliverer (deliverer/deliverer.mjs), started from
-// lib/background.server.ts when SATURN_BACKGROUND=1:
+// In-process Discord Gateway listener, started from
+// lib/background.server.ts on production server boot:
 //
 //   - reads the normalized inbound-event subscriptions straight from the DB
 //     (lib/events.server.ts getEventSubscriptions) every 60s, plus immediately
