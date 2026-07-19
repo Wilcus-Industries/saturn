@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { FaAnglesLeft, FaAnglesRight } from "react-icons/fa6";
 import AsciiSaturn from "@/app/(saturn)/asciiSaturn";
 import { NAV, isActive } from "./nav";
+import NavIcon from "./navIcon";
 
 export default function Sidebar({ initialCollapsed }: { initialCollapsed: boolean }) {
     const [collapsed, setCollapsed] = useState(initialCollapsed);
@@ -59,7 +60,7 @@ export default function Sidebar({ initialCollapsed }: { initialCollapsed: boolea
                                     ? "bg-foreground text-background"
                                     : "text-gray-400 hover:bg-foreground hover:text-background"}`}
                         >
-                            <Icon className={"h-4 w-4 shrink-0"} />
+                            <NavIcon icon={Icon} className={"h-4 w-4"} />
                             <span
                                 className={`transition-opacity duration-200
                                     ${collapsed ? "opacity-0" : "opacity-100"}`}

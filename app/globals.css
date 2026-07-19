@@ -147,3 +147,21 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .enchant-glow { animation: none; }
 }
+
+/* Nav pending indicator: icon and spinner swap only after 150ms, so
+   prefetched/fast navigations never flash. The delay is anti-flash
+   debouncing, not motion — keep it under reduced motion. Animations
+   (not transitions) because they must fire on mount. */
+@keyframes nav-pending-hide {
+  to { opacity: 0; }
+}
+@keyframes nav-pending-show {
+  to { opacity: 1; }
+}
+.nav-pending-hide {
+  animation: nav-pending-hide 0s linear 150ms both;
+}
+.nav-pending-show {
+  opacity: 0;
+  animation: nav-pending-show 0s linear 150ms both;
+}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import DeleteWorkflowButton from "@/app/dashboard/deleteWorkflowButton";
 import type { WorkflowRow } from "@/lib/workflow";
 import ActiveToggle from "./activeToggle";
+import LinkSpinner from "./linkSpinner";
 import WorkflowModal from "./workflowModal";
 
 export type LastRun = {
@@ -43,7 +44,9 @@ export default function WorkflowCard({
                 href={`/dashboard/workflows/${workflow.id}`}
                 aria-label={`Open ${workflow.name}`}
                 className={"absolute inset-0"}
-            />
+            >
+                <LinkSpinner className={"absolute right-3 bottom-3 font-mono text-gray-400"} />
+            </Link>
             <span className={"text-4xl"}>{workflow.emoji}</span>
             <span className={"font-mono"}>{workflow.name}</span>
             {workflow.description && (

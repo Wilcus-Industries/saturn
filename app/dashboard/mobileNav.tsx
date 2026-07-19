@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import AsciiSaturn from "@/app/(saturn)/asciiSaturn";
 import { NAV, isActive } from "./nav";
+import NavIcon from "./navIcon";
 
 export default function MobileNav() {
     const pathname = usePathname();
@@ -43,7 +44,7 @@ export default function MobileNav() {
                                     ? "border-foreground bg-foreground text-background"
                                     : "text-gray-400 hover:bg-foreground hover:text-background"}`}
                         >
-                            <Icon className={"h-3.5 w-3.5 shrink-0"} />
+                            <NavIcon icon={Icon} className={"h-3.5 w-3.5"} />
                             {label}
                         </Link>
                     );
