@@ -26,7 +26,7 @@ import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
 import { sampleEventPayload } from "@/lib/integrations";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
-import { callAgentModel, callIntegration, callMcpTool, callMemoryTool, saveWorkflow } from "./actions";
+import { callAgentModel, callChatLogTool, callIntegration, callMcpTool, callMemoryTool, saveWorkflow } from "./actions";
 import Canvas, { type CanvasHandle } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
@@ -217,6 +217,7 @@ export default function Designer({
                 emit,
                 callMcp: callMcpTool,
                 callMemory: callMemoryTool,
+                callChatLog: callChatLogTool,
                 callIntegration,
                 callAgent: callAgentModel,
                 onValue: (nodeId, portId, text) =>

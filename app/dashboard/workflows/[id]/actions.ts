@@ -9,6 +9,7 @@ import {
     MEMORY_TOOL_NAMES,
     type McpCallResult,
 } from "@/lib/agent";
+import { executeChatLog, MAX_CHATLOG_INPUT } from "@/lib/chatlog.server";
 import { db } from "@/lib/db";
 import { subscriptionsChanged } from "@/lib/events.server";
 import { executeIntegration } from "@/lib/integrations.server";
@@ -74,6 +75,18 @@ export async function callMemoryTool(
         return { error: "input too long" };
     }
     return executeMemoryTool(session.user.id, memoryId, op, input, "designer");
+}
+
+// executes one chat-log operation for a designer test run. Errors return as
+// values; validation and the operation live in executeChatLog
+// (lib/chatlog.server.ts), shared with the scheduled runner.
+export async function callChatLogTool(op: string, input: string): Promise<McpCallResult> {
+    const { session } = await requireUser();
+    if (op !== "append" && op !== "read") return { error: "unknown chat log operation" };
+    if (typeof input !== "string" || input.length > MAX_CHATLOG_INPUT) {
+        return { error: "input too long" };
+    }
+    return executeChatLog(session.user.id, op, input);
 }
 
 // executes one integration send for a designer test run. Errors return as

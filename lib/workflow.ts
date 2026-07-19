@@ -240,6 +240,32 @@ export const CATALOG: CatalogEntry[] = [
         config: [{ ...text("path"), picker: "json-path" }],
     },
     {
+        // appends one message to the persistent per-user chat log
+        // (chat_message table, lib/chatlog.server.ts); key and message pair
+        // config literals with same-id override ports (print/integration
+        // pattern). Each (user, key) log keeps its newest 200 messages.
+        key: "log-append", category: "data", label: "log append",
+        inputs: [flowIn, v("key"), v("message")], outputs: [flowOut],
+        config: [
+            { ...text("key"), overriddenBy: "key" },
+            { ...text("message"), overriddenBy: "message" },
+            { id: "role", label: "role", input: "select", options: ["user", "bot"], default: "user" },
+        ],
+    },
+    {
+        // reads the last config.limit messages for a key as one oldest-first
+        // transcript string on "history". A flow node, not a pure value: the
+        // read is an async DB call, so the transcript is stashed when the
+        // flow step runs and served synchronously later (agent "result"
+        // pattern) — value eval is sync (lib/interpreter.ts computeOutput).
+        key: "log-read", category: "data", label: "log read",
+        inputs: [flowIn, v("key")], outputs: [flowOut, v("history")],
+        config: [
+            { ...text("key"), overriddenBy: "key" },
+            { id: "limit", label: "limit", input: "number", placeholder: "20", default: "20" },
+        ],
+    },
+    {
         // join barrier for parallel branches: runs once every incoming flow
         // edge has arrived; "results" is a JSON array of the "values" edges'
         // values in edge order
@@ -682,6 +708,15 @@ export function validateGraphStrict(
                     `${provider.label} "${node.id}" has no ${field} — the run will fail`,
                 );
             }
+        }
+    }
+
+    // log nodes fail at run time without a key — a connected key port
+    // overrides the literal, so a port-fed key is fine
+    for (const node of graph.nodes) {
+        if (node.type !== "log-append" && node.type !== "log-read") continue;
+        if (!(node.config.key ?? "").trim() && !fedPorts.has(`${node.id}:key`)) {
+            warnings.push(`${byKey[node.type]?.label ?? node.type} "${node.id}" has no key — the run will fail`);
         }
     }
 

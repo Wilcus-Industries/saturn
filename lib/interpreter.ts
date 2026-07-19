@@ -60,6 +60,9 @@ export type RunHooks = {
     // one memory-store operation (search/save/forget) — executed server-side
     // against the local store, tokens/embeddings never reach the browser
     callMemory: (memoryId: string, op: string, input: string) => Promise<McpCallResult>;
+    // one chat-log operation ("append" | "read", JSON-object input) —
+    // executed server-side against the per-user chat_message table
+    callChatLog: (op: string, input: string) => Promise<McpCallResult>;
     // one outbound integration send (Discord webhook, …) — executed
     // server-side so URL validation and future tokens stay off the client
     callIntegration: (
@@ -87,6 +90,8 @@ const MAX_STEPS = 10_000;
 const MAX_AGENT_MCP_CALLS = 40;
 // integration sends budget separately from MCP calls for the same reason
 const MAX_INTEGRATION_CALLS = 20;
+// chat-log ops (log append / log read) — same philosophy
+const MAX_CHATLOG_CALLS = 20;
 // long tool results would drown the console
 const MAX_RESULT_CHARS = 2000;
 // tool output fed back to the model — larger than the console cap, the
@@ -154,14 +159,15 @@ function toList(items: RunValue): RunValue[] {
 export async function runWorkflow(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
-    { emit, callMcp, callMemory, callIntegration, callAgent, onValue, signal }: RunHooks,
+    { emit, callMcp, callMemory, callChatLog, callIntegration, callAgent, onValue, signal }: RunHooks,
     opts: { entryNodeIds?: string[]; eventPayloads?: Record<string, string> } = {},
 ): Promise<void> {
     let steps = 0;
     let agentMcpCalls = 0;
     let integrationCalls = 0;
+    let chatLogCalls = 0;
     const loopValues = new Map<string, RunValue>(); // loop nodeId → current item
-    const saturnResults = new Map<string, string>(); // agent/await "nodeId:portId" → output
+    const saturnResults = new Map<string, string>(); // agent/await/log-read "nodeId:portId" → output
     const awaitArrivals = new Map<string, number>(); // await nodeId → flow arrivals so far
     let branchFailed = false; // a fan-out branch failed — siblings stop at their next step
 
@@ -308,7 +314,8 @@ export async function runWorkflow(
                     return item;
                 }
                 case "agent":
-                case "await": {
+                case "await":
+                case "log-read": {
                     const stored = saturnResults.get(key);
                     if (stored === undefined) {
                         warn(`${label(node)}: "${portId}" read before the node ran — using ""`);
@@ -674,6 +681,46 @@ export async function runWorkflow(
                     });
                     saturnResults.set(`${node.id}:result`, result);
                     onValue?.(node.id, "result", result);
+                    next = "out";
+                    break;
+                }
+                case "log-append": {
+                    if (++chatLogCalls > MAX_CHATLOG_CALLS) {
+                        fail(`chat log call limit (${MAX_CHATLOG_CALLS}) exceeded for one run`);
+                    }
+                    // connected ports override the config literals (print pattern)
+                    const key = incomingValueEdge(node.id, "key")
+                        ? fmt(evalInput(node, "key", ctx))
+                        : (node.config.key ?? "");
+                    const message = incomingValueEdge(node.id, "message")
+                        ? fmt(evalInput(node, "message", ctx))
+                        : (node.config.message ?? "");
+                    const role = node.config.role === "bot" ? "bot" : "user";
+                    const res = await callChatLog("append", JSON.stringify({ key, message, role }));
+                    if ("error" in res) fail(`log append: ${res.error}`);
+                    emit({
+                        kind: "info",
+                        text: truncate(`log append (${role}) → ${"text" in res ? res.text : ""}`),
+                    });
+                    next = "out";
+                    break;
+                }
+                case "log-read": {
+                    if (++chatLogCalls > MAX_CHATLOG_CALLS) {
+                        fail(`chat log call limit (${MAX_CHATLOG_CALLS}) exceeded for one run`);
+                    }
+                    const key = incomingValueEdge(node.id, "key")
+                        ? fmt(evalInput(node, "key", ctx))
+                        : (node.config.key ?? "");
+                    const res = await callChatLog(
+                        "read",
+                        JSON.stringify({ key, limit: (node.config.limit ?? "").trim() }),
+                    );
+                    if ("error" in res) fail(`log read: ${res.error}`);
+                    const history = "text" in res ? res.text : "";
+                    saturnResults.set(`${node.id}:history`, history);
+                    onValue?.(node.id, "history", history);
+                    emit({ kind: "info", text: truncate(`log read → ${history || "(empty)"}`) });
                     next = "out";
                     break;
                 }

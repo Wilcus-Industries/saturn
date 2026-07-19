@@ -22,6 +22,7 @@ import {
     runWorkflow,
 } from "@/lib/interpreter";
 import { getCreditUsage, platformKey, recordUsage } from "@/lib/credits.server";
+import { executeChatLog } from "@/lib/chatlog.server";
 import { executeIntegration } from "@/lib/integrations.server";
 import { executeMemoryTool, memoryToolSpecs } from "@/lib/memory.server";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
@@ -419,6 +420,7 @@ export async function executeWorkflowRun(
                     executeMcpTool(wf.user_id, entryId, toolName, input),
                 callMemory: (memoryId, op, input) =>
                     executeMemoryTool(wf.user_id, memoryId, op, input, opts.trigger),
+                callChatLog: (op, input) => executeChatLog(wf.user_id, op, input),
                 callIntegration: (providerId, config, message) =>
                     executeIntegration(wf.user_id, providerId, config, message),
                 callAgent: (req) => executeAgentTurn(wf.user_id, req, opts.trigger),
