@@ -9,10 +9,12 @@ export default function UsagePanel({
     credits,
     workflowCount,
     mcpCount,
+    memoryCount,
 }: {
     credits: CreditUsage;
     workflowCount: number;
     mcpCount: number;
+    memoryCount: number;
 }) {
     const limits = limitsFor(credits.level); // null level → free caps by design
     const paid = credits.level ? isPaidPlan(credits.level) : false;
@@ -75,6 +77,23 @@ export default function UsagePanel({
                         className={"h-full bg-foreground"}
                         style={{
                             width: `${Math.min((mcpCount / limits.mcpServers) * 100, 100)}%`,
+                        }}
+                    />
+                </div>
+            </div>
+
+            <div className={"flex flex-col gap-2"}>
+                <div className={"flex items-baseline justify-between font-mono text-sm"}>
+                    <span>memory stores</span>
+                    <span>
+                        {memoryCount} / {limits.memoryStores}
+                    </span>
+                </div>
+                <div className={"h-1 w-full bg-foreground/15"}>
+                    <div
+                        className={"h-full bg-foreground"}
+                        style={{
+                            width: `${Math.min((memoryCount / limits.memoryStores) * 100, 100)}%`,
                         }}
                     />
                 </div>

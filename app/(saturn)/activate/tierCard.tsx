@@ -11,6 +11,7 @@ const TIERS = {
         features: [
             "3 workflows",
             "3 MCP server connections",
+            "1 memory store",
             "Hourly schedules",
             "1,000 model credits/mo",
             "All features of Saturn, with the flexibility of your own keys.",
@@ -24,6 +25,7 @@ const TIERS = {
         features: [
             "20 workflows",
             "10 MCP server connections",
+            "5 memory stores",
             "Schedules down to every 5 minutes",
             "15,000 model credits/mo",
         ],
@@ -36,6 +38,7 @@ const TIERS = {
         features: [
             "100 workflows",
             "50 MCP server connections",
+            "20 memory stores",
             "Schedules down to every minute",
             "60,000 model credits/mo",
             "Priority access to everything (and new features)",

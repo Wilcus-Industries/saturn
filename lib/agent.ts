@@ -43,6 +43,10 @@ export const MAX_TOOL_CALLS_PER_TURN = 5;
 export const MAX_GRANTED_TOOLS = 20;
 export const MAX_GRANTED_SKILLS = 10;
 
+// wire-format tool names exposed to an agent granted a memory store node —
+// the persistent-memory read/write/delete surface (built server-side)
+export const MEMORY_TOOL_NAMES = ["memory_search", "memory_save", "memory_forget"] as const;
+
 // sentinel toolName of the MCP server grant chip (node type "mcp:<uuid>:*"
 // — the only mcp node type the catalog emits). It resolves like any tool
 // ref but expands server-side to the server's every enabled + callable tool
@@ -91,4 +95,11 @@ export function toolRefFromNodeType(type: string): AgentToolRef | null {
 export function skillIdFromNodeType(type: string): string | null {
     if (!type.startsWith("skill:") || type.length !== 42) return null;
     return type.slice(6);
+}
+
+// "memory:" is 7 chars; a valid memory store node type is exactly the prefix
+// + a 36-char uuid remainder (total 43)
+export function memoryIdFromNodeType(type: string): string | null {
+    if (!type.startsWith("memory:") || type.length !== 43) return null;
+    return type.slice(7);
 }

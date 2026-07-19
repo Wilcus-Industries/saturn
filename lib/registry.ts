@@ -5,7 +5,7 @@
 import { ALL_TOOLS } from "@/lib/agent";
 import { type CatalogEntry, type McpToolParam, valuePort } from "@/lib/workflow";
 
-export type RegistryKind = "mcp" | "skill";
+export type RegistryKind = "mcp" | "skill" | "memory";
 export type McpTool = {
     name: string;
     access: "read" | "write";
@@ -94,6 +94,20 @@ function toSkillEntry(row: RegistryEntryRow): CatalogEntry {
     };
 }
 
+// memory store grant chip: a single "memory" value output wired into an
+// agent's "memory" port grants the store (resolved statically from the node
+// type). Single-edge on the agent side — one memory store per agent.
+function toMemoryEntry(row: RegistryEntryRow): CatalogEntry {
+    return {
+        key: userNodeKey(row.kind, row.id),
+        label: row.name,
+        category: "memory",
+        inputs: [],
+        outputs: [valuePort("memory")],
+        emoji: row.emoji,
+    };
+}
+
 // MCP server grant chip (key "mcp:<uuid>:*"): one non-executable chip per
 // server. Wired into an agent's "tools" port it grants every enabled +
 // callable tool — the sentinel toolName expands server-side in
@@ -121,4 +135,10 @@ function toServerEntry(row: RegistryEntryRow): CatalogEntry {
 }
 
 export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
-    rows.map((row) => (row.kind === "skill" ? toSkillEntry(row) : toServerEntry(row)));
+    rows.map((row) =>
+        row.kind === "skill"
+            ? toSkillEntry(row)
+            : row.kind === "memory"
+              ? toMemoryEntry(row)
+              : toServerEntry(row),
+    );

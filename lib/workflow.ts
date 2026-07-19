@@ -22,6 +22,7 @@ export type NodeCategory =
     | "data"
     | "mcp"
     | "skill"
+    | "memory"
     | "saturn"
     | "model"
     | "integration";
@@ -42,13 +43,14 @@ export type McpToolParam = {
 // "tools"/"skills") — every other value input stays single-edge via
 // edgesToReplace.
 // accepts: value input that takes grant-chip outputs only ("tool" = an mcp
-// per-tool node, "skill" = a skill node); ordinary value edges are rejected.
+// per-tool node, "skill" = a skill node, "memory" = a memory store node);
+// ordinary value edges are rejected.
 export type PortSpec = {
     id: string;
     label: string;
     kind: PortKind;
     multi?: boolean;
-    accepts?: "tool" | "skill";
+    accepts?: "tool" | "skill" | "memory";
 };
 
 export type ConfigField = {
@@ -258,6 +260,9 @@ export const CATALOG: CatalogEntry[] = [
             flowIn, v("prompt"), v("system"), v("model"),
             { ...v("tools"), multi: true, accepts: "tool" },
             { ...v("skills"), multi: true, accepts: "skill" },
+            // single-edge (no multi): one memory store per agent, so
+            // edgesToReplace auto-swaps a second connection
+            { ...v("memory"), accepts: "memory" },
         ],
         // "result" carries the final text, or the generated image as a
         // data:image/… URL when output=image
@@ -330,7 +335,9 @@ export const MAX_GRAPH_JSON = 262_144;
 export function missingEntry(type: string): CatalogEntry {
     const prefix = type.split(":")[0];
     const category: NodeCategory =
-        prefix === "mcp" || prefix === "skill" || prefix === "integration" ? prefix : "logic";
+        prefix === "mcp" || prefix === "skill" || prefix === "memory" || prefix === "integration"
+            ? prefix
+            : "logic";
     return { key: type, category, label: "(deleted)", inputs: [], outputs: [], missing: true };
 }
 
@@ -365,6 +372,12 @@ export const CATEGORY_STYLES = {
         headerBg: "bg-green-500/10",
         text: "text-green-600 dark:text-green-400",
         edge: "#22c55e",
+    },
+    memory: {
+        borderL: "border-l-fuchsia-500",
+        headerBg: "bg-fuchsia-500/10",
+        text: "text-fuchsia-600 dark:text-fuchsia-400",
+        edge: "#d946ef",
     },
     saturn: {
         borderL: "border-l-cyan-500",
@@ -448,12 +461,14 @@ function findPort(
     return entry[dir].find((p) => p.id === ref.portId) ?? null;
 }
 
-// grant-chip nodes: an mcp server node ("tool") or a skill node ("skill"),
-// whose value output feeds only an agent's matching accepts port.
-function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | null {
+// grant-chip nodes: an mcp server node ("tool"), a skill node ("skill"), or a
+// memory store node ("memory"), whose value output feeds only an agent's
+// matching accepts port.
+function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | "memory" | null {
     if (!entry || entry.missing) return null;
     if (entry.category === "mcp" && typeof entry.toolName === "string") return "tool";
     if (entry.category === "skill") return "skill";
+    if (entry.category === "memory") return "memory";
     return null;
 }
 

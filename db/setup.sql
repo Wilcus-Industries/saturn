@@ -2,6 +2,10 @@
 -- lib/auth.ts) — do not add those here. Idempotent; run manually:
 --   psql "$DATABASE_URL" -f db/setup.sql
 
+-- pgvector backs memory_item embeddings; must come first so the vector type
+-- exists before any table references it. Fails loudly on a DB without pgvector.
+create extension if not exists vector;
+
 create table if not exists workflow (
     id          uuid primary key default gen_random_uuid(),
     user_id     text not null references "user"(id) on delete cascade,
@@ -45,7 +49,7 @@ alter table workflow_run add constraint workflow_run_trigger_check
 create table if not exists registry_entry (
     id          uuid primary key default gen_random_uuid(),
     user_id     text not null references "user"(id) on delete cascade,
-    kind        text not null check (kind in ('mcp', 'skill')),
+    kind        text not null check (kind in ('mcp', 'skill', 'memory')),
     name        text not null,
     emoji       text not null default '',        -- skill only
     description text not null default '',        -- skill only
@@ -59,6 +63,23 @@ create table if not exists registry_entry (
 create index if not exists registry_entry_user_id_idx on registry_entry (user_id);
 -- added after initial rollout; keeps existing tables in sync with the create above
 alter table registry_entry add column if not exists oauth jsonb not null default '{}';
+-- ('memory' = a persistent agent-memory store; its items live in memory_item)
+alter table registry_entry drop constraint if exists registry_entry_kind_check;
+alter table registry_entry add constraint registry_entry_kind_check
+    check (kind in ('mcp', 'skill', 'memory'));
+
+-- items held by a memory store (registry_entry of kind 'memory'). Embeddings
+-- are pgvector; agents search them semantically (cosine distance). Per-store
+-- cap of 2000 rows is enforced in code, so an exact scan needs no ANN index.
+create table if not exists memory_item (
+    id         uuid primary key default gen_random_uuid(),
+    entry_id   uuid not null references registry_entry(id) on delete cascade,
+    user_id    text not null references "user"(id) on delete cascade,
+    content    text not null,
+    embedding  vector(1536),
+    created_at timestamptz not null default now()
+);
+create index if not exists memory_item_entry_id_idx on memory_item (entry_id);
 
 -- per-user secrets (settings → models). openrouter_key is the BYOK fallback
 -- used when a user has no built-in credits (free tier / allowance exhausted).

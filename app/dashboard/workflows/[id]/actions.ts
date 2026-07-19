@@ -6,12 +6,14 @@ import {
     type AgentToolRef,
     isToolExclusionList,
     MAX_AGENT_MESSAGES,
+    MEMORY_TOOL_NAMES,
     type McpCallResult,
 } from "@/lib/agent";
 import { db } from "@/lib/db";
 import { subscriptionsChanged } from "@/lib/events.server";
 import { executeIntegration } from "@/lib/integrations.server";
 import type { CallAgentRequest } from "@/lib/interpreter";
+import { executeMemoryTool } from "@/lib/memory.server";
 import { executeAgentTurn, executeMcpTool, UUID } from "@/lib/runner.server";
 import { requireUser } from "@/lib/subscription";
 import { isWorkflowGraph, MAX_EDGES, MAX_GRAPH_JSON, MAX_NODES } from "@/lib/workflow";
@@ -19,6 +21,7 @@ import { isWorkflowGraph, MAX_EDGES, MAX_GRAPH_JSON, MAX_NODES } from "@/lib/wor
 // actions are public POST endpoints — re-check the session here
 
 const MAX_AGENT_PAYLOAD = 131_072; // serialized transcript cap
+const MAX_MEMORY_INPUT = 4096; // memory tool argument JSON cap (mirrors MCP)
 
 export async function saveWorkflow(id: string, graph: unknown) {
     const { session } = await requireUser();
@@ -51,6 +54,26 @@ export async function callMcpTool(
 ): Promise<McpCallResult> {
     const { session } = await requireUser();
     return executeMcpTool(session.user.id, entryId, toolName, input);
+}
+
+// executes one memory-store operation for a designer test run. Errors return
+// as values (not throws) so the client console can render them. Validation and
+// the operation live in executeMemoryTool (lib/memory.server.ts), shared with
+// the scheduled runner.
+export async function callMemoryTool(
+    memoryId: string,
+    op: string,
+    input: string,
+): Promise<McpCallResult> {
+    const { session } = await requireUser();
+    if (typeof memoryId !== "string" || !UUID.test(memoryId)) return { error: "invalid memory id" };
+    if (typeof op !== "string" || !(MEMORY_TOOL_NAMES as readonly string[]).includes(op)) {
+        return { error: "unknown memory operation" };
+    }
+    if (typeof input !== "string" || input.length > MAX_MEMORY_INPUT) {
+        return { error: "input too long" };
+    }
+    return executeMemoryTool(session.user.id, memoryId, op, input, "designer");
 }
 
 // executes one integration send for a designer test run. Errors return as
@@ -111,6 +134,9 @@ export async function callAgentModel(req: CallAgentRequest): Promise<AgentModelR
     if (!isRecord(req)) return { error: "invalid request" };
     if (!Array.isArray(req.tools) || !req.tools.every(isToolRef)) {
         return { error: "invalid tool grant" };
+    }
+    if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID.test(req.memoryId))) {
+        return { error: "invalid memory store" };
     }
     if (
         !Array.isArray(req.messages) ||

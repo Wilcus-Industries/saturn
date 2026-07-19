@@ -44,9 +44,11 @@ import {
     isIfEntry,
     isLiteralEntry,
     isMcpChipEntry,
+    isMemoryChipEntry,
     isModelEntry,
     isSkillChipEntry,
     MCP_CHIP,
+    MEMORY_CHIP,
     MODEL_D,
     nodeHeight,
     nodeWidth,
@@ -541,17 +543,19 @@ export default memo(function Node({
         );
     }
 
-    // mcp/skill grant chips render as a rounded square (60px mcp / 48px skill
-    // = MCP_CHIP/SKILL_CHIP, h-6 label strip = CHIP_LABEL_H) with the server
-    // favicon / skill emoji centered and a single value output on the
-    // right-edge midpoint per geometry.ts, mirroring the model circle branch.
-    // Border is the category color as a LITERAL Tailwind class (JIT can't see
-    // computed names) — purple mcp / green skill, matching CATEGORY_STYLES.
-    if (isMcpChipEntry(entry) || isSkillChipEntry(entry)) {
+    // mcp/skill/memory grant chips render as a rounded square (60px mcp / 48px
+    // skill+memory = MCP_CHIP/SKILL_CHIP/MEMORY_CHIP, h-6 label strip =
+    // CHIP_LABEL_H) with the server favicon / skill+memory emoji centered and a
+    // single value output on the right-edge midpoint per geometry.ts, mirroring
+    // the model circle branch. Border is the category color as a LITERAL
+    // Tailwind class (JIT can't see computed names) — purple mcp / green skill /
+    // fuchsia memory, matching CATEGORY_STYLES.
+    if (isMcpChipEntry(entry) || isSkillChipEntry(entry) || isMemoryChipEntry(entry)) {
         const output = entry.outputs[0];
         const mcp = isMcpChipEntry(entry);
-        const size = mcp ? MCP_CHIP : SKILL_CHIP;
-        const border = mcp ? "border-purple-500" : "border-green-500";
+        const memory = isMemoryChipEntry(entry);
+        const size = mcp ? MCP_CHIP : memory ? MEMORY_CHIP : SKILL_CHIP;
+        const border = mcp ? "border-purple-500" : memory ? "border-fuchsia-500" : "border-green-500";
 
         // a press that stayed under the drag threshold on an mcp server chip
         // opens the tool picker popover (mirrors the event node's

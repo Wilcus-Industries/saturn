@@ -18,6 +18,7 @@ import {
     MAX_GRANTED_TOOLS,
     MAX_TOOL_CALLS_PER_TURN,
     type McpCallResult,
+    memoryIdFromNodeType,
     parseToolExclusions,
     skillIdFromNodeType,
     toolRefFromNodeType,
@@ -34,6 +35,9 @@ export type CallAgentRequest = {
     system: string;
     skillIds: string[];
     tools: AgentToolRef[];
+    // id of the attached memory store (memory:<uuid> node), if any — the
+    // server prepends its three tools (memory_search/save/forget) to the turn
+    memoryId?: string;
     messages: AgentMessage[];
     outputImage?: boolean;
     // raw reasoning mode from the agent node ("off"|"low"|"medium"|"high");
@@ -53,6 +57,9 @@ export function describeImage(dataUrl: string): string {
 export type RunHooks = {
     emit: (line: ConsoleLine) => void;
     callMcp: (entryId: string, toolName: string, input: string) => Promise<McpCallResult>;
+    // one memory-store operation (search/save/forget) — executed server-side
+    // against the local store, tokens/embeddings never reach the browser
+    callMemory: (memoryId: string, op: string, input: string) => Promise<McpCallResult>;
     // one outbound integration send (Discord webhook, …) — executed
     // server-side so URL validation and future tokens stay off the client
     callIntegration: (
@@ -146,7 +153,7 @@ function toList(items: RunValue): RunValue[] {
 export async function runWorkflow(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
-    { emit, callMcp, callIntegration, callAgent, onValue, signal }: RunHooks,
+    { emit, callMcp, callMemory, callIntegration, callAgent, onValue, signal }: RunHooks,
     opts: { entryNodeIds?: string[]; eventPayloads?: Record<string, string> } = {},
 ): Promise<void> {
     let steps = 0;
@@ -333,6 +340,7 @@ export async function runWorkflow(
         model: string;
         toolRefs: AgentToolRef[];
         skillIds: string[];
+        memoryId?: string;
         userText: string;
         outputImage: boolean;
         reasoning?: string;
@@ -350,6 +358,7 @@ export async function runWorkflow(
                 system: opts.system,
                 skillIds: opts.skillIds,
                 tools: opts.toolRefs,
+                memoryId: opts.memoryId,
                 messages,
                 outputImage: opts.outputImage,
                 reasoning: opts.reasoning,
@@ -383,7 +392,13 @@ export async function runWorkflow(
                     fail(`agent MCP call limit (${MAX_AGENT_MCP_CALLS}) exceeded for one run`);
                 }
                 emit({ kind: "info", text: `${opts.prefix}: → ${call.toolName}…` });
-                const result = await callMcp(call.entryId, call.toolName, call.arguments);
+                // memory tools ride the same wire as MCP tools; the decoded
+                // call's entryId is the store id, so route to callMemory
+                const isMemory =
+                    opts.memoryId !== undefined && call.entryId === opts.memoryId;
+                const result = isMemory
+                    ? await callMemory(call.entryId, call.toolName, call.arguments)
+                    : await callMcp(call.entryId, call.toolName, call.arguments);
                 let text: string;
                 if ("error" in result) {
                     // feed the error back — the model can often recover
@@ -614,7 +629,24 @@ export async function runWorkflow(
                         warn(`agent: ${skillIds.length} skill grants over the cap (${MAX_GRANTED_SKILLS}) — using the first ${MAX_GRANTED_SKILLS}`);
                         skillIds.length = MAX_GRANTED_SKILLS;
                     }
-                    if (outputImage && toolRefs.length) {
+                    // memory grant: single-edge port, but hand-authored graphs
+                    // may wire several — take the first source that resolves to
+                    // a live memory chip entry (mirrors the tools-loop gating).
+                    let memoryId: string | undefined;
+                    for (const edge of incomingValueEdges(node.id, "memory")) {
+                        const src = nodeById.get(edge.from.nodeId);
+                        const srcEntry = src ? byKey[src.type] : undefined;
+                        const id = src ? memoryIdFromNodeType(src.type) : null;
+                        const isChip = !!srcEntry && !srcEntry.missing &&
+                            srcEntry.category === "memory" && id !== null;
+                        if (!isChip || !id) {
+                            warn(`agent: memory edge from "${src ? label(src) : edge.from.nodeId}" — memory store unavailable, skipping`);
+                            continue;
+                        }
+                        memoryId = id;
+                        break;
+                    }
+                    if (outputImage && (toolRefs.length || memoryId)) {
                         warn("agent: image output doesn't support tools — grants ignored for this run");
                     }
                     const userText = fmt(evalInput(node, "prompt", ctx));
@@ -633,6 +665,8 @@ export async function runWorkflow(
                             : (node.config.model ?? "").trim(),
                         toolRefs: outputImage ? [] : toolRefs,
                         skillIds,
+                        // image runs are single-turn — memory tools can't fire
+                        memoryId: outputImage ? undefined : memoryId,
                         userText,
                         outputImage,
                         reasoning: node.config.reasoning,

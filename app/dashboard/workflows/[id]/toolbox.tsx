@@ -26,15 +26,16 @@ const SECTIONS: { category: NodeCategory; heading: string }[] = [
     { category: "integration", heading: "integrations" },
     { category: "mcp", heading: "tools" },
     { category: "skill", heading: "skills" },
+    { category: "memory", heading: "memory" },
     { category: "model", heading: "models" },
 ];
 
-// the 8 catalog categories collapse into 4 selectable toolbox groups, each a
+// the 9 catalog categories collapse into 4 selectable toolbox groups, each a
 // tab icon at the top; only the active group's SECTIONS render below
 const GROUPS: { id: string; label: string; Icon: IconType; categories: NodeCategory[] }[] = [
     { id: "blocks", label: "Blocks", Icon: FaCubes, categories: ["events", "logic", "data"] },
     { id: "integrations", label: "Apps", Icon: FaPlug, categories: ["integration"] },
-    { id: "agents", label: "Agents", Icon: FaRobot, categories: ["saturn", "mcp", "skill"] },
+    { id: "agents", label: "Agents", Icon: FaRobot, categories: ["saturn", "mcp", "skill", "memory"] },
     { id: "models", label: "Models", Icon: FaBrain, categories: ["model"] },
 ];
 
@@ -326,6 +327,11 @@ export default function Toolbox({
                             <p className={"text-[10px] text-gray-400"}>
                                 connect to an agent&apos;s tools port to grant — click the
                                 placed node to pick tools
+                            </p>
+                        )}
+                        {category === "memory" && entries.length > 0 && (
+                            <p className={"text-[10px] text-gray-400"}>
+                                connect to an agent&apos;s memory port — one store per agent
                             </p>
                         )}
                         {entries.length === 0 && (

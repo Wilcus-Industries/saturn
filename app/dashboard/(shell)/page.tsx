@@ -66,11 +66,13 @@ export default async function Dashboard() {
                 [session.user.id],
             ),
             // DB clock (render purity, same reason as before) + mcp count for checklist/limits
-            db.query<{ today: string; db_now: Date; mcp_count: number }>(
+            db.query<{ today: string; db_now: Date; mcp_count: number; memory_count: number }>(
                 `select (now() at time zone 'UTC')::date::text as today,
                         now() as db_now,
                         (select count(*)::int from registry_entry
-                          where user_id = $1 and kind = 'mcp') as mcp_count`,
+                          where user_id = $1 and kind = 'mcp') as mcp_count,
+                        (select count(*)::int from registry_entry
+                          where user_id = $1 and kind = 'memory') as memory_count`,
                 [session.user.id],
             ),
             // better-auth-owned table (camelCase quoted, like the consent page's "oauthApplication"
@@ -127,7 +129,12 @@ export default async function Dashboard() {
 
             <RecentRuns runs={recent} now={now} />
 
-            <UsagePanel credits={credits} workflowCount={workflows.length} mcpCount={meta[0].mcp_count} />
+            <UsagePanel
+                credits={credits}
+                workflowCount={workflows.length}
+                mcpCount={meta[0].mcp_count}
+                memoryCount={meta[0].memory_count}
+            />
 
             <ConnectAgent baseUrl={baseUrl} />
         </div>

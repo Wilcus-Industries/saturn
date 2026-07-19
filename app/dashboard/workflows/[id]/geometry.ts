@@ -57,6 +57,7 @@ export const AGENT_MIN_W = AGENT_LEFT_GUTTER + AGENT_RIGHT_GUTTER + 120;
 // branch must match these exactly too
 export const MCP_CHIP = 60;
 export const SKILL_CHIP = 48;
+export const MEMORY_CHIP = 48;
 export const CHIP_LABEL_H = 24; // h-6 label strip below (like MODEL_LABEL_H)
 
 // literal value nodes (string/number): a bare header-less box holding the
@@ -111,11 +112,14 @@ export const isMcpChipEntry = (entry: CatalogEntry): boolean =>
 export const isSkillChipEntry = (entry: CatalogEntry): boolean =>
     entry.category === "skill" && !entry.missing;
 
+export const isMemoryChipEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "memory" && !entry.missing;
+
 export const isChipEntry = (entry: CatalogEntry): boolean =>
-    isMcpChipEntry(entry) || isSkillChipEntry(entry);
+    isMcpChipEntry(entry) || isSkillChipEntry(entry) || isMemoryChipEntry(entry);
 
 export const chipSize = (entry: CatalogEntry): number =>
-    isMcpChipEntry(entry) ? MCP_CHIP : SKILL_CHIP;
+    isMcpChipEntry(entry) ? MCP_CHIP : isMemoryChipEntry(entry) ? MEMORY_CHIP : SKILL_CHIP;
 
 // missingEntry placeholders map to category "logic", so these are only ever
 // true for the real model / event / literal catalog entries

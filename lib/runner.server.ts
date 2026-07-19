@@ -23,6 +23,7 @@ import {
 } from "@/lib/interpreter";
 import { getCreditUsage, platformKey, recordUsage } from "@/lib/credits.server";
 import { executeIntegration } from "@/lib/integrations.server";
+import { executeMemoryTool, memoryToolSpecs } from "@/lib/memory.server";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { buildUserCatalog, canCallTool } from "@/lib/registry";
@@ -110,6 +111,9 @@ export async function executeAgentTurn(
     if (!req.skillIds.every((id) => typeof id === "string" && UUID.test(id))) {
         return { error: "invalid skill id" };
     }
+    if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID.test(req.memoryId))) {
+        return { error: "invalid memory store" };
+    }
     if (!Array.isArray(req.tools) || req.tools.length > MAX_GRANTED_TOOLS) {
         return { error: "too many tools" };
     }
@@ -164,6 +168,18 @@ export async function executeAgentTurn(
         const row = registry.find((r) => r.id === id && r.kind === "skill");
         if (!row) return { error: "skill not found" };
         system += `\n\n## Skill: ${row.name}\n${row.description}`;
+    }
+    // memory store: reject a missing store outright (never silently drop — a
+    // granted-but-gone store is a misconfiguration the user must see). Its
+    // three tools are unshifted AFTER the MAX_GRANTED_TOOLS slice above, so
+    // they always survive the cap and sit at the head of the array — head
+    // position reserves the clean wire names (buildToolDefs renames the later
+    // collider, not the first).
+    if (req.memoryId !== undefined) {
+        const row = registry.find((r) => r.id === req.memoryId && r.kind === "memory");
+        if (!row) return { error: "memory store not found" };
+        system += `\n\n## Memory: ${row.name}\n${row.description}\nSearch before answering questions that may involve prior context; save durable facts (not transcripts); forget stale items by id.`;
+        specs.unshift(...memoryToolSpecs(req.memoryId));
     }
     // key selection: platform key while credits remain, else BYOK fallback.
     // The check-then-call-then-record sequence can overshoot the allowance by
@@ -401,6 +417,8 @@ export async function executeWorkflowRun(
                 emit,
                 callMcp: (entryId, toolName, input) =>
                     executeMcpTool(wf.user_id, entryId, toolName, input),
+                callMemory: (memoryId, op, input) =>
+                    executeMemoryTool(wf.user_id, memoryId, op, input, opts.trigger),
                 callIntegration: (providerId, config, message) =>
                     executeIntegration(wf.user_id, providerId, config, message),
                 callAgent: (req) => executeAgentTurn(wf.user_id, req, opts.trigger),
