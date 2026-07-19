@@ -261,8 +261,16 @@ async function startMcpOauth(
 }
 
 // connect to the MCP server and pull its tool list; a 401 kicks off the
-// OAuth flow instead (redirects the browser to the authorization server)
-export async function discoverMcpTools(formData: FormData) {
+// OAuth flow instead — the authorize URL is returned for the client to
+// navigate to with window.location (ConnectButton), NOT redirect()ed: a
+// server-action redirect to a same-origin authorize URL (registering
+// saturn's own MCP server) makes Next's router treat the API route as an
+// app route — it follows the redirect chain in-fetch and leaves the
+// address bar on /api/auth/mcp/authorize, so the consent form then posts
+// its server action to better-auth's catch-all and dies
+export async function discoverMcpTools(
+    formData: FormData,
+): Promise<{ url: string } | undefined> {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
@@ -319,7 +327,7 @@ export async function discoverMcpTools(formData: FormData) {
             `/dashboard/settings?entry=${id}&mcp_error=${encodeURIComponent(connectError)}`,
         );
     }
-    if (authorizeUrl) redirect(authorizeUrl);
+    if (authorizeUrl) return { url: authorizeUrl };
 
     revalidatePath("/dashboard/settings");
 }

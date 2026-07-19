@@ -11,7 +11,8 @@ import { getCreditUsage } from "@/lib/credits.server";
 import { hasOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
 import { baseUrl, getActivationDetails, getSessionCached } from "@/lib/subscription";
-import { discoverMcpTools, saveOpenrouterKey } from "./actions";
+import { saveOpenrouterKey } from "./actions";
+import ConnectButton from "./connectButton";
 import DeleteEntryButton from "./deleteEntryButton";
 import McpEntryModal from "./mcpEntryModal";
 import SkillModal from "./skillModal";
@@ -231,16 +232,16 @@ export default async function Settings({
                                 <span>
                                     {enabledTools}/{entry.tools.length} tools
                                 </span>
-                                {/* pulls tools/list; 401 redirects out to the
+                                {/* pulls tools/list; 401 navigates out to the
                                     server's OAuth flow and back here */}
-                                <form action={discoverMcpTools} className={"ml-auto"}>
-                                    <input type={"hidden"} name={"id"} value={entry.id} />
-                                    <ActionButton className={"text-blue-400"}>
-                                        {entry.connected || entry.has_token
+                                <ConnectButton
+                                    id={entry.id}
+                                    label={
+                                        entry.connected || entry.has_token
                                             ? "discover tools →"
-                                            : "connect →"}
-                                    </ActionButton>
-                                </form>
+                                            : "connect →"
+                                    }
+                                />
                             </div>
                             {mcpError && errorEntryId === entry.id && (
                                 <p
