@@ -33,7 +33,7 @@ import { CATALOG_BY_KEY, type CatalogEntry, missingEntry, type WorkflowGraph } f
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MAX_TOOL_INPUT = 4096;
+const MAX_TOOL_INPUT = 65_536;
 const MODEL_ID = /^[\w.:/-]{1,128}$/;
 const MAX_SYSTEM_PROMPT = 8192;
 const MAX_MODEL_CONTENT = 20_000; // model output returned per turn

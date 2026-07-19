@@ -215,8 +215,10 @@ export type ToolResult = {
     isError?: boolean;
 };
 
-const ok = (data: unknown): ToolResult => ({
-    content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+// compact: graph/log-bearing results — pretty-printing inflates them 2-3×
+// against the interpreter's per-result cap when an agent node is the caller
+const ok = (data: unknown, compact = false): ToolResult => ({
+    content: [{ type: "text", text: JSON.stringify(data, null, compact ? undefined : 2) }],
 });
 const fail = (message: string): ToolResult => ({
     content: [{ type: "text", text: message }],
@@ -304,7 +306,7 @@ export async function dispatchTool(
                 [id, userId],
             );
             if (!rows[0]) return fail("workflow not found");
-            return ok(rows[0]);
+            return ok(rows[0], true);
         }
 
         case "create_workflow": {
@@ -499,7 +501,7 @@ export async function dispatchTool(
                 [runId, workflowId, userId],
             );
             if (!rows[0]) return fail("run not found");
-            return ok(rows[0]);
+            return ok(rows[0], true);
         }
 
         default:

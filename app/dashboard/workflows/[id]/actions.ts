@@ -20,8 +20,8 @@ import { isWorkflowGraph, MAX_EDGES, MAX_GRAPH_JSON, MAX_NODES } from "@/lib/wor
 
 // actions are public POST endpoints — re-check the session here
 
-const MAX_AGENT_PAYLOAD = 131_072; // serialized transcript cap
-const MAX_MEMORY_INPUT = 4096; // memory tool argument JSON cap (mirrors MCP)
+const MAX_AGENT_PAYLOAD = 393_216; // serialized transcript cap
+const MAX_MEMORY_INPUT = 4096; // memory tool argument JSON cap
 
 export async function saveWorkflow(id: string, graph: unknown) {
     const { session } = await requireUser();

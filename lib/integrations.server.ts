@@ -6,7 +6,7 @@
 import type { McpCallResult } from "@/lib/agent";
 import { INTEGRATIONS_BY_ID } from "@/lib/integrations";
 
-const MAX_INTEGRATION_MESSAGE = 4096; // text cap (mirrors MAX_TOOL_INPUT)
+const MAX_INTEGRATION_MESSAGE = 4096; // text cap (matches Telegram's message limit)
 const MAX_INTEGRATION_IMAGE = 4_194_304; // image data-URL cap (mirrors runner MAX_IMAGE_DATA_URL)
 const DISCORD_CONTENT_LIMIT = 2000; // Discord's hard cap on `content`
 const DISCORD_UPLOAD_LIMIT = 8_388_608; // 8 MiB — Discord free webhook attachment cap

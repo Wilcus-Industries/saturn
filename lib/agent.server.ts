@@ -8,7 +8,7 @@ import type { McpToolParam } from "@/lib/workflow";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const TIMEOUT_MS = 60_000;
-const MAX_COMPLETION_TOKENS = 4096;
+const MAX_COMPLETION_TOKENS = 8192;
 
 export type AgentToolSpec = {
     ref: AgentToolRef;

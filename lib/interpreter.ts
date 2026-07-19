@@ -91,7 +91,8 @@ const MAX_INTEGRATION_CALLS = 20;
 const MAX_RESULT_CHARS = 2000;
 // tool output fed back to the model — larger than the console cap, the
 // model usually needs more of the result than a human skimming a log
-const MAX_MODEL_RESULT_CHARS = 8000;
+// (must fit a full get_workflow graph so agents can round-trip edits)
+const MAX_MODEL_RESULT_CHARS = 24_000;
 
 // thrown after the error line is already emitted; unwinds to runWorkflow
 class RunAbort extends Error {}
