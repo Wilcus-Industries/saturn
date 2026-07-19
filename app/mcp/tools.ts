@@ -56,7 +56,8 @@ export const TOOL_DEFS: ToolDef[] = [
     },
     {
         name: "get_workflow",
-        description: "Fetch one workflow: metadata plus the full node graph JSON.",
+        description:
+            "Fetch one workflow: metadata plus the full node graph JSON. Each node carries a read-only `label` — the node type resolved to its human name (e.g. which MCP server an mcp:<uuid>:* grant is); trust it over guessing from the type string. Labels are informational and ignored on save.",
         inputSchema: obj({ id: str("Workflow id (uuid)") }, ["id"]),
     },
     {
@@ -300,13 +301,26 @@ export async function dispatchTool(
         case "get_workflow": {
             const id = asId(args.id);
             if (!id) return fail("invalid workflow id");
-            const { rows } = await db.query(
+            const { rows } = await db.query<{ graph: WorkflowGraph }>(
                 `select id, name, emoji, description, active, graph, last_run_at, created_at, updated_at
                    from workflow where id = $1 and user_id = $2`,
                 [id, userId],
             );
             if (!rows[0]) return fail("workflow not found");
-            return ok(rows[0], true);
+            // annotate each node with its resolved catalog label — node types
+            // like mcp:<uuid>:* are opaque to the caller, and agents guess
+            // (wrongly) which server a uuid is without this. Labels are
+            // re-resolved on every read, so one echoed back into save_graph
+            // is harmless (extra node keys pass the shape guard).
+            const byKey = await buildByKey(userId);
+            const wf = rows[0];
+            const nodes = Array.isArray(wf.graph?.nodes)
+                ? wf.graph.nodes.map((n) => ({
+                      ...n,
+                      label: byKey[n.type]?.label ?? "(unknown — deleted or invalid type)",
+                  }))
+                : [];
+            return ok({ ...wf, graph: { ...wf.graph, nodes } }, true);
         }
 
         case "create_workflow": {
