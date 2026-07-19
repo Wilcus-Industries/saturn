@@ -10,9 +10,8 @@
 //     a fixed/rotated token arrives as a new map key and a fresh connection),
 //   - on MESSAGE_CREATE: skips bot authors (loop guard), matches plain
 //     @-mentions of the connected bot, applies each subscription's optional
-//     guild/channel filters, and POSTs one /api/events call per match. The
-//     server's 30s per-workflow cooldown drops mention bursts — no queueing
-//     here.
+//     guild/channel filters, and POSTs one /api/events call per match — every
+//     mention runs (no server-side cooldown), so there is no queueing here.
 //
 // Fatal Gateway closes (4004 bad token, 4010-4013) permanently kill that
 // token's connection until its value changes. 4014 (disallowed intents)

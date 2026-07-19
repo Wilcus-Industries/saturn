@@ -14,11 +14,11 @@ const MAX_EVENT_PAYLOAD = 16_384; // JSON payload string cap
 // Real-time inbound-event ingress: the saturn-events deliverer
 // (deliverer/deliverer.mjs) POSTs a matched mention here and the addressed
 // event node's workflow runs immediately (trigger 'event'). Bearer-authed with
-// CRON_SECRET like the cron tick — the deliverer on the Pi is the only caller. A per-workflow 30s cooldown, claimed on
-// workflow.last_run_at (the same conditional-UPDATE idiom as the cron runner),
-// drops mention bursts. The one-event-per-workflow rule means a mention
-// workflow has no schedule node, so event and cron claims never fight over that
-// column.
+// CRON_SECRET like the cron tick — the deliverer on the Pi is the only caller.
+// Every mention runs (no cooldown); the claim UPDATE on workflow.last_run_at
+// only re-checks `active` atomically and stamps the run. The
+// one-event-per-workflow rule means a mention workflow has no schedule node,
+// so event and cron claims never fight over that column.
 export async function POST(request: Request) {
     if (!process.env.CRON_SECRET)
         return new NextResponse("CRON_SECRET not configured", { status: 500 }); // never operate open
@@ -56,17 +56,15 @@ export async function POST(request: Request) {
     if (!node || !EXTENSION_EVENTS_BY_KEY[node.type])
         return NextResponse.json({ ran: false, reason: "no such event node" });
 
-    // per-workflow cooldown: atomic claim on last_run_at that re-checks active.
-    // No row ⇒ still cooling down (or just deactivated) — drop the mention.
+    // stamp last_run_at and atomically re-check active. No row ⇒ the workflow
+    // was deactivated between the select above and now — drop the mention.
     const { rows: claimed } = await db.query<{ id: string }>(
         `update workflow set last_run_at = now()
-          where id = $1
-            and active
-            and (last_run_at is null or last_run_at <= now() - interval '30 seconds')
+          where id = $1 and active
           returning id`,
         [workflowId],
     );
-    if (!claimed[0]) return NextResponse.json({ ran: false, reason: "cooldown" });
+    if (!claimed[0]) return NextResponse.json({ ran: false, reason: "inactive" });
 
     const result = await executeWorkflowRun(
         { id: wf.id, user_id: wf.user_id, graph: wf.graph },
