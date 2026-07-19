@@ -39,11 +39,9 @@ import {
     IF_BODY_H,
     IF_HEADER_H,
     IF_W,
-    INTEGRATION_D,
     isAgentEntry,
     isEventEntry,
     isIfEntry,
-    isIntegrationEntry,
     isLiteralEntry,
     isMcpChipEntry,
     isModelEntry,
@@ -86,7 +84,7 @@ export type OpenCronHandler = (
     nodeId: string,
 ) => void;
 
-// an integration node opens its config popover when clicked (press with no
+// a platform event node opens its config popover when clicked (press with no
 // drag); the anchor is the node's client-space bottom-left corner, like cron
 export type OpenConfigHandler = (
     anchor: { x: number; y: number },
@@ -433,8 +431,7 @@ export default memo(function Node({
     // strip = EVENT_LABEL_H) with the icon centered and the label underneath.
     // A schedule event carries only a flow output (right-edge midpoint);
     // platform events (a Discord mention) add a "payload" value output on the
-    // bottom edge — each anchors per geometry.ts, mirroring the integration
-    // branch below. Icon: the platform favicon (logoDomain), else the emoji,
+    // bottom edge — each anchors per geometry.ts. Icon: the platform favicon (logoDomain), else the emoji,
     // else the ▶ fallback.
     if (isEventEntry(entry)) {
         const flowOut = entry.outputs.find((p) => p.kind === "flow");
@@ -459,7 +456,7 @@ export default memo(function Node({
               : null;
 
         // a press that stayed under the drag threshold is a click → open the
-        // relevant popover (mirrors the integration node's click-to-config)
+        // relevant popover
         const eventEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
             const wasClick = !!dragRef.current && !dragRef.current.active;
             endDrag();
@@ -471,8 +468,7 @@ export default memo(function Node({
         };
 
         // per-port "portId=lx,ly" local anchors from the canvas (rotated toward
-        // each port's connection, matching the edge anchors from geometry) —
-        // same map format the integration branch parses
+        // each port's connection, matching the edge anchors from geometry)
         const anchors = new Map<string, [number, number]>();
         if (outAnchor)
             for (const part of outAnchor.split(";")) {
@@ -544,90 +540,6 @@ export default memo(function Node({
         );
     }
 
-    // integration ("app") nodes render as a circle (INTEGRATION_D, h-6 label
-    // strip = INTEGRATION_LABEL_H) with the provider favicon centered and the
-    // provider label underneath. Each of the three ports rides the circle
-    // perimeter toward its connection per geometry.ts (flow "in" left, "message"
-    // value in top, flow "out" right when unconnected). A click (press with no
-    // drag) opens the config popover, mirroring the schedule event's cron popover.
-    if (isIntegrationEntry(entry)) {
-        const flowIn = entry.inputs.find((p) => p.kind === "flow");
-        const msgIn = entry.inputs.find((p) => p.kind !== "flow");
-        const flowOut = entry.outputs[0];
-        const half = INTEGRATION_D / 2;
-
-        const integrationEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
-            const wasClick = !!dragRef.current && !dragRef.current.active;
-            endDrag();
-            if (wasClick && onOpenConfig) {
-                const r = e.currentTarget.getBoundingClientRect();
-                onOpenConfig({ x: r.left, y: r.bottom + 4 }, node.id);
-            }
-        };
-
-        // per-port "portId=lx,ly" local anchors from the canvas (rotated toward
-        // each port's connection, matching the edge anchors from geometry)
-        const anchors = new Map<string, [number, number]>();
-        if (outAnchor)
-            for (const part of outAnchor.split(";")) {
-                const [id, xy] = part.split("=");
-                if (!xy) continue;
-                const [x, y] = xy.split(",").map(Number);
-                anchors.set(id, [x, y]);
-            }
-
-        const at = (spec: PortSpec, dir: "in" | "out", home: [number, number]) => {
-            const [ax, ay] = anchors.get(spec.id) ?? home;
-            return (
-                <span
-                    className={"absolute flex"}
-                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-                >
-                    {port(spec, dir, "")}
-                </span>
-            );
-        };
-
-        return (
-            <div
-                data-node-id={node.id}
-                style={{ left: node.x, top: node.y, width: INTEGRATION_D }}
-                className={"absolute font-mono text-xs"}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={integrationEndDrag}
-                onPointerCancel={endDrag}
-            >
-                <div
-                    // border tinted to the category color (same hex the edges use)
-                    style={{ borderColor: styles.edge, width: INTEGRATION_D, height: INTEGRATION_D }}
-                    className={`relative flex cursor-pointer items-center justify-center rounded-full border bg-background ${styles.headerBg} ${
-                        selected ? "outline outline-1 outline-foreground" : ""
-                    }`}
-                >
-                    <McpLogo domain={entry.logoDomain ?? ""} name={entry.label} size={32} />
-                </div>
-                {/* ports on the borderless outer box — see the model branch */}
-                {msgIn && at(msgIn, "in", [half, 0])}
-                {flowIn && at(flowIn, "in", [0, half])}
-                {flowOut && at(flowOut, "out", [INTEGRATION_D, half])}
-                <div
-                    style={{ width: INTEGRATION_D }}
-                    className={"flex h-6 items-center justify-center"}
-                >
-                    <span
-                        className={
-                            "line-clamp-2 max-w-full break-words text-center text-[10px] leading-3"
-                        }
-                        title={entry.label}
-                    >
-                        {entry.label}
-                    </span>
-                </div>
-            </div>
-        );
-    }
-
     // mcp/skill grant chips render as a rounded square (60px mcp / 48px skill
     // = MCP_CHIP/SKILL_CHIP, h-6 label strip = CHIP_LABEL_H) with the server
     // favicon / skill emoji centered and a single value output on the
@@ -641,7 +553,7 @@ export default memo(function Node({
         const border = mcp ? "border-purple-500" : "border-green-500";
 
         // a press that stayed under the drag threshold on an mcp server chip
-        // opens the tool picker popover (mirrors the integration node's
+        // opens the tool picker popover (mirrors the event node's
         // click-to-config); skill chips just drag
         const chipEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
             const wasClick = !!dragRef.current && !dragRef.current.active;

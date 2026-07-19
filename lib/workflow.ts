@@ -278,13 +278,12 @@ export const CATALOG: CatalogEntry[] = [
     ...INTEGRATIONS.map((p): CatalogEntry => ({
         key: integrationKey(p.id), category: "integration", label: p.label,
         group: p.app, section: p.section, logoDomain: p.logoDomain,
-        // the message port only exists when the action takes a message (a
-        // config field with id "message") — e.g. discord-typing has none
-        inputs: p.config.some((f) => f.id === "message")
-            ? [flowIn, v("message")]
-            : [flowIn],
+        // every config field gets a same-id value input port that overrides
+        // the literal when connected (overriddenBy auto-derived), so tokens /
+        // channel ids can be wired from upstream nodes
+        inputs: [flowIn, ...p.config.map((f) => v(f.id, f.label))],
         outputs: [flowOut],
-        config: p.config,
+        config: p.config.map((f) => ({ ...f, overriddenBy: f.id })),
     })),
 
     // extension events — inbound trigger nodes generated from the platform
@@ -646,13 +645,17 @@ export function validateGraphStrict(
         }
     }
 
-    // integration nodes fail at run time without their required config
+    // integration nodes fail at run time without their required config — a
+    // connected value port overrides the literal, so a port-fed field is fine
+    const fedPorts = new Set(
+        graph.edges.filter((e) => e.kind === "value").map((e) => `${e.to.nodeId}:${e.to.portId}`),
+    );
     for (const node of graph.nodes) {
         if (!node.type.startsWith(INTEGRATION_PREFIX)) continue;
         const provider = INTEGRATIONS_BY_ID[integrationProviderId(node.type)];
         if (!provider) continue; // unknown-type warning already covers it
         for (const field of provider.requiredConfig) {
-            if (!(node.config[field] ?? "").trim()) {
+            if (!(node.config[field] ?? "").trim() && !fedPorts.has(`${node.id}:${field}`)) {
                 warnings.push(
                     `${provider.label} "${node.id}" has no ${field} — the run will fail`,
                 );

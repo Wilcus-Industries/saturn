@@ -5,8 +5,8 @@ import type { CatalogEntry } from "@/lib/workflow";
 
 const PANEL_W = 288; // w-72
 
-// fixed-position popover anchored under an integration ("app") node, hosting
-// that provider's config fields as a small form. The backdrop swallows canvas
+// fixed-position popover anchored under a platform event node, hosting
+// that event's config fields as a small form. The backdrop swallows canvas
 // events (pan/zoom frozen) and closes on click — mirrors cronPopover.tsx.
 // Edits dispatch a transient setConfig per keystroke; the designer collapses
 // the whole editing session into one undo step on close (before/commit).

@@ -17,7 +17,6 @@ import {
     GRID,
     isChipEntry,
     isEventEntry,
-    isIntegrationEntry,
     isLiteralEntry,
     isModelEntry,
     nodeHeight,
@@ -397,9 +396,8 @@ export default function Canvas({
                     // chip/model output anchor, rotated toward the agent it
                     // feeds — a "lx,ly" local offset so Node's memo can compare
                     // it as a string (matches the edge anchor from geometry).
-                    // Integration circles pivot all three ports and event
-                    // circles their flow/payload outputs, so both carry a
-                    // "portId=lx,ly;…" map instead of a single pair.
+                    // Event circles pivot their flow/payload outputs, so they
+                    // carry a "portId=lx,ly;…" map instead of a single pair.
                     let outAnchor = "";
                     if (
                         isModelEntry(entry) ||
@@ -411,7 +409,7 @@ export default function Canvas({
                             const p = portPosition(node, entry, out.id, graph, byKey);
                             outAnchor = `${p.x - node.x},${p.y - node.y}`;
                         }
-                    } else if (isIntegrationEntry(entry) || isEventEntry(entry)) {
+                    } else if (isEventEntry(entry)) {
                         outAnchor = [...entry.inputs, ...entry.outputs]
                             .map((p) => {
                                 const pos = portPosition(node, entry, p.id, graph, byKey);

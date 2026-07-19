@@ -442,7 +442,7 @@ export default function Designer({
         setCronEdit(null);
     };
 
-    // integration-node config popover: same before/commit undo coalescing as
+    // event-node config popover: same before/commit undo coalescing as
     // the cron popover — one undo step for the whole editing session
     const [configEdit, setConfigEdit] = useState<{
         nodeId: string;

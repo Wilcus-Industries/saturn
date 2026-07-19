@@ -641,13 +641,23 @@ export async function runWorkflow(
                         if (++integrationCalls > MAX_INTEGRATION_CALLS) {
                             fail(`integration call limit (${MAX_INTEGRATION_CALLS}) exceeded for one run`);
                         }
+                        // every config field has a same-id value port that
+                        // overrides the literal when connected; iterate the
+                        // catalog fields (not node.config) so stale saved keys
+                        // can't invent ports. message stays a separate param.
+                        const config = { ...node.config };
+                        for (const f of entry.config ?? []) {
+                            if (f.id !== "message" && incomingValueEdge(node.id, f.id)) {
+                                config[f.id] = fmt(evalInput(node, f.id, ctx));
+                            }
+                        }
                         const message = incomingValueEdge(node.id, "message")
                             ? fmt(evalInput(node, "message", ctx))
                             : (node.config.message ?? "");
                         emit({ kind: "info", text: `sending via ${entry.label}…` });
                         const res = await callIntegration(
                             integrationProviderId(node.type),
-                            node.config,
+                            config,
                             message,
                         );
                         if ("error" in res) fail(`${entry.label}: ${res.error}`);
