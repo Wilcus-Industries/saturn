@@ -2,6 +2,14 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
+
+// per-request session memo: pages and their nested helpers (requireUser,
+// getActivation…) resolve the session once per request instead of hitting
+// better-auth per call site. Always reads the live request headers.
+export const getSessionCached = cache(async () =>
+    auth.api.getSession({ headers: await headers() }),
+);
 
 export type ActivationLevel = "max" | "pro" | "free";
 
@@ -49,7 +57,9 @@ const NONE: Activation = { level: null, status: null, pendingCancel: false, peri
 // effective activation for the current request: an active/trialing Stripe
 // subscription wins (max over pro), then the self-serve free tier, then nothing
 export async function getActivationDetails(headers: Headers): Promise<Activation> {
-    const session = await auth.api.getSession({ headers });
+    // callers always pass the live request headers, so the request-scoped
+    // session memo applies
+    const session = await getSessionCached();
     if (!session?.user) return NONE;
 
     const subscriptions = await auth.api.listActiveSubscriptions({ headers });
@@ -122,7 +132,7 @@ export async function getActivationLevels(
 // shared session guard for server actions (public POST endpoints)
 export async function requireUser() {
     const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
     return { requestHeaders, session };
 }

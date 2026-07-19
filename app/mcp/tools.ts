@@ -6,6 +6,7 @@
 
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
 import { db } from "@/lib/db";
+import { subscriptionsChanged } from "@/lib/events.server";
 import { EVENT_PREFIX, EXTENSION_EVENTS, eventNodeKey } from "@/lib/integrations";
 import type { ConsoleLine } from "@/lib/interpreter";
 import { buildUserCatalog } from "@/lib/registry";
@@ -364,6 +365,7 @@ export async function dispatchTool(
                 values,
             );
             if (!rowCount) return fail("workflow not found");
+            subscriptionsChanged(); // active gates event delivery
             return ok({ updated: true });
         }
 
@@ -375,6 +377,7 @@ export async function dispatchTool(
                 [id, userId],
             );
             if (!rowCount) return fail("workflow not found");
+            subscriptionsChanged(); // the workflow's event nodes are gone
             return ok({ deleted: true });
         }
 
@@ -440,6 +443,7 @@ export async function dispatchTool(
                 [JSON.stringify(checked.graph), id, userId],
             );
             if (!rowCount) return fail("workflow not found");
+            subscriptionsChanged(); // graph edits change event nodes/tokens
             return ok({ saved: true, warnings: checked.warnings });
         }
 

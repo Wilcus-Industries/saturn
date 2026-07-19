@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
-import { getActivation } from "@/lib/subscription";
+import { getActivation, getSessionCached } from "@/lib/subscription";
 import Connect from "./connect";
 
 export const metadata: Metadata = {
@@ -16,7 +15,7 @@ export const metadata: Metadata = {
 // with a saved activation level skip activation too
 export default async function Onboard() {
     const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (session?.user) {
         redirect((await getActivation(requestHeaders)) ? "/dashboard" : "/activate");
     }

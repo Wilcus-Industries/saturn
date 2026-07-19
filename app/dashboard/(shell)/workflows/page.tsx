@@ -1,15 +1,13 @@
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getSessionCached } from "@/lib/subscription";
 import type { WorkflowRow } from "@/lib/workflow";
 import WorkflowCard from "./workflowCard";
 import WorkflowModal from "./workflowModal";
 
 // scheduled agentic workflows; session check lives here, not the layout
 export default async function Workflows() {
-    const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
     // lateral join pulls each workflow's newest run for the card status chip

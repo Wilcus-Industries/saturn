@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { runDueWorkflows } from "@/lib/runner.server";
 import { serviceAuthorized } from "@/lib/serviceAuth";
 
-export const maxDuration = 300; // runs execute inline in this invocation
+// Manual/backcompat tick trigger: production scheduling is the in-process
+// scheduler (instrumentation.ts → lib/scheduler.server.ts); this route stays
+// as a debug hook and rollback path (re-enable the Pi's systemd timer without
+// a rebuild). Runs execute inline; the budget is RUN_TIMEOUT_MS in
+// lib/runner.server.ts.
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {

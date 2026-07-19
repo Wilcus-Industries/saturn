@@ -226,13 +226,16 @@ export async function executeAgentTurn(
 }
 
 // ---------------------------------------------------------------------------
-// Scheduled execution tick (driven by GET /api/cron, pinged per-minute by an
-// external scheduler). Matching is against the current UTC minute only — a
-// missed ping skips that occurrence, no catch-up.
+// Scheduled execution tick — driven per-minute by the in-process scheduler
+// (lib/scheduler.server.ts), which passes the UTC minute being processed so
+// missed minutes can be caught up; GET /api/cron remains as a manual trigger
+// (its default `at` is now).
 // ---------------------------------------------------------------------------
 
-const MAX_RUNS_PER_TICK = 25;
-const RUN_TIMEOUT_MS = 240_000;
+const MAX_RUNS_PER_TICK = 25; // Pi capacity knob — concurrent runs share the app process
+const RUN_TIMEOUT_MS = 600_000; // policy, not a platform budget (the 300s serverless cap is gone)
+// stranded 'running' rows are declared dead once safely past the run budget
+const JANITOR_AFTER_S = RUN_TIMEOUT_MS / 1000 + 300;
 const MAX_LOG_LINES = 300;
 const MAX_LOG_LINE_CHARS = 2_000;
 const RUNS_KEPT_PER_WORKFLOW = 50;
@@ -240,15 +243,18 @@ const CLAIM_GUARD_FLOOR_S = 50;
 
 type ClaimedWorkflow = { id: string; user_id: string; name: string; graph: WorkflowGraph };
 
-export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
-    // janitor: a killed invocation (platform timeout, crash) strands rows in
+export async function runDueWorkflows(
+    at: Date = new Date(),
+): Promise<{ due: number; ran: number }> {
+    // janitor: a killed process (deploy restart, crash) strands rows in
     // 'running'; anything well past the RUN_TIMEOUT_MS budget is dead
     await db.query(
         `update workflow_run
             set status = 'error',
-                error = 'run never finished (function terminated)',
+                error = 'run never finished (process terminated)',
                 finished_at = now()
-          where status = 'running' and started_at < now() - interval '10 minutes'`,
+          where status = 'running' and started_at < now() - make_interval(secs => $1)`,
+        [JANITOR_AFTER_S],
     );
 
     // candidate select — the jsonb containment check drops graphs that could
@@ -260,8 +266,7 @@ export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
             and graph->'nodes' @> '[{"type":"schedule"}]'`,
     );
 
-    const now = new Date();
-    const matched = candidates.filter((c) => matchingScheduleNodeIds(c.graph, now).length > 0);
+    const matched = candidates.filter((c) => matchingScheduleNodeIds(c.graph, at).length > 0);
     if (matched.length === 0) return { due: 0, ran: 0 };
     const toClaim = matched.slice(0, MAX_RUNS_PER_TICK);
 
@@ -273,12 +278,13 @@ export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
         const floor = limitsFor(levels.get(c.user_id) ?? null).cronFloorMinutes;
         // the guard doubles as the run-time tier-floor clamp: a downgraded
         // user's '* * * * *' degrades to their floor instead of erroring.
-        // -30s absorbs pinger jitter; the 50s floor makes duplicate
-        // same-minute pings no-ops.
+        // -30s absorbs tick jitter; the 50s floor makes duplicate
+        // same-minute ticks (catch-up bursts, a transitional systemd timer,
+        // manual /api/cron curls) no-ops.
         const guardSeconds = Math.max(CLAIM_GUARD_FLOOR_S, floor * 60 - 30);
         // atomic claim via single-statement conditional UPDATE — session
         // advisory locks are unsafe on pgbouncer transaction pooling (Neon),
-        // and the external scheduler can overlap or retry ticks
+        // and tick sources can overlap (see the guard comment above)
         const { rows } = await db.query<ClaimedWorkflow>(
             `update workflow set last_run_at = now()
               where id = $1
@@ -294,7 +300,7 @@ export async function runDueWorkflows(): Promise<{ due: number; ran: number }> {
     // from ever sinking its siblings. Fire only the schedule nodes matching
     // this minute (recomputed from the claimed graph).
     await Promise.allSettled(
-        claimed.map((wf) => runOne(wf, matchingScheduleNodeIds(wf.graph, now))),
+        claimed.map((wf) => runOne(wf, matchingScheduleNodeIds(wf.graph, at))),
     );
     return { due: matched.length, ran: claimed.length };
 }
@@ -349,8 +355,10 @@ export async function executeWorkflowRun(
 
     try {
         // byKey exactly like the designer: static catalog + user registry +
-        // '(deleted)' placeholders so stale node types stay inert, not fatal
-        const byKey: Record<string, CatalogEntry> = { ...CATALOG_BY_KEY };
+        // '(deleted)' placeholders so stale node types stay inert, not fatal.
+        // Prototype chain instead of spreading the (invariant) static catalog
+        // per run — per-run writes stay own-properties.
+        const byKey: Record<string, CatalogEntry> = Object.create(CATALOG_BY_KEY);
         for (const entry of buildUserCatalog(await getUserRegistry(wf.user_id))) {
             byKey[entry.key] = entry;
         }

@@ -12,8 +12,15 @@
 // check and overshoot the allowance by ~one turn, bounded by the 4096
 // max_tokens cap (cents). The ledger records actual spend either way and the
 // next turn hard-stops.
+import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
 import { isPaidPlan, limitsFor, type ActivationLevel } from "@/lib/subscription";
+
+// per-user usage cache — recordUsage increments the cached entry in place so
+// same-process turns stay exact; the TTL only bounds staleness of external
+// writes (tier changes, another process). Single-process invariant per
+// lib/cache.server.ts.
+const usageCache = createTtlCache<CreditUsage>(60_000);
 
 // platform OpenRouter key that pays for built-in credits. Optional — when
 // unset, everyone falls back to BYOK and no credits are ever spent.
@@ -32,6 +39,10 @@ export type CreditUsage = {
 // identically; the tier branch mirrors getActivationLevels in
 // lib/subscription.ts.
 export async function getCreditUsage(userId: string): Promise<CreditUsage> {
+    return usageCache.getOrLoad(userId, () => loadCreditUsage(userId));
+}
+
+async function loadCreditUsage(userId: string): Promise<CreditUsage> {
     const { rows } = await db.query<{
         user_plan: string | null;
         sub_plan: string | null;
@@ -87,6 +98,7 @@ export async function recordUsage(
         source: "designer" | "cron" | "manual" | "event";
     },
 ): Promise<void> {
+    const credits = Math.ceil(Math.max(0, u.costUsd) * 1000);
     try {
         await db.query(
             `insert into model_usage
@@ -95,14 +107,19 @@ export async function recordUsage(
             [
                 userId,
                 u.model,
-                Math.ceil(Math.max(0, u.costUsd) * 1000),
+                credits,
                 Math.round(Math.max(0, u.costUsd) * 1e6),
                 Math.max(0, Math.floor(u.promptTokens)),
                 Math.max(0, Math.floor(u.completionTokens)),
                 u.source,
             ],
         );
+        // keep the cached balance exact for same-process turns (the next
+        // balance check must see this spend without waiting out the TTL)
+        const cached = usageCache.get(userId);
+        if (cached) usageCache.set(userId, { ...cached, used: cached.used + credits });
     } catch (err) {
         console.error("model_usage insert failed", err);
+        usageCache.delete(userId);
     }
 }

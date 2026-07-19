@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { subscriptionsChanged } from "@/lib/events.server";
 import { getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -103,6 +104,7 @@ export async function setWorkflowActive(id: string, active: boolean): Promise<Ac
         return toError(err);
     }
 
+    subscriptionsChanged(); // active gates event delivery — poke the gateway
     revalidatePath("/dashboard/workflows");
 }
 
@@ -118,6 +120,7 @@ export async function deleteWorkflow(formData: FormData) {
         session.user.id,
     ]);
 
+    subscriptionsChanged(); // the workflow's event nodes are gone
     revalidatePath("/dashboard/workflows");
     // also lands the designer back on the list; on the list page it's a same-route refresh
     redirect("/dashboard/workflows");

@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import {Geist, Geist_Mono, Inter} from "next/font/google";
 import {GeistPixelSquare} from "geist/font/pixel";
-import {Analytics} from "@vercel/analytics/next";
 import {ORG_NAME, SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, GITHUB_URL, siteUrl} from "@/lib/seo";
 import "./globals.css";
 
@@ -94,7 +93,6 @@ export default function RootLayout({
             className={`${geistSans.variable} ${geistMono.variable} ${GeistPixelSquare.variable} ${inter.variable} h-full antialiased`}>
             <body className="min-h-full flex flex-col">
                 {children}
-                <Analytics />
             </body>
         </html>
     );

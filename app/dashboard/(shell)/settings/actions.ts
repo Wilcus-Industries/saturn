@@ -22,7 +22,7 @@ import {
     mergeTools,
     type RegistryKind,
 } from "@/lib/registry";
-import { freshMcpToken, getMcpSecrets } from "@/lib/registry.server";
+import { freshMcpToken, getMcpSecrets, invalidateUserRegistry } from "@/lib/registry.server";
 import { baseUrl, getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
@@ -169,6 +169,7 @@ export async function saveMcpServer(formData: FormData): Promise<ActionResult> {
         return toError(err);
     }
 
+    invalidateUserRegistry(session.user.id);
     revalidatePath("/dashboard/settings");
 }
 
@@ -202,6 +203,7 @@ export async function saveSkill(formData: FormData): Promise<ActionResult> {
         return toError(err);
     }
 
+    invalidateUserRegistry(session.user.id);
     revalidatePath("/dashboard/settings");
 }
 
@@ -308,6 +310,9 @@ export async function discoverMcpTools(formData: FormData) {
         // entry's card instead of crashing to the error page
         connectError = err instanceof Error ? err.message : "Connection failed";
     }
+    // the try above may have replaced tools/oauth regardless of which branch
+    // we redirect down — drop the cached rows before any redirect throws
+    invalidateUserRegistry(session.user.id);
     // redirect throws internally — must run outside the try/catch
     if (connectError) {
         redirect(
@@ -359,5 +364,6 @@ export async function deleteRegistryEntry(formData: FormData) {
     );
     if (!rowCount) throw new Error("Not found");
 
+    invalidateUserRegistry(session.user.id);
     revalidatePath("/dashboard/settings");
 }

@@ -16,6 +16,13 @@ export const auth = betterAuth({
             clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
         },
     },
+    session: {
+        // signed session-data cookie: skips the per-request session SELECT
+        // against Neon. 60s (not the 300 default) because user.plan rides in
+        // the cached payload — keeps plan changes and remote sign-outs stale
+        // for at most a minute. refreshCache must stay unset (DB-less-only).
+        cookieCache: { enabled: true, maxAge: 60 },
+    },
     user: {
         additionalFields: {
             // activation level for the non-Stripe tier; input: false keeps it

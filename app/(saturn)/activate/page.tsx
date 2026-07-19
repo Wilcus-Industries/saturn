@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { auth } from "@/lib/auth";
-import { getActivation } from "@/lib/subscription";
+import { getActivation, getSessionCached } from "@/lib/subscription";
 import PageTransition from "../pageTransition";
 import TierCard, { TIER_BUTTON } from "./tierCard";
 import { activateFree, activatePlan } from "./actions";
@@ -18,7 +17,7 @@ export const metadata: Metadata = {
 // straight to the dashboard (plan changes live at /dashboard/upgrade)
 export default async function Activate() {
     const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
     if (await getActivation(requestHeaders)) redirect("/dashboard");
 

@@ -10,7 +10,7 @@ import { faviconDomain } from "@/lib/registry";
 import { getCreditUsage } from "@/lib/credits.server";
 import { hasOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
-import { baseUrl, getActivationDetails } from "@/lib/subscription";
+import { baseUrl, getActivationDetails, getSessionCached } from "@/lib/subscription";
 import { discoverMcpTools, saveOpenrouterKey } from "./actions";
 import DeleteEntryButton from "./deleteEntryButton";
 import McpEntryModal from "./mcpEntryModal";
@@ -22,7 +22,7 @@ export default async function Settings({
     searchParams: Promise<{ entry?: string; mcp_error?: string }>;
 }) {
     const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
     // connect failures redirect back here with the message in the URL

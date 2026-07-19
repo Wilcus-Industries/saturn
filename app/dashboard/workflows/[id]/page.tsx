@@ -1,11 +1,10 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hasOpenrouterKey, listOpenrouterModels } from "@/lib/openrouter.server";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
-import { getActivation, limitsFor } from "@/lib/subscription";
+import { getActivation, getSessionCached, limitsFor } from "@/lib/subscription";
 import type { WorkflowRow } from "@/lib/workflow";
 import Designer from "./designer";
 
@@ -20,7 +19,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     if (!UUID.test(id)) notFound();
 
     const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
     const { rows } = await db.query(

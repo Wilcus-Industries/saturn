@@ -1,10 +1,8 @@
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import ConnectAgent from "@/app/dashboard/connectAgent";
-import { auth } from "@/lib/auth";
 import { getCreditUsage } from "@/lib/credits.server";
 import { db } from "@/lib/db";
-import { baseUrl } from "@/lib/subscription";
+import { baseUrl, getSessionCached } from "@/lib/subscription";
 import GettingStarted, { type ChecklistStep } from "./gettingStarted";
 import RecentRuns, { type RecentRun } from "./recentRuns";
 import RunsGraph, { type RunDay } from "./runsGraph";
@@ -36,8 +34,7 @@ function weekGrid(counts: Map<string, number>, today: string): RunDay[][] {
 // gated on session only, not activation level — Stripe redirects here right
 // after checkout, often before the webhook has written the subscription row
 export default async function Dashboard() {
-    const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
     const [{ rows: days }, { rows: workflows }, { rows: recent }, { rows: meta }, agentRes, credits] =

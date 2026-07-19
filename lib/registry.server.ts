@@ -1,19 +1,31 @@
 // Server-side registry queries, split from lib/registry.ts so client
 // components can import the types/helpers without pulling in pg.
 import { type McpOauth, refreshTokens } from "@/lib/mcp";
+import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
 import type { McpTool, RegistryEntryRow } from "@/lib/registry";
 
+// per-user registry rows (no secrets — getMcpSecrets stays uncached). The TTL
+// backstops mutation paths that miss invalidateUserRegistry; settings actions
+// and the MCP OAuth callback invalidate explicitly.
+const registryCache = createTtlCache<RegistryEntryRow[]>(60_000);
+
+export function invalidateUserRegistry(userId: string) {
+    registryCache.delete(userId);
+}
+
 export async function getUserRegistry(userId: string): Promise<RegistryEntryRow[]> {
-    // auth_token / oauth are write-only: never select them, only whether set
-    const { rows } = await db.query(
-        `select id, kind, name, emoji, description, server_url, tools,
-                (auth_token <> '') as has_token,
-                (coalesce(oauth->>'accessToken', '') <> '') as connected
-         from registry_entry where user_id = $1 order by created_at`,
-        [userId],
-    );
-    return rows as RegistryEntryRow[];
+    return registryCache.getOrLoad(userId, async () => {
+        // auth_token / oauth are write-only: never select them, only whether set
+        const { rows } = await db.query(
+            `select id, kind, name, emoji, description, server_url, tools,
+                    (auth_token <> '') as has_token,
+                    (coalesce(oauth->>'accessToken', '') <> '') as connected
+             from registry_entry where user_id = $1 order by created_at`,
+            [userId],
+        );
+        return rows as RegistryEntryRow[];
+    });
 }
 
 export type McpSecretsRow = {

@@ -29,16 +29,27 @@ ssh "$PI" "set -euo pipefail
   npm run build
   # the only path 'next start' writes; the service runs as user 'saturn'
   sudo install -d -o saturn -g saturn ${APP}/.next/cache
+  sudo install -m 644 ${APP}/deploy/saturn.service /etc/systemd/system/saturn.service
+  sudo systemctl daemon-reload
+  # event delivery runs in-process when SATURN_BACKGROUND=1 — the external
+  # deliverer must stop BEFORE the new app identifies, or two Gateway sessions
+  # deliver duplicate runs. Without the flag, keep the external unit running.
+  if [ \"\${SATURN_BACKGROUND:-}\" = \"1\" ]; then
+    sudo systemctl disable --now saturn-events 2>/dev/null || true
+  else
+    sudo install -m 644 ${APP}/deploy/saturn-events.service /etc/systemd/system/saturn-events.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable saturn-events
+  fi
   sudo systemctl restart saturn
   sleep 2
   systemctl is-active saturn
   systemctl --no-pager --lines=6 status saturn | tail -6
-  # event deliverer (after the app so its first poll succeeds)
-  sudo install -m 644 ${APP}/deploy/saturn-events.service /etc/systemd/system/saturn-events.service
-  sudo systemctl daemon-reload
-  sudo systemctl enable saturn-events
-  sudo systemctl restart saturn-events
-  sleep 2
-  systemctl is-active saturn-events"
+  if [ \"\${SATURN_BACKGROUND:-}\" != \"1\" ]; then
+    # external deliverer restarts after the app so its first poll succeeds
+    sudo systemctl restart saturn-events
+    sleep 2
+    systemctl is-active saturn-events
+  fi"
 
 echo ">> deployed."

@@ -52,7 +52,7 @@ export default function Privacy() {
                     <li>Stripe processes payments.</li>
                     <li>Google handles sign-in; your browser also loads service logos from Google&apos;s favicon service.</li>
                     <li>OpenRouter receives prompt content when your workflows call models.</li>
-                    <li>Neon hosts our database, Vercel hosts the application.</li>
+                    <li>Neon hosts our database; the application runs on our own hardware behind Cloudflare&apos;s network.</li>
                 </ul>
                 <p>
                     Workflow data is also sent to the MCP servers and webhooks you configure,

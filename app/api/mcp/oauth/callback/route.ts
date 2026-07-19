@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { discoverTools, exchangeCode, type McpOauth } from "@/lib/mcp";
 import { type McpTool, mergeTools } from "@/lib/registry";
+import { invalidateUserRegistry } from "@/lib/registry.server";
 import { baseUrl } from "@/lib/subscription";
 
 // OAuth redirect target for MCP server authorization (started from the
@@ -65,5 +66,6 @@ export async function GET(request: Request) {
         // token stored — the user can hit discover again from settings
     }
 
+    invalidateUserRegistry(session.user.id);
     return NextResponse.redirect(settingsUrl);
 }

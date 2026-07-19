@@ -8,6 +8,7 @@ import {
     type McpCallResult,
 } from "@/lib/agent";
 import { db } from "@/lib/db";
+import { subscriptionsChanged } from "@/lib/events.server";
 import { executeIntegration } from "@/lib/integrations.server";
 import type { CallAgentRequest } from "@/lib/interpreter";
 import { executeAgentTurn, executeMcpTool, UUID } from "@/lib/runner.server";
@@ -33,6 +34,9 @@ export async function saveWorkflow(id: string, graph: unknown) {
         [json, id, session.user.id],
     );
     if (!rowCount) throw new Error("Not found");
+    // graph edits add/remove event nodes and change bot tokens — poke the
+    // gateway (debounced there, so autosave bursts collapse)
+    subscriptionsChanged();
 }
 
 // executes one MCP tool for a designer test run. Returns errors as values

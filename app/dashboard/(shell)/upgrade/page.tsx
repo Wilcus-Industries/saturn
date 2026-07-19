@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
-import { getActivationDetails, LEVEL_RANK } from "@/lib/subscription";
+import { getActivationDetails, getSessionCached, LEVEL_RANK } from "@/lib/subscription";
 import TierCard, { TIER_BUTTON, type Tier } from "@/app/(saturn)/activate/tierCard";
 import { changePlan, continueSubscription, downgradeToFree } from "./actions";
 import ActionButton from "../../actionButton";
@@ -10,7 +9,7 @@ const TIER_ORDER = ["free", "pro", "max"] as const satisfies readonly Tier[];
 
 export default async function Upgrade() {
     const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
     const { level, pendingCancel, periodEnd } = await getActivationDetails(requestHeaders);

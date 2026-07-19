@@ -21,9 +21,8 @@ import {
 } from "./protocol";
 import { dispatchTool, TOOL_DEFS } from "./tools";
 
-// same duration budget as /api/cron — run_workflow executes graphs for up to
-// 240s inside this handler
-export const maxDuration = 300;
+// run_workflow executes graphs inline in this handler — the budget is
+// RUN_TIMEOUT_MS in lib/runner.server.ts
 export const dynamic = "force-dynamic";
 
 const INSTRUCTIONS =

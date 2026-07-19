@@ -44,6 +44,10 @@ function securityHeaders() {
 }
 
 const nextConfig: NextConfig = {
+    // the in-process Discord gateway (lib/gateway.server.ts) imports `ws`,
+    // which is not in Next's default server-external list — keep it resolved
+    // from node_modules at runtime instead of bundled (optional native peers)
+    serverExternalPackages: ["ws"],
     experimental: {
         viewTransition: true,
     },

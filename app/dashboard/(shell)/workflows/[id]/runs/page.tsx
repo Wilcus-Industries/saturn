@@ -1,8 +1,7 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getSessionCached } from "@/lib/subscription";
 import { relativeTime } from "../../workflowCard";
 
 // run history for one workflow; lives inside (shell) so it gets the sidebar,
@@ -56,8 +55,7 @@ export default async function WorkflowRuns({
     // pre-validate before querying — junk ids would throw pg 22P02, not miss
     if (!UUID.test(id)) notFound();
 
-    const requestHeaders = await headers();
-    const session = await auth.api.getSession({ headers: requestHeaders });
+    const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
     // ownership check — runs are only reachable through the user's workflow
