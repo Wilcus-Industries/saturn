@@ -20,26 +20,14 @@ type SendFn = (
     message: string,
 ) => Promise<McpCallResult>;
 
-async function sendDiscordWebhook(
-    _userId: string,
-    config: Record<string, string>,
+// Shared Discord message POST — webhook execute URLs and the bot channel-messages
+// API accept the identical content / files[0] shape. `label` prefixes error values.
+async function postDiscordMessage(
+    url: URL,
+    headers: Record<string, string>,
     message: string,
+    label: string,
 ): Promise<McpCallResult> {
-    // SSRF guard: the URL is untrusted, so only exact Discord webhook hosts
-    // and the fixed webhook path may be fetched — never substring checks
-    let url: URL;
-    try {
-        url = new URL((config.webhookUrl ?? "").trim());
-    } catch {
-        return { error: "invalid webhook url" };
-    }
-    if (
-        url.protocol !== "https:" ||
-        !["discord.com", "discordapp.com"].includes(url.hostname) ||
-        !url.pathname.startsWith("/api/webhooks/")
-    ) {
-        return { error: "webhook url must look like https://discord.com/api/webhooks/…" };
-    }
     if (!message.trim()) return { error: "message is empty" };
     // Image data URL -> upload as a file attachment (multipart), not text content
     if (message.startsWith("data:image/")) {
@@ -63,12 +51,13 @@ async function sendDiscordWebhook(
         const imgRes = await fetch(url, {
             // no content-type header — fetch sets the multipart boundary
             method: "POST",
+            headers,
             body: form,
             signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
         });
         if (!imgRes.ok) {
             const body = (await imgRes.text().catch(() => "")).slice(0, 200);
-            return { error: `discord webhook failed (${imgRes.status})${body ? `: ${body}` : ""}` };
+            return { error: `${label} failed (${imgRes.status})${body ? `: ${body}` : ""}` };
         }
         return { text: "sent" };
     }
@@ -78,19 +67,58 @@ async function sendDiscordWebhook(
             : message;
     const res = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { ...headers, "content-type": "application/json" },
         body: JSON.stringify({ content }),
         signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     if (!res.ok) {
         const body = (await res.text().catch(() => "")).slice(0, 200);
-        return { error: `discord webhook failed (${res.status})${body ? `: ${body}` : ""}` };
+        return { error: `${label} failed (${res.status})${body ? `: ${body}` : ""}` };
     }
     return { text: "sent" };
 }
 
+async function sendDiscordWebhook(
+    _userId: string,
+    config: Record<string, string>,
+    message: string,
+): Promise<McpCallResult> {
+    // SSRF guard: the URL is untrusted, so only exact Discord webhook hosts
+    // and the fixed webhook path may be fetched — never substring checks
+    let url: URL;
+    try {
+        url = new URL((config.webhookUrl ?? "").trim());
+    } catch {
+        return { error: "invalid webhook url" };
+    }
+    if (
+        url.protocol !== "https:" ||
+        !["discord.com", "discordapp.com"].includes(url.hostname) ||
+        !url.pathname.startsWith("/api/webhooks/")
+    ) {
+        return { error: "webhook url must look like https://discord.com/api/webhooks/…" };
+    }
+    return postDiscordMessage(url, {}, message, "discord webhook");
+}
+
+async function sendDiscordMessage(
+    _userId: string,
+    config: Record<string, string>,
+    message: string,
+): Promise<McpCallResult> {
+    const botToken = (config.botToken ?? "").trim();
+    const channelId = (config.channelId ?? "").trim();
+    if (!botToken) return { error: "bot token is empty" };
+    // Snowflake check doubles as the SSRF guard: the URL is a fixed base plus
+    // this digits-only id, so untrusted config never shapes the fetch target
+    if (!/^\d{17,20}$/.test(channelId)) return { error: "channel id must be a numeric id" };
+    const url = new URL(`https://discord.com/api/v10/channels/${channelId}/messages`);
+    return postDiscordMessage(url, { authorization: `Bot ${botToken}` }, message, "discord send");
+}
+
 const SENDERS: Record<string, SendFn> = {
     "discord-webhook": sendDiscordWebhook,
+    "discord-send-message": sendDiscordMessage,
 };
 
 // executes one integration send for a workflow run (test, cron, or manual)

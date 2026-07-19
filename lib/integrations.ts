@@ -88,6 +88,23 @@ export const EXTENSIONS: PlatformExtension[] = [
                 ],
                 requiredConfig: ["webhookUrl"],
             },
+            {
+                id: "discord-send-message",
+                label: "send message",
+                section: "data",
+                config: [
+                    {
+                        id: "botToken", label: "bot token", input: "text",
+                        placeholder: "your bot's token",
+                    },
+                    {
+                        id: "channelId", label: "channel id", input: "text",
+                        placeholder: "channel to post in",
+                    },
+                    { id: "message", label: "message", input: "text", overriddenBy: "message" },
+                ],
+                requiredConfig: ["botToken", "channelId"],
+            },
         ],
         events: [
             {
