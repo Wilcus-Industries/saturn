@@ -98,7 +98,13 @@ export const TOOL_DEFS: ToolDef[] = [
     {
         name: "get_catalog",
         description:
-            "The node catalog available to this user (built-in nodes plus their registered MCP tools and skills) with every node's ports and config fields, and the authoring guide for the graph format. Call this before writing any graph.",
+            "The node catalog available to this user (their registered MCP servers, skills and memory stores first, then built-in nodes) with every node's ports and config fields. Tool descriptions are trimmed for brevity — the full text reaches the agent at runtime. Call this before writing any graph; get_docs has the graph-format authoring guide.",
+        inputSchema: obj({}),
+    },
+    {
+        name: "get_docs",
+        description:
+            "The authoring guide for the workflow graph format: node/edge shapes, port kinds, wiring rules, event nodes and scheduling. Read it before writing your first graph; get_catalog has the concrete node types.",
         inputSchema: obj({}),
     },
     {
@@ -148,7 +154,7 @@ export const TOOL_DEFS: ToolDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// authoring guide embedded in get_catalog
+// authoring guide served by get_docs
 // ---------------------------------------------------------------------------
 
 // one bullet per platform event descriptor — config, filters and the payload
@@ -228,6 +234,16 @@ const fail = (message: string): ToolResult => ({
 
 const asId = (x: unknown): string | null =>
     typeof x === "string" && UUID.test(x) ? x : null;
+
+// catalog tool descriptions are for picking, not prompting — the full text
+// reaches the model at runtime via buildToolDefs, so first line capped
+const MAX_CATALOG_DESC = 150;
+function trimDescription(d: string): string {
+    const firstLine = d.split("\n", 1)[0].trim();
+    return firstLine.length > MAX_CATALOG_DESC
+        ? `${firstLine.slice(0, MAX_CATALOG_DESC)}…`
+        : firstLine;
+}
 
 // static catalog + the owner's registry nodes — same byKey the designer and
 // the runner use, minus missingEntry (unknown types must stay *unknown* here
@@ -403,37 +419,48 @@ export async function dispatchTool(
 
         case "get_catalog": {
             const byKey = await buildByKey(userId);
-            const nodes = Object.values(byKey)
+            // registry entries (mcp/skill/memory) sorted first: agent-node
+            // callers see a truncated result (interpreter's per-result cap),
+            // and the user's own servers must never be what gets cut
+            const isUserEntry = (e: CatalogEntry) => !(e.key in CATALOG_BY_KEY);
+            const entries = Object.values(byKey)
                 .filter((e) => !e.legacy && !e.missing)
-                .map((e) => ({
-                    key: e.key,
-                    label: e.label,
-                    category: e.category,
-                    // group names an integration's or event's app
-                    ...(e.group ? { app: e.group } : {}),
-                    // mcp server node: the tools its grant can expand to
-                    ...(e.tools ? { tools: e.tools } : {}),
-                    inputs: e.inputs.map((p) => ({
-                        id: p.id,
-                        kind: p.kind,
-                        ...(p.multi ? { multi: true } : {}),
-                        ...(p.accepts ? { accepts: p.accepts } : {}),
-                    })),
-                    outputs: e.outputs.map((p) => ({ id: p.id, kind: p.kind })),
-                    ...(e.config?.length
-                        ? {
-                              config: e.config.map((f) => ({
-                                  id: f.id,
-                                  input: f.input,
-                                  ...(f.options ? { options: f.options } : {}),
-                                  ...(f.picker ? { picker: f.picker } : {}),
-                                  ...(f.overriddenBy ? { overriddenBy: f.overriddenBy } : {}),
-                              })),
-                          }
-                        : {}),
-                }));
-            return ok({ docs: GRAPH_DOCS, nodes });
+                .sort((a, b) => Number(isUserEntry(b)) - Number(isUserEntry(a)));
+            const nodes = entries.map((e) => ({
+                key: e.key,
+                label: e.label,
+                category: e.category,
+                // group names an integration's or event's app
+                ...(e.group ? { app: e.group } : {}),
+                // mcp server node: the tools its grant can expand to — trimmed
+                // descriptions (full text reaches the model via buildToolDefs)
+                ...(e.tools
+                    ? { tools: e.tools.map((t) => ({ name: t.name, ...(t.description ? { description: trimDescription(t.description) } : {}) })) }
+                    : {}),
+                inputs: e.inputs.map((p) => ({
+                    id: p.id,
+                    kind: p.kind,
+                    ...(p.multi ? { multi: true } : {}),
+                    ...(p.accepts ? { accepts: p.accepts } : {}),
+                })),
+                outputs: e.outputs.map((p) => ({ id: p.id, kind: p.kind })),
+                ...(e.config?.length
+                    ? {
+                          config: e.config.map((f) => ({
+                              id: f.id,
+                              input: f.input,
+                              ...(f.options ? { options: f.options } : {}),
+                              ...(f.picker ? { picker: f.picker } : {}),
+                              ...(f.overriddenBy ? { overriddenBy: f.overriddenBy } : {}),
+                          })),
+                      }
+                    : {}),
+            }));
+            return ok({ note: "graph-format authoring guide: call get_docs", nodes }, true);
         }
+
+        case "get_docs":
+            return { content: [{ type: "text", text: GRAPH_DOCS }] };
 
         case "validate_graph": {
             const checked = checkGraph(args.graph, await buildByKey(userId));
