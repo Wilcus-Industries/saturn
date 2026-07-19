@@ -4,6 +4,7 @@ import {
     type AgentMessage,
     type AgentModelResult,
     type AgentToolRef,
+    isToolExclusionList,
     MAX_AGENT_MESSAGES,
     type McpCallResult,
 } from "@/lib/agent";
@@ -94,7 +95,8 @@ const isToolRef = (x: unknown): x is AgentToolRef =>
     UUID.test(x.entryId) &&
     typeof x.toolName === "string" &&
     x.toolName.length > 0 &&
-    x.toolName.length <= 60;
+    x.toolName.length <= 60 &&
+    (x.exclude === undefined || isToolExclusionList(x.exclude));
 
 // one LLM turn of an agent node's loop. The interpreter (browser) drives
 // the loop and executes tool calls via callMcpTool; this action shape-checks

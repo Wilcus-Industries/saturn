@@ -11,12 +11,14 @@ import {
     type AgentMessage,
     type AgentModelResult,
     type AgentToolRef,
+    ALL_TOOLS,
     MAX_AGENT_MESSAGES,
     MAX_AGENT_TURNS,
     MAX_GRANTED_SKILLS,
     MAX_GRANTED_TOOLS,
     MAX_TOOL_CALLS_PER_TURN,
     type McpCallResult,
+    parseToolExclusions,
     skillIdFromNodeType,
     toolRefFromNodeType,
 } from "@/lib/agent";
@@ -549,16 +551,33 @@ export async function runWorkflow(
                     // type, never by evaluating it as a value; dedup identical
                     // refs (multiple chips of the same tool = one grant). NO
                     // config fallback — legacy config.tools/skills stop applying.
+                    // The source must resolve to a live mcp chip entry: retired
+                    // per-tool types still parse but render "(deleted)" and must
+                    // grant nothing.
                     const toolRefs: AgentToolRef[] = [];
                     const seenTools = new Set<string>();
                     for (const edge of incomingValueEdges(node.id, "tools")) {
                         const src = nodeById.get(edge.from.nodeId);
-                        const ref = src ? toolRefFromNodeType(src.type) : null;
+                        const srcEntry = src ? byKey[src.type] : undefined;
+                        const isChip = !!srcEntry && !srcEntry.missing &&
+                            srcEntry.category === "mcp" && typeof srcEntry.toolName === "string";
+                        const ref = isChip && src ? toolRefFromNodeType(src.type) : null;
                         if (!ref) {
-                            warn(`agent: tool edge from "${src ? label(src) : edge.from.nodeId}" is not an MCP tool — ignored`);
+                            warn(`agent: tool edge from "${src ? label(src) : edge.from.nodeId}" is not an MCP server — ignored`);
                             continue;
                         }
-                        const dedupKey = `${ref.entryId}:${ref.toolName}`;
+                        if (ref.toolName === ALL_TOOLS && src) {
+                            const exclude = parseToolExclusions(src.config.exclude);
+                            if (exclude === null) {
+                                warn(`agent: "${label(src)}" has an invalid tool selection — granting all enabled tools`);
+                            } else if (exclude.length) {
+                                ref.exclude = exclude;
+                            }
+                        }
+                        // exclusions in the key: two nodes of one server with
+                        // different prunes must both reach the server, whose
+                        // per-tool dedup unions them
+                        const dedupKey = `${ref.entryId}:${ref.toolName}:${(ref.exclude ?? []).slice().sort().join("\u0000")}`;
                         if (seenTools.has(dedupKey)) continue;
                         seenTools.add(dedupKey);
                         toolRefs.push(ref);

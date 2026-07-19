@@ -52,10 +52,12 @@ import type {
     OpenConfigHandler,
     OpenCronHandler,
     OpenPickerHandler,
+    OpenToolsHandler,
     PortPointerDownHandler,
 } from "./node";
 import CronPopover from "./cronPopover";
 import ConfigPopover from "./configPopover";
+import ToolPickerPopover from "./toolPickerPopover";
 import { describeCron } from "@/lib/cron";
 import PathPicker, { type PickerSample } from "./pathPicker";
 import Toolbox from "./toolbox";
@@ -463,6 +465,29 @@ export default function Designer({
         setConfigEdit(null);
     };
 
+    // mcp-server-node tool picker popover: same before/commit undo coalescing
+    // as the cron popover — one undo step for the whole editing session
+    const [toolsEdit, setToolsEdit] = useState<{
+        nodeId: string;
+        anchor: { x: number; y: number };
+        before: WorkflowGraph;
+    } | null>(null);
+
+    const openTools: OpenToolsHandler = useCallback((anchor, nodeId) => {
+        setToolsEdit({ nodeId, anchor, before: graphRef.current });
+    }, []);
+
+    const handleToolsChange = (value: string) => {
+        setToolsEdit((cur) => {
+            if (cur) dispatch({ type: "setConfig", nodeId: cur.nodeId, field: "exclude", value });
+            return cur;
+        });
+    };
+    const closeTools = () => {
+        if (toolsEdit) dispatch({ type: "commitConfig", before: toolsEdit.before });
+        setToolsEdit(null);
+    };
+
     const [saving, startSaving] = useTransition();
     const save = () => {
         if (saving || !dirty) return;
@@ -597,6 +622,7 @@ export default function Designer({
             } else if (e.key === "Escape") {
                 if (cronEdit) closeCron();
                 else if (configEdit) closeConfig();
+                else if (toolsEdit) closeTools();
                 else if (picker) setPicker(null);
                 else if (pendingDrag) {
                     setPendingDrag(null);
@@ -650,6 +676,7 @@ export default function Designer({
                     onOpenPicker={openPicker}
                     onOpenCron={openCron}
                     onOpenConfig={openConfig}
+                    onOpenTools={openTools}
                 />
             </div>
 
@@ -711,6 +738,22 @@ export default function Designer({
                             overriddenIds={overriddenIds}
                             onChange={handleConfigChange}
                             onClose={closeConfig}
+                        />
+                    );
+                })()}
+
+            {toolsEdit &&
+                (() => {
+                    const node = present.nodes.find((n) => n.id === toolsEdit.nodeId);
+                    const entry = node ? byKey[node.type] : undefined;
+                    if (!node || !entry) return null;
+                    return (
+                        <ToolPickerPopover
+                            anchor={toolsEdit.anchor}
+                            entry={entry}
+                            exclude={node.config.exclude ?? ""}
+                            onChange={handleToolsChange}
+                            onClose={closeTools}
                         />
                     );
                 })()}

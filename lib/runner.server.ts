@@ -7,6 +7,7 @@
 import {
     type AgentModelResult,
     isAllToolsRef,
+    isToolExclusionList,
     MAX_GRANTED_SKILLS,
     MAX_GRANTED_TOOLS,
     type McpCallResult,
@@ -117,9 +118,11 @@ export async function executeAgentTurn(
     // mismatch instead of silently dropping (a granted-but-unavailable tool
     // is a misconfiguration the user must see, not something the model
     // should hallucinate around). executeMcpTool re-checks at execution time.
-    // A general-server chip (isAllToolsRef) is the exception: it expands to
-    // the server's every enabled + callable tool, silently skipping off or
-    // write-mismatched ones — "all the tools that are usable", never an error.
+    // A server chip (isAllToolsRef) is the exception: it expands to the
+    // server's every enabled + callable tool minus the node's exclude
+    // selection, silently skipping off, write-mismatched, or excluded ones —
+    // "all the tools that are usable", never an error. Stale excluded names
+    // simply never match.
     const registry = await getUserRegistry(userId);
     const specs: AgentToolSpec[] = [];
     const seen = new Set<string>(); // "<entryId>:<toolName>" — dedupe across chips
@@ -127,8 +130,9 @@ export async function executeAgentTurn(
         const row = registry.find((r) => r.id === ref.entryId && r.kind === "mcp");
         if (isAllToolsRef(ref)) {
             if (!row) return { error: "MCP server not found" };
+            const excluded = new Set(isToolExclusionList(ref.exclude) ? ref.exclude : []);
             for (const tool of row.tools) {
-                if (!tool.enabled || !canCallTool(tool)) continue;
+                if (!tool.enabled || !canCallTool(tool) || excluded.has(tool.name)) continue;
                 const key = `${ref.entryId}:${tool.name}`;
                 if (seen.has(key)) continue;
                 seen.add(key);

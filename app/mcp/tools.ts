@@ -7,7 +7,7 @@
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
 import { db } from "@/lib/db";
 import { subscriptionsChanged } from "@/lib/events.server";
-import { EVENT_PREFIX, EXTENSION_EVENTS, eventNodeKey } from "@/lib/integrations";
+import { EXTENSION_EVENTS, eventNodeKey } from "@/lib/integrations";
 import type { ConsoleLine } from "@/lib/interpreter";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
@@ -178,12 +178,12 @@ Config fields hold literal strings. A field with "overriddenBy" is ignored when 
 ## Built-in nodes
 - schedule: scheduled entry point (config.cron, see above). if: routes flow to true/false comparing the left ("l") vs right ("r") operand value ports (config.operator). loop: runs body once per item of the JSON array on items, then done; item carries the current element. and/or/not: boolean values. string: emits config.value verbatim on its "out" value output. number: emits config.value coerced to a number ("out"). print: logs config.message or the value port. extract: pulls a field out of a JSON value via config.path, dot-separated with numeric array indices ("data.results.0.price"). await: join barrier for parallel branches — continues when ALL incoming flow edges arrive; results = JSON array of its values edges (multi port), in edge order. model: emits config.model (an OpenRouter model id) on its "model" value output — connect it to an agent's model input.
 
-## MCP tool nodes (keys "mcp:<entryId>:<toolName>") and skill nodes (keys "skill:<uuid>")
-Grant chips — one MCP tool node per registered tool, one skill node per skill. They have NO flow ports and are NOT executable on their own: an MCP tool node has a single value output "tool", a skill node a single value output "skill". That output connects nowhere except an agent's matching grant port ("tool" → agent "tools", "skill" → agent "skills"); wiring it there grants the agent that tool/skill. Chips are never run or evaluated as values — the grant resolves statically from the node type. MCP tools therefore run only through agents.
-A server with 2+ enabled tools also exposes a general-server chip keyed "mcp:<entryId>:*" (labelled "All tools"): connect its "tool" output to an agent's "tools" port to grant every usable tool of that server at once (expanded server-side to its enabled tools that pass the read/write gate; off or write-mismatched tools are skipped). Prefer it over wiring many individual tool chips from the same server.
+## MCP server nodes (keys "mcp:<entryId>:*") and skill nodes (keys "skill:<uuid>")
+Grant chips — one MCP server node per registered server, one skill node per skill. They have NO flow ports and are NOT executable on their own: a server node has a single value output "tool", a skill node a single value output "skill". That output connects nowhere except an agent's matching grant port ("tool" → agent "tools", "skill" → agent "skills"); wiring it there grants the agent that server's tools / that skill. Chips are never run or evaluated as values — the grant resolves statically from the node type. MCP tools therefore run only through agents.
+A server node grants every enabled tool that passes the read/write gate (off or write-mismatched tools are silently skipped; the grantable list is each catalog entry's "tools" field). Optional config.exclude — a JSON array of tool names AS A STRING (e.g. "[\\"delete_file\\"]") — withholds specific tools from the grant: unknown names are ignored, and tools discovered later are granted automatically unless excluded. Old per-tool keys ("mcp:<entryId>:<toolName>") no longer exist — they render as inert "(deleted)" placeholders and grant nothing.
 
 ## Agent node (type "agent")
-LLM loop over built-in model credits (paid plans) with the user's OpenRouter key as fallback. Inputs: flow in; prompt (value); system (value, usually from a "string" node — config.system is a legacy fallback honored only when the port is unconnected); model (value, usually from a "model" node — config.model is a legacy fallback likewise); tools (value, multi — accepts ONLY MCP tool node outputs); skills (value, multi — accepts ONLY skill node outputs). Config: only output ("text" | "image" — image works only on models whose OpenRouter output modalities include image; any other value runs as text; image mode ignores tool grants and returns the first generated image). Grants come from the connected chips: at most ${MAX_GRANTED_TOOLS} tools and ${MAX_GRANTED_SKILLS} skills, resolved from each chip's node type; the agent may call granted tools itself during its loop. Output "result" carries the final text, or a data:image/… URL when output=image.
+LLM loop over built-in model credits (paid plans) with the user's OpenRouter key as fallback. Inputs: flow in; prompt (value); system (value, usually from a "string" node — config.system is a legacy fallback honored only when the port is unconnected); model (value, usually from a "model" node — config.model is a legacy fallback likewise); tools (value, multi — accepts ONLY MCP server node outputs); skills (value, multi — accepts ONLY skill node outputs). Config: only output ("text" | "image" — image works only on models whose OpenRouter output modalities include image; any other value runs as text; image mode ignores tool grants and returns the first generated image). Grants come from the connected chips: at most ${MAX_GRANTED_TOOLS} tools (after server-node expansion) and ${MAX_GRANTED_SKILLS} skills, resolved from each chip's node type; the agent may call granted tools itself during its loop. Output "result" carries the final text, or a data:image/… URL when output=image.
 
 ## Integration nodes (keys "integration:<provider>")
 Outbound action nodes. Inputs: flow in, plus a message value port on actions that take a message (it overrides config.message when connected; actions without a "message" config field have no message port). Output: flow out. Discord truncates messages to 2000 chars; a message that is a data:image/… URL is uploaded as a file attachment instead of text.
@@ -389,15 +389,10 @@ export async function dispatchTool(
                     key: e.key,
                     label: e.label,
                     category: e.category,
-                    // group names an mcp entry's server and an integration's or
-                    // event's app
-                    ...(e.group
-                        ? {
-                              [e.category === "integration" || e.key.startsWith(EVENT_PREFIX)
-                                  ? "app"
-                                  : "server"]: e.group,
-                          }
-                        : {}),
+                    // group names an integration's or event's app
+                    ...(e.group ? { app: e.group } : {}),
+                    // mcp server node: the tools its grant can expand to
+                    ...(e.tools ? { tools: e.tools } : {}),
                     inputs: e.inputs.map((p) => ({
                         id: p.id,
                         kind: p.kind,

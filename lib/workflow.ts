@@ -1,7 +1,7 @@
 // Workflow designer data model: node catalog, graph types, validation and
 // connection rules. Shared by the designer canvas and server actions.
 
-import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
+import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS, parseToolExclusions } from "@/lib/agent";
 import { isValidCron } from "@/lib/cron";
 import {
     EVENT_PREFIX,
@@ -90,14 +90,17 @@ export type CatalogEntry = {
     emoji?: string; // user skill icon
     logoDomain?: string; // user mcp favicon host
     missing?: boolean; // placeholder for a deleted registry entry
-    // toolbox subheader (per-tool mcp node: the server name; integration node:
-    // the app's name)
+    // toolbox subheader (integration node: the app's name)
     group?: string;
     // the category this entry borrows its color from, overriding its own
     // (integration node: INTEGRATION_SECTIONS). See entryStyles().
     section?: NodeCategory;
     legacy?: boolean; // resolvable for saved graphs but hidden from the toolbox
-    toolName?: string; // per-tool mcp node: the tool this node calls
+    toolName?: string; // mcp server node: the ALL_TOOLS "*" sentinel
+    // mcp server node: the enabled + callable tools it can grant — exactly
+    // the runtime expansion set (feeds the designer's tool picker and the
+    // hosted MCP get_catalog)
+    tools?: { name: string; description?: string }[];
 };
 
 export type WorkflowNode = {
@@ -238,7 +241,7 @@ export const CATALOG: CatalogEntry[] = [
 
     // saturn — LLM agent blocks, executed by the test-run interpreter via the
     // callAgentModel server action (built-in credits, BYOK fallback). Grants
-    // are edges from chip nodes into the multi "tools" (mcp per-tool nodes)
+    // are edges from chip nodes into the multi "tools" (mcp server nodes)
     // and "skills" (skill nodes) ports. config.system/config.model are legacy
     // fallbacks honored by the interpreter when the port has no edge, but not
     // surfaced in the designer UI.
@@ -303,8 +306,9 @@ export const CATALOG_BY_KEY: Record<string, CatalogEntry> = Object.fromEntries(
     CATALOG.map((entry) => [entry.key, entry]),
 );
 
-// longest node type the save action accepts — per-tool mcp keys are
-// "mcp:<uuid>:<toolName>" = 41 chars + tool name (names capped at 60)
+// longest node type the save action accepts — kept at the old per-tool mcp
+// headroom ("mcp:<uuid>:<toolName>" = 41 chars + a ≤60-char tool name) so
+// graphs saved before per-server nodes still pass the shape guard
 export const MAX_NODE_TYPE_LENGTH = 128;
 
 // graph persistence caps, shared by the designer's saveWorkflow action and
@@ -438,9 +442,8 @@ function findPort(
     return entry[dir].find((p) => p.id === ref.portId) ?? null;
 }
 
-// grant-chip nodes: a per-tool mcp node ("tool") or a skill node ("skill"),
-// whose value output feeds only an agent's matching accepts port. The legacy
-// generic mcp:<uuid> entry carries no toolName, so it's an ordinary node.
+// grant-chip nodes: an mcp server node ("tool") or a skill node ("skill"),
+// whose value output feeds only an agent's matching accepts port.
 function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | null {
     if (!entry || entry.missing) return null;
     if (entry.category === "mcp" && typeof entry.toolName === "string") return "tool";
@@ -617,6 +620,29 @@ export function validateGraphStrict(
             warnings.push(
                 `agent "${node.id}" has more than ${MAX_GRANTED_SKILLS} skill grants — extras are dropped at run time`,
             );
+        }
+    }
+
+    // mcp server nodes: config.exclude prunes the tool grant per node — a
+    // malformed value is ignored at run time (all enabled tools granted), and
+    // excluded names the server doesn't have are harmless but likely typos
+    for (const node of graph.nodes) {
+        const entry = known(node);
+        if (!entry || chipKind(entry) !== "tool") continue;
+        const exclude = parseToolExclusions(node.config.exclude);
+        if (exclude === null) {
+            warnings.push(
+                `mcp node "${node.id}": exclude is not a JSON array of tool names — ignored, all enabled tools granted`,
+            );
+            continue;
+        }
+        const names = new Set((entry.tools ?? []).map((t) => t.name));
+        for (const name of exclude) {
+            if (!names.has(name)) {
+                warnings.push(
+                    `mcp node "${node.id}": excluded tool "${name}" doesn't exist on ${entry.label} — ignored`,
+                );
+            }
         }
     }
 

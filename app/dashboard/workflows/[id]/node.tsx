@@ -17,7 +17,6 @@ import {
     type WorkflowGraph,
     type WorkflowNode,
 } from "@/lib/workflow";
-import { ALL_TOOLS } from "@/lib/agent";
 import { describeCron } from "@/lib/cron";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import EntryIcon from "./entryIcon";
@@ -94,6 +93,13 @@ export type OpenConfigHandler = (
     nodeId: string,
 ) => void;
 
+// an mcp server chip opens the tool picker popover when clicked (press with
+// no drag); the anchor is the node's client-space bottom-left corner, like cron
+export type OpenToolsHandler = (
+    anchor: { x: number; y: number },
+    nodeId: string,
+) => void;
+
 // renders to the geometry.ts metrics exactly: w-44 = NODE_W 176, the header
 // band's height comes straight from HEADER_H, h-6 port rows = PORT_ROW_H 24,
 // h-9 config rows =
@@ -140,6 +146,7 @@ export default memo(function Node({
     onOpenPicker,
     onOpenCron,
     onOpenConfig,
+    onOpenTools,
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
@@ -174,6 +181,7 @@ export default memo(function Node({
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
     onOpenConfig?: OpenConfigHandler;
+    onOpenTools?: OpenToolsHandler;
 }) {
     const styles = entryStyles(entry);
     // local (x,y) offset of a rotated chip/model output marker; null → the
@@ -631,9 +639,19 @@ export default memo(function Node({
         const mcp = isMcpChipEntry(entry);
         const size = mcp ? MCP_CHIP : SKILL_CHIP;
         const border = mcp ? "border-purple-500" : "border-green-500";
-        // the "All tools" server chip carries the tool name as the label; on
-        // the canvas show the server name (its group) instead
-        const chipLabel = mcp && entry.toolName === ALL_TOOLS ? (entry.group ?? entry.label) : entry.label;
+
+        // a press that stayed under the drag threshold on an mcp server chip
+        // opens the tool picker popover (mirrors the integration node's
+        // click-to-config); skill chips just drag
+        const chipEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+            const wasClick = !!dragRef.current && !dragRef.current.active;
+            endDrag();
+            if (wasClick && onOpenTools) {
+                const r = e.currentTarget.getBoundingClientRect();
+                onOpenTools({ x: r.left, y: r.bottom + 4 }, node.id);
+            }
+        };
+
         return (
             <div
                 data-node-id={node.id}
@@ -641,12 +659,12 @@ export default memo(function Node({
                 className={"absolute font-mono text-xs"}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
-                onPointerUp={endDrag}
+                onPointerUp={mcp ? chipEndDrag : endDrag}
                 onPointerCancel={endDrag}
             >
                 <div
                     style={{ width: size, height: size }}
-                    className={`relative flex cursor-grab items-center justify-center rounded-xl border-2 bg-background ${border} ${styles.headerBg} ${
+                    className={`relative flex ${mcp ? "cursor-pointer" : "cursor-grab"} items-center justify-center rounded-xl border-2 bg-background ${border} ${styles.headerBg} ${
                         selected ? "outline outline-1 outline-foreground" : ""
                     }`}
                 >
@@ -675,9 +693,9 @@ export default memo(function Node({
                         className={
                             "line-clamp-2 max-w-full break-words text-center text-[10px] leading-3"
                         }
-                        title={mcp ? `${entry.group} · ${entry.label}` : entry.label}
+                        title={entry.label}
                     >
-                        {chipLabel}
+                        {entry.label}
                     </span>
                 </div>
             </div>

@@ -115,8 +115,7 @@ export const isAgentEntry = (entry: CatalogEntry): boolean =>
 const agentBottomPorts = (entry: CatalogEntry): PortSpec[] =>
     entry.inputs.filter((p) => p.kind !== "flow");
 
-// per-tool mcp nodes (key "mcp:<uuid>:<toolName>") and skill nodes render as
-// grant chips. The legacy generic mcp:<uuid> entry has no toolName → rect
+// mcp server nodes (key "mcp:<uuid>:*") and skill nodes render as grant chips
 // branch; missing placeholders keep the dashed rect (like isModelEntry)
 export const isMcpChipEntry = (entry: CatalogEntry): boolean =>
     entry.category === "mcp" && !entry.missing && typeof entry.toolName === "string";

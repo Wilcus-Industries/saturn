@@ -29,6 +29,7 @@ import Node, {
     type OpenConfigHandler,
     type OpenCronHandler,
     type OpenPickerHandler,
+    type OpenToolsHandler,
     type PortPointerDownHandler,
 } from "./node";
 
@@ -116,6 +117,7 @@ export default function Canvas({
     onOpenPicker,
     onOpenCron,
     onOpenConfig,
+    onOpenTools,
     ref,
 }: {
     graph: WorkflowGraph;
@@ -136,6 +138,7 @@ export default function Canvas({
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
     onOpenConfig?: OpenConfigHandler;
+    onOpenTools?: OpenToolsHandler;
     ref?: Ref<CanvasHandle>;
 }) {
     const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
@@ -439,6 +442,7 @@ export default function Canvas({
                             onOpenPicker={onOpenPicker}
                             onOpenCron={onOpenCron}
                             onOpenConfig={onOpenConfig}
+                            onOpenTools={onOpenTools}
                         />
                     );
                 })}

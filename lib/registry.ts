@@ -1,16 +1,9 @@
 // User registry: MCP servers and skills added in dashboard settings
 // (registry_entry table). Rows convert to workflow CatalogEntry nodes
-// keyed "mcp:<uuid>" / "skill:<uuid>" so the designer can render them.
+// keyed "mcp:<uuid>:*" / "skill:<uuid>" so the designer can render them.
 // Client-safe (no pg import) — the DB query lives in lib/registry.server.ts.
 import { ALL_TOOLS } from "@/lib/agent";
-import {
-    type CatalogEntry,
-    flowIn,
-    flowOut,
-    MAX_NODE_TYPE_LENGTH,
-    type McpToolParam,
-    valuePort,
-} from "@/lib/workflow";
+import { type CatalogEntry, type McpToolParam, valuePort } from "@/lib/workflow";
 
 export type RegistryKind = "mcp" | "skill";
 export type McpTool = {
@@ -88,31 +81,11 @@ export function mergeTools(
     });
 }
 
-// legacy generic mcp node / skill grant chip. The mcp shape survives only so
-// graphs saved before per-tool nodes keep resolving; buildUserCatalog flags
-// it legacy (hidden from the toolbox). The skill node is a non-executable
-// grant chip: a single "skill" value output wired into an agent's "skills"
-// port grants the skill (resolved statically from the node type).
-export function toCatalogEntry(row: RegistryEntryRow): CatalogEntry {
-    const key = userNodeKey(row.kind, row.id);
-    if (row.kind === "mcp") {
-        return {
-            key,
-            label: row.name,
-            category: "mcp",
-            inputs: [flowIn, valuePort("input")],
-            outputs: [flowOut, valuePort("result")],
-            config: [{
-                id: "tool",
-                label: "tool",
-                input: "select",
-                options: row.tools.filter((t) => t.enabled).map((t) => t.name),
-            }],
-            logoDomain: faviconDomain(row.server_url),
-        };
-    }
+// skill grant chip: a single "skill" value output wired into an agent's
+// "skills" port grants the skill (resolved statically from the node type).
+function toSkillEntry(row: RegistryEntryRow): CatalogEntry {
     return {
-        key,
+        key: userNodeKey(row.kind, row.id),
         label: row.name,
         category: "skill",
         inputs: [],
@@ -121,53 +94,31 @@ export function toCatalogEntry(row: RegistryEntryRow): CatalogEntry {
     };
 }
 
-// one non-executable grant chip per enabled tool: a single "tool" value
-// output wired into an agent's "tools" port grants it. Grants resolve
-// statically from the node type ("mcp:<uuid>:<toolName>"), never by evaluating
-// the chip — so the tool's params live only on the registry rows (server-side
-// buildToolDefs), not on the node.
-function toToolEntry(row: RegistryEntryRow, tool: McpTool): CatalogEntry | null {
-    const key = `mcp:${row.id}:${tool.name}`;
-    if (key.length > MAX_NODE_TYPE_LENGTH) return null; // overlong discovered name — skip
-    return {
-        key,
-        category: "mcp",
-        label: tool.name,
-        group: row.name,
-        logoDomain: faviconDomain(row.server_url),
-        toolName: tool.name,
-        inputs: [],
-        outputs: [valuePort("tool")],
-    };
-}
-
-// the "general MCP server" grant chip (key "mcp:<uuid>:*"): a single chip
-// that grants an agent every enabled + callable tool of the server, instead
-// of one chip per tool. Renders/connects exactly like a per-tool chip
-// (category "mcp" + a toolName), but its sentinel toolName expands
-// server-side in executeAgentTurn.
-function toServerAllToolsEntry(row: RegistryEntryRow): CatalogEntry {
+// MCP server grant chip (key "mcp:<uuid>:*"): one non-executable chip per
+// server. Wired into an agent's "tools" port it grants every enabled +
+// callable tool — the sentinel toolName expands server-side in
+// executeAgentTurn, minus the node's config.exclude selection (a JSON array
+// string edited via the designer's tool picker; tools discovered later are
+// auto-included unless excluded). tools lists exactly the expansion set so
+// the picker and get_catalog never show a tool the runtime would skip.
+// Always emitted, even with zero enabled tools — disabling everything in
+// settings must not flip saved server nodes to "(deleted)".
+function toServerEntry(row: RegistryEntryRow): CatalogEntry {
     return {
         key: `mcp:${row.id}:${ALL_TOOLS}`,
         category: "mcp",
-        label: "All tools",
-        group: row.name,
+        label: row.name,
         logoDomain: faviconDomain(row.server_url),
         toolName: ALL_TOOLS,
         inputs: [],
         outputs: [valuePort("tool")],
+        config: [{ id: "exclude", label: "exclude", input: "text" }],
+        // guard the sentinel: a real tool literally named "*" never grants
+        tools: row.tools
+            .filter((t) => t.enabled && canCallTool(t) && t.name !== ALL_TOOLS)
+            .map((t) => ({ name: t.name, ...(t.description ? { description: t.description } : {}) })),
     };
 }
 
 export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
-    rows.flatMap((row) => {
-        if (row.kind === "skill") return [toCatalogEntry(row)];
-        // guard the sentinel: a real tool literally named "*" would collide
-        // with the general-server chip's key, so it never becomes a chip
-        const enabled = row.tools.filter((t) => t.enabled && t.name !== ALL_TOOLS);
-        const toolEntries = enabled.flatMap((t) => toToolEntry(row, t) ?? []);
-        // the general node is redundant for a single-tool server, so only
-        // offer it once there are 2+ enabled tools; sorts first in the group
-        const allTools = enabled.length >= 2 ? [toServerAllToolsEntry(row)] : [];
-        return [...allTools, ...toolEntries, { ...toCatalogEntry(row), legacy: true }];
-    });
+    rows.map((row) => (row.kind === "skill" ? toSkillEntry(row) : toServerEntry(row)));
