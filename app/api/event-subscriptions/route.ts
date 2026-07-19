@@ -8,9 +8,10 @@ export const dynamic = "force-dynamic";
 
 const MAX_SUBSCRIPTIONS = 500;
 
-// one normalized inbound-event subscription the Pi's Discord Gateway client
-// consumes. botToken egress to the Pi is by design — the Pi opens the Gateway
-// websocket Vercel serverless can't hold; guild/channel are optional filters.
+// one normalized inbound-event subscription the saturn-events deliverer
+// (deliverer/deliverer.mjs) consumes. botToken egress to the deliverer is by
+// design — it holds the Gateway websocket the Next.js request lifecycle
+// can't; guild/channel are optional filters.
 type EventSubscription = {
     workflowId: string;
     nodeId: string;
@@ -21,10 +22,11 @@ type EventSubscription = {
     channelId: string | null;
 };
 
-// Subscription feed for saturn_admin: every active workflow's inbound-event
-// nodes, normalized. Bearer-authed with CRON_SECRET like the cron tick (the Pi
-// is the only caller). The Pi polls this, diffs by bot token, and maintains one
-// Gateway connection per distinct token. No tier gating — `active` is the gate.
+// Subscription feed for the saturn-events deliverer: every active workflow's
+// inbound-event nodes, normalized. Bearer-authed with CRON_SECRET like the
+// cron tick (the deliverer on the Pi is the only caller). It polls this, diffs
+// by bot token, and maintains one Gateway connection per distinct token. No
+// tier gating — `active` is the gate.
 export async function GET(request: Request) {
     if (!process.env.CRON_SECRET)
         return new NextResponse("CRON_SECRET not configured", { status: 500 }); // never operate open

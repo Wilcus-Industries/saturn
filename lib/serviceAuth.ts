@@ -2,7 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 
 // Shared bearer-token gate for the service-to-service endpoints (the cron tick,
 // the Discord event ingress, and the subscription feed) — every one is called
-// only by saturn_admin, which holds CRON_SECRET. Constant-time compare; returns
+// only by the Pi's own services (the saturn-cron timer and the saturn-events
+// deliverer), which hold CRON_SECRET. Constant-time compare; returns
 // false when the secret is unset so a caller can never authorize while
 // misconfigured. Each route still returns 500 on an unset secret before this,
 // so it never operates open.

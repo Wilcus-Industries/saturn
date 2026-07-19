@@ -11,10 +11,10 @@ export const dynamic = "force-dynamic";
 const MAX_NODE_ID = 128;
 const MAX_EVENT_PAYLOAD = 16_384; // JSON payload string cap
 
-// Real-time inbound-event ingress: saturn_admin's Discord Gateway client POSTs
-// a matched mention here and the addressed event node's workflow runs
-// immediately (trigger 'event'). Bearer-authed with CRON_SECRET like the cron
-// tick — the Pi is the only caller. A per-workflow 30s cooldown, claimed on
+// Real-time inbound-event ingress: the saturn-events deliverer
+// (deliverer/deliverer.mjs) POSTs a matched mention here and the addressed
+// event node's workflow runs immediately (trigger 'event'). Bearer-authed with
+// CRON_SECRET like the cron tick — the deliverer on the Pi is the only caller. A per-workflow 30s cooldown, claimed on
 // workflow.last_run_at (the same conditional-UPDATE idiom as the cron runner),
 // drops mention bursts. The one-event-per-workflow rule means a mention
 // workflow has no schedule node, so event and cron claims never fight over that
