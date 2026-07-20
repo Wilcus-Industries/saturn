@@ -29,6 +29,9 @@ export type IntegrationAction = {
     config: ConfigField[];
     // blank config fields validateGraphStrict warns about
     requiredConfig: string[];
+    // single value output port for read-style actions (e.g. fetched messages
+    // as a JSON string); the interpreter stashes the sender's result under it
+    output?: { id: string; label: string };
 };
 
 // one inbound trigger node type. Its node key is eventNodeKey(id) and its
@@ -105,6 +108,24 @@ export const EXTENSIONS: PlatformExtension[] = [
                     { id: "message", label: "message", input: "text" },
                 ],
                 requiredConfig: ["botToken", "channelId"],
+            },
+            {
+                id: "discord-read-messages",
+                label: "read messages",
+                section: "data",
+                config: [
+                    {
+                        id: "botToken", label: "bot token", input: "text",
+                        placeholder: "your bot's token",
+                    },
+                    {
+                        id: "channelId", label: "channel id", input: "text",
+                        placeholder: "channel to read from",
+                    },
+                    { id: "count", label: "how many", input: "number", default: "20" },
+                ],
+                requiredConfig: ["botToken", "channelId"],
+                output: { id: "messages", label: "messages" },
             },
             {
                 id: "discord-typing",

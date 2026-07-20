@@ -294,7 +294,8 @@ export const CATALOG: CatalogEntry[] = [
         // the literal when connected (overriddenBy auto-derived), so tokens /
         // channel ids can be wired from upstream nodes
         inputs: [flowIn, ...p.config.map((f) => v(f.id, f.label))],
-        outputs: [flowOut],
+        // read-style actions declare a value output carrying the sender's result
+        outputs: p.output ? [flowOut, v(p.output.id, p.output.label)] : [flowOut],
         config: p.config.map((f) => ({ ...f, overriddenBy: f.id })),
     })),
 

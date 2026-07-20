@@ -321,6 +321,16 @@ export async function runWorkflow(
                     // output (the sole "payload" port) — a test run seeds it
                     // from sampleEventPayload, a real event run from the ingress
                     if (entry?.category === "events") return opts.eventPayloads?.[nodeId] ?? "";
+                    // read-style integration actions stash their result under
+                    // the declared value output when their flow step runs
+                    if (entry?.category === "integration") {
+                        const stored = saturnResults.get(key);
+                        if (stored === undefined) {
+                            warn(`${label(node)}: "${portId}" read before the node ran — using ""`);
+                            return "";
+                        }
+                        return stored;
+                    }
                     // mcp/skill nodes are grant chips — never evaluated as values
                     if (entry?.category === "mcp" || entry?.category === "skill") return "";
                     warn(`cannot evaluate output "${portId}" of ${label(node)} — using ""`);
@@ -700,7 +710,13 @@ export async function runWorkflow(
                         const message = incomingValueEdge(node.id, "message")
                             ? fmt(evalInput(node, "message", ctx))
                             : (node.config.message ?? "");
-                        emit({ kind: "info", text: `sending via ${entry.label}…` });
+                        // read-style actions declare a value output; the
+                        // sender's result is stashed under it like an agent's
+                        const valueOut = entry.outputs.find((o) => o.kind === "value");
+                        emit({
+                            kind: "info",
+                            text: `${valueOut ? "running" : "sending via"} ${entry.label}…`,
+                        });
                         const res = await callIntegration(
                             integrationProviderId(node.type),
                             config,
@@ -712,6 +728,10 @@ export async function runWorkflow(
                             kind: "info",
                             text: truncate(`${entry.label} → ${text || "(empty)"}`),
                         });
+                        if (valueOut) {
+                            saturnResults.set(`${node.id}:${valueOut.id}`, text);
+                            onValue?.(node.id, valueOut.id, text);
+                        }
                         next = "out";
                     } else if (entry?.category === "mcp" || entry?.category === "skill") {
                         // grant chips: run only as agent grants, never standalone.

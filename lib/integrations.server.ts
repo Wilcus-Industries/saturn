@@ -136,6 +136,51 @@ async function sendDiscordMessage(
     return postDiscordMessage(url, { authorization: `Bot ${bot.botToken}` }, message, "discord send");
 }
 
+// GET the channel's recent history; the snowflake check in botChannelConfig is
+// the SSRF guard (fixed URL base + digits-only id). Returns a compact
+// chronological JSON array for the node's "messages" value output — Discord's
+// raw newest-first objects are huge and extract/agent-hostile.
+async function readDiscordMessages(
+    _userId: string,
+    config: Record<string, string>,
+): Promise<McpCallResult> {
+    const bot = botChannelConfig(config);
+    if ("error" in bot) return bot;
+    const n = Math.trunc(Number((config.count ?? "").trim()));
+    const count = Number.isFinite(n) && n > 0 ? Math.min(100, n) : 20;
+    const url = new URL(`https://discord.com/api/v10/channels/${bot.channelId}/messages`);
+    url.searchParams.set("limit", String(count));
+    const res = await fetch(url, {
+        headers: { authorization: `Bot ${bot.botToken}` },
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+        const body = (await res.text().catch(() => "")).slice(0, 200);
+        return { error: `discord read failed (${res.status})${body ? `: ${body}` : ""}` };
+    }
+    const raw: unknown = await res.json().catch(() => null);
+    if (!Array.isArray(raw)) return { error: "discord read failed: unexpected response" };
+    const messages = raw.reverse().map((m) => {
+        const msg = (m ?? {}) as Record<string, unknown>;
+        const author = (msg.author ?? {}) as Record<string, unknown>;
+        const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
+        return {
+            id: typeof msg.id === "string" ? msg.id : "",
+            author: typeof author.username === "string" ? author.username : "",
+            bot: author.bot === true,
+            content: typeof msg.content === "string" ? msg.content : "",
+            timestamp: typeof msg.timestamp === "string" ? msg.timestamp : "",
+            attachments: attachments
+                .map((a) => {
+                    const att = (a ?? {}) as Record<string, unknown>;
+                    return typeof att.url === "string" ? att.url : "";
+                })
+                .filter(Boolean),
+        };
+    });
+    return { text: JSON.stringify(messages) };
+}
+
 async function sendDiscordTyping(
     _userId: string,
     config: Record<string, string>,
@@ -259,6 +304,7 @@ async function sendTelegramTyping(
 const SENDERS: Record<string, SendFn> = {
     "discord-webhook": sendDiscordWebhook,
     "discord-send-message": sendDiscordMessage,
+    "discord-read-messages": readDiscordMessages,
     "discord-typing": sendDiscordTyping,
     "telegram-send-message": sendTelegramMessage,
     "telegram-typing": sendTelegramTyping,
