@@ -11,6 +11,7 @@ import {
     CATEGORY_STYLES,
     type CatalogEntry,
     entryStyles,
+    MODEL_PRESET,
     type NodeCategory,
 } from "@/lib/workflow";
 import EntryIcon from "./entryIcon";
@@ -68,7 +69,7 @@ function ModelChip({
                 e.preventDefault();
                 e.currentTarget.setPointerCapture(e.pointerId);
                 onSpawnStart("model", e.clientX, e.clientY, {
-                    config: { model: model.id, preset: "1" },
+                    config: { model: model.id, preset: MODEL_PRESET },
                     label: model.name,
                 });
             }}

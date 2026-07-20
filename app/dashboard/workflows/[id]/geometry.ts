@@ -17,8 +17,9 @@ export const PORT_ROW_H = 24;
 export const CONFIG_ROW_H = 36;
 export const TEXTAREA_ROW_H = 72; // h-[72px] textarea config rows
 
-// model nodes render as a circle (h-18 w-18) with a name strip (h-6) below;
-// node.tsx's circular branch must match these exactly too
+// model nodes render as a 54px circle (sized via inline width/height, not a
+// tailwind h-/w- class) with a name strip (h-6) below; node.tsx's circular
+// branch must match these exactly too
 export const MODEL_D = 54; // 3/4 of the old 72px circle
 export const MODEL_LABEL_H = 24;
 
@@ -147,7 +148,8 @@ export const variableWidth = (entry: CatalogEntry): number =>
     );
 
 // string box grows with content; height counts explicit lines only (the box
-// never soft-wraps — long lines scroll inside the max-width cap)
+// never soft-wraps — long lines are clipped at the max-width cap: node.tsx
+// renders the field with overflow-hidden + wrap="off")
 function literalMetrics(value: string): { width: number; height: number } {
     const lines = value.length ? value.split("\n") : [""];
     const widest = lines.reduce((m, l) => Math.max(m, l.length), 1);
@@ -224,6 +226,22 @@ export function anchorOffsetY(entry: CatalogEntry, node?: WorkflowNode): number 
     if (isChipEntry(entry)) return chipSize(entry) / 2;
     if (isLiteralEntry(entry) || isVariableEntry(entry)) return nodeHeight(entry, node) / 2;
     return HEADER_H + PORT_ROW_H / 2; // generic rect: first port row
+}
+
+// vertical offset from node.y to the point that should sit under the pointer
+// when a node is dropped from the toolbox — i.e. the node's grab CENTER. This
+// is deliberately a DIFFERENT quantity from anchorOffsetY: anchorOffsetY is the
+// primary-port axis (used for grid snapping so cross-shape edges stay flat),
+// while grabOffsetY is where the block visually centers under the cursor while
+// dragging. For round/square/if shapes that's the block's mid-height; generic
+// rectangles hang from their header (HEADER_H / 2), matching the old spawn
+// ladder in designer.tsx. Branch order mirrors anchorOffsetY.
+export function grabOffsetY(entry: CatalogEntry): number {
+    if (isModelEntry(entry)) return MODEL_D / 2;
+    if (isEventEntry(entry)) return EVENT_H / 2;
+    if (isChipEntry(entry)) return chipSize(entry) / 2;
+    if (isIfEntry(entry)) return IF_H / 2;
+    return HEADER_H / 2;
 }
 
 // centroid of the anchors this node's outputs connect to; null when the node

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import PopoverShell from "./popoverShell";
 
 // what the designer resolved for the extract node's upstream sample when the
 // picker was opened; contents stay frozen while the popover is up
@@ -11,8 +12,6 @@ export type PickerSample =
     | { kind: "too-large" } // above the parse cap
     | { kind: "json"; value: unknown };
 
-const PANEL_W = 320; // w-80
-const PANEL_MAX_H = 320; // max-h-80
 const MAX_CHILDREN = 100; // rendered per level; rest collapse into "+N more"
 const PREVIEW_CHARS = 40;
 
@@ -28,8 +27,9 @@ const isContainer = (v: unknown): v is object =>
 // key) can never be addressed, so its whole subtree is unpickable
 const addressable = (key: string) => key !== "" && !key.includes(".");
 
-// fixed-position popover anchored under the extract node's pick button; the
-// backdrop swallows canvas events (pan/zoom frozen) and closes on click
+// fixed-position popover anchored under the extract node's pick button; uses
+// the shared PopoverShell (measure-and-clamp positioning + backdrop that
+// swallows canvas events and closes on click)
 export default function PathPicker({
     anchor,
     sample,
@@ -41,11 +41,6 @@ export default function PathPicker({
     onPick: (path: string) => void;
     onClose: () => void;
 }) {
-    // clamp once at mount — the backdrop prevents the anchor from going stale
-    const [position] = useState(() => ({
-        left: Math.max(8, Math.min(anchor.x, window.innerWidth - PANEL_W - 8)),
-        top: Math.max(8, Math.min(anchor.y, window.innerHeight - PANEL_MAX_H - 8)),
-    }));
     // expanded container paths; root ("") starts open
     const [expanded, setExpanded] = useState<Set<string>>(() => new Set([""]));
 
@@ -117,35 +112,33 @@ export default function PathPicker({
     };
 
     return (
-        <>
-            <div className={"fixed inset-0 z-40"} onPointerDown={onClose} />
-            <div
-                style={position}
-                className={
-                    "fixed z-50 max-h-80 w-80 overflow-auto border border-foreground/15 bg-background p-1 font-mono text-xs shadow-lg"
-                }
-            >
-                {sample.kind === "no-edge" && (
-                    <p className={"p-2 text-gray-400"}>connect the value input first</p>
-                )}
-                {sample.kind === "no-sample" && (
-                    <p className={"p-2 text-gray-400"}>
-                        run the workflow once to sample the upstream output
+        <PopoverShell
+            anchor={anchor}
+            onClose={onClose}
+            className={
+                "max-h-80 w-80 overflow-auto border border-foreground/15 bg-background p-1 font-mono text-xs shadow-lg"
+            }
+        >
+            {sample.kind === "no-edge" && (
+                <p className={"p-2 text-gray-400"}>connect the value input first</p>
+            )}
+            {sample.kind === "no-sample" && (
+                <p className={"p-2 text-gray-400"}>
+                    run the workflow once to sample the upstream output
+                </p>
+            )}
+            {sample.kind === "too-large" && (
+                <p className={"p-2 text-gray-400"}>sample too large to browse</p>
+            )}
+            {sample.kind === "raw" && (
+                <div className={"p-2"}>
+                    <p className={"text-gray-400"}>upstream output is not JSON:</p>
+                    <p className={"mt-1 break-words text-gray-500"}>
+                        {sample.text.slice(0, 500)}
                     </p>
-                )}
-                {sample.kind === "too-large" && (
-                    <p className={"p-2 text-gray-400"}>sample too large to browse</p>
-                )}
-                {sample.kind === "raw" && (
-                    <div className={"p-2"}>
-                        <p className={"text-gray-400"}>upstream output is not JSON:</p>
-                        <p className={"mt-1 break-words text-gray-500"}>
-                            {sample.text.slice(0, 500)}
-                        </p>
-                    </div>
-                )}
-                {sample.kind === "json" && renderTree(sample.value, "", "", true)}
-            </div>
-        </>
+                </div>
+            )}
+            {sample.kind === "json" && renderTree(sample.value, "", "", true)}
+        </PopoverShell>
     );
 }

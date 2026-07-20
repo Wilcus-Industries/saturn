@@ -1,19 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import { MAX_GRANTED_TOOLS, parseToolExclusions } from "@/lib/agent";
 import type { CatalogEntry } from "@/lib/workflow";
-
-const PANEL_W = 288; // w-72
+import PopoverShell from "./popoverShell";
 
 // fixed-position popover anchored under an mcp server chip: cherry-pick which
-// of the server's tools this node grants. Same shell as cronPopover.tsx
-// (backdrop swallows canvas events and closes on click; position clamped once
-// at mount). Checked = granted; unchecking a tool adds its name to the node's
-// config.exclude (a JSON array string) — an exclude-list, so tools discovered
-// later are granted automatically unless pruned. Edits dispatch a transient
-// setConfig per toggle; the designer collapses the session into one undo step
-// on close (before/commit).
+// of the server's tools this node grants. Uses the shared PopoverShell
+// (measure-and-clamp positioning + backdrop that swallows canvas events and
+// closes on click). Checked = granted; unchecking a tool adds its name to the
+// node's config.exclude (a JSON array string) — an exclude-list, so tools
+// discovered later are granted automatically unless pruned. Edits dispatch a
+// transient setConfig per toggle; the designer collapses the session into one
+// undo step on close (before/commit).
 export default function ToolPickerPopover({
     anchor,
     entry,
@@ -27,12 +25,6 @@ export default function ToolPickerPopover({
     onChange: (nextExclude: string) => void;
     onClose: () => void;
 }) {
-    // 420 ≈ the panel's max height (header + note + max-h-64 list + footer),
-    // so an anchor near the viewport bottom flips the panel fully into view
-    const [position] = useState(() => ({
-        left: Math.max(8, Math.min(anchor.x, window.innerWidth - PANEL_W - 8)),
-        top: Math.max(8, Math.min(anchor.y, window.innerHeight - 420)),
-    }));
     const tools = entry.tools ?? [];
     // malformed stored value → treat as none excluded, matching the runtime's
     // fail-open grant-all; stale names (no longer on the server) drop from the
@@ -49,17 +41,16 @@ export default function ToolPickerPopover({
     };
 
     return (
-        <>
-            <div className={"fixed inset-0 z-40"} onPointerDown={onClose} />
-            <div
-                style={position}
-                className={
-                    "fixed z-50 flex w-72 flex-col gap-2 border border-foreground/15 bg-background p-3 font-mono text-xs shadow-lg"
-                }
-            >
-                <div className={"truncate text-[10px] uppercase tracking-wide text-gray-400"}>
-                    {entry.label}
-                </div>
+        <PopoverShell
+            anchor={anchor}
+            onClose={onClose}
+            className={
+                "flex w-72 flex-col gap-2 border border-foreground/15 bg-background p-3 font-mono text-xs shadow-lg"
+            }
+        >
+            <div className={"truncate text-[10px] uppercase tracking-wide text-gray-400"}>
+                {entry.label}
+            </div>
                 {tools.length === 0 ? (
                     <p className={"text-[10px] text-gray-400"}>
                         no enabled tools — enable them in settings
@@ -96,7 +87,6 @@ export default function ToolPickerPopover({
                         </p>
                     </>
                 )}
-            </div>
-        </>
+        </PopoverShell>
     );
 }

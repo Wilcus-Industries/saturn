@@ -336,6 +336,14 @@ export const MAX_NODES = 300;
 export const MAX_EDGES = 600;
 export const MAX_GRAPH_JSON = 262_144;
 
+// per-model toolbox chips spawn a plain "model" node carrying config.preset set
+// to this flag, which flips the node's name to read-only (the slug came from
+// the OpenRouter list, not free-typed — see node.tsx's model branch and
+// toolbox.tsx's ModelChip). Deliberately NOT declared as a ConfigField: a
+// ConfigField named "preset" would surface in the hosted MCP get_catalog and
+// leak an internal UI flag to external agents. Kept as a bare config key.
+export const MODEL_PRESET = "1";
+
 // header-only placeholder for a node whose catalog entry no longer exists
 // (deleted registry entry, or a node type removed from the static catalog);
 // no ports/config, so nodeHeight stays consistent with geometry.ts
@@ -352,75 +360,110 @@ export function missingEntry(type: string): CatalogEntry {
     return { key: type, category, label: "(deleted)", inputs: [], outputs: [], missing: true };
 }
 
-// literal Tailwind class strings (JIT can't see computed names) + raw hex for SVG edge strokes
+// literal Tailwind class strings (JIT can't see computed names) + raw hex for
+// SVG edge strokes. `borderL` is the left-accent class (generic rects/toolbox
+// chips); `border` is the full-perimeter class in the same hue (Phase 2 wires
+// it into the non-rectangular node shapes).
+type CategoryStyle = {
+    borderL: string;
+    border: string;
+    headerBg: string;
+    text: string;
+    edge: string;
+};
+
 export const CATEGORY_STYLES = {
     events: {
         borderL: "border-l-amber-500",
+        border: "border-amber-500/60",
         headerBg: "bg-amber-500/10",
         text: "text-amber-600 dark:text-amber-400",
         edge: "#f59e0b",
     },
     logic: {
         borderL: "border-l-blue-500",
+        border: "border-blue-500/60",
         headerBg: "bg-blue-500/10",
         text: "text-blue-600 dark:text-blue-400",
         edge: "#3b82f6",
     },
     data: {
         borderL: "border-l-teal-500",
+        border: "border-teal-500/60",
         headerBg: "bg-teal-500/10",
         text: "text-teal-600 dark:text-teal-400",
         edge: "#14b8a6",
     },
     mcp: {
         borderL: "border-l-purple-500",
+        border: "border-purple-500/60",
         headerBg: "bg-purple-500/10",
         text: "text-purple-600 dark:text-purple-400",
         edge: "#a855f7",
     },
     skill: {
         borderL: "border-l-green-500",
+        border: "border-green-500/60",
         headerBg: "bg-green-500/10",
         text: "text-green-600 dark:text-green-400",
         edge: "#22c55e",
     },
     memory: {
         borderL: "border-l-fuchsia-500",
+        border: "border-fuchsia-500/60",
         headerBg: "bg-fuchsia-500/10",
         text: "text-fuchsia-600 dark:text-fuchsia-400",
         edge: "#d946ef",
     },
     variable: {
         borderL: "border-l-violet-500",
+        border: "border-violet-500/60",
         headerBg: "bg-violet-500/10",
         text: "text-violet-600 dark:text-violet-400",
         edge: "#8b5cf6",
     },
     saturn: {
         borderL: "border-l-cyan-500",
+        border: "border-cyan-500/60",
         headerBg: "bg-cyan-500/10",
         text: "text-cyan-600 dark:text-cyan-400",
         edge: "#06b6d4",
     },
     model: {
         borderL: "border-l-rose-500",
+        border: "border-rose-500/60",
         headerBg: "bg-rose-500/10",
         text: "text-rose-600 dark:text-rose-400",
         edge: "#f43f5e",
     },
     integration: {
         borderL: "border-l-orange-500",
+        border: "border-orange-500/60",
         headerBg: "bg-orange-500/10",
         text: "text-orange-600 dark:text-orange-400",
         edge: "#f97316",
     },
-} as const satisfies Record<NodeCategory, { borderL: string; headerBg: string; text: string; edge: string }>;
+} as const satisfies Record<NodeCategory, CategoryStyle>;
 
-// an entry's colors: its own category, unless it declares a `section` to borrow
-// from (integration nodes mirror their Blocks section — a discord webhook in
-// "data" paints teal like the print node). Prefer this over indexing
-// CATEGORY_STYLES by entry.category directly, or integrations lose their color.
-export const entryStyles = (entry: CatalogEntry) => CATEGORY_STYLES[entry.section ?? entry.category];
+// gray styling for "(deleted)" placeholder nodes (missingEntry). A dedicated
+// neutral palette so a missing registry entry reads as inert — this frees
+// orange to mean integration again (missing integration nodes used to borrow
+// CATEGORY_STYLES.integration's orange).
+export const MISSING_STYLES = {
+    borderL: "border-l-gray-400",
+    border: "border-gray-400/60",
+    headerBg: "bg-gray-400/10",
+    text: "text-gray-500 dark:text-gray-400",
+    edge: "#9ca3af",
+} as const satisfies CategoryStyle;
+
+// an entry's colors: gray for a "(deleted)" placeholder, else its own category
+// unless it declares a `section` to borrow from (integration nodes mirror their
+// Blocks section — a discord webhook in "data" paints teal like the print
+// node). Prefer this over indexing CATEGORY_STYLES by entry.category directly,
+// or integrations lose their color and missing nodes lose their gray.
+export const entryStyles = (entry: CatalogEntry): CategoryStyle =>
+    entry.missing ? MISSING_STYLES : CATEGORY_STYLES[entry.section ?? entry.category];
 
 type PortRef = { nodeId: string; portId: string };
 

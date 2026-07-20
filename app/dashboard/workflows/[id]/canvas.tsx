@@ -42,6 +42,15 @@ type View = { x: number; y: number; zoom: number };
 
 const CLICK_SLOP = 4; // px of movement below which a gesture counts as a click
 
+// zoom bounds. The wheel handler clamps to [ZOOM_MIN, ZOOM_MAX]. Zoom-to-fit
+// never scales past FIT_MAX_ZOOM (1:1) even when a small graph could grow to
+// fill the viewport — magnifying a tiny graph to fill the screen reads as
+// broken, so fit only ever shrinks to fit, never enlarges. Deliberate policy,
+// not a stray constant.
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 2;
+const FIT_MAX_ZOOM = 1;
+
 // gesture state lives in a ref: rect and start coords are cached at
 // pointerdown (never re-measured per move)
 // resolve an agent node's effective model slug. Mirrors the interpreter's
@@ -176,9 +185,9 @@ export default function Canvas({
         const rect = el.getBoundingClientRect();
         const pad = 48;
         const zoom = Math.min(
-            1,
+            FIT_MAX_ZOOM,
             Math.max(
-                0.25,
+                ZOOM_MIN,
                 Math.min(
                     (rect.width - pad * 2) / (maxX - minX),
                     (rect.height - pad * 2) / (maxY - minY),
@@ -227,7 +236,7 @@ export default function Canvas({
             // pinch arrives as wheel+ctrlKey with small deltas — stronger factor
             const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.001));
             setView((v) => {
-                const zoom = Math.min(2, Math.max(0.25, v.zoom * factor));
+                const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, v.zoom * factor));
                 // keep the world point under the cursor fixed
                 return {
                     x: px - ((px - v.x) / v.zoom) * zoom,

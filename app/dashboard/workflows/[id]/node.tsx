@@ -12,6 +12,7 @@ import {
     type CatalogEntry,
     type ConfigField,
     entryStyles,
+    MODEL_PRESET,
     type PortKind,
     type PortSpec,
     type WorkflowGraph,
@@ -99,7 +100,7 @@ export type OpenToolsHandler = (
 // band's height comes straight from HEADER_H, h-6 port rows = PORT_ROW_H 24,
 // h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
-// bottom pad. Model nodes render circular: h-18 w-18 = MODEL_D 72 plus an
+// bottom pad. Model nodes render circular: MODEL_D 54 plus an
 // h-6 name strip = MODEL_LABEL_H 24. Input-less event nodes (schedule) render
 // circular too: h-12 w-12 = EVENT_H 48 × EVENT_W 48 plus an h-6 label strip =
 // EVENT_LABEL_H 24. Change sizes only via geometry.ts. Frames come from NodeFrame (an inset
@@ -330,14 +331,14 @@ export default memo(function Node({
         </button>
     );
 
-    // model nodes render as a circle (h-18 w-18 = MODEL_D 72, h-6 name strip
-    // = MODEL_LABEL_H 24) — the single value output anchors on the circle's
+    // model nodes render as a circle (MODEL_D 54, h-6 name strip =
+    // MODEL_LABEL_H 24) — the single value output anchors on the circle's
     // right-edge midpoint per geometry.ts. Nodes spawned from a per-model
-    // toolbox chip carry config.preset = "1" and show a read-only name;
-    // without it (blank chip, legacy graphs) the slug stays editable.
+    // toolbox chip carry config.preset = MODEL_PRESET and show a read-only
+    // name; without it (blank chip, legacy graphs) the slug stays editable.
     if (isModelEntry(entry)) {
         const output = entry.outputs[0];
-        const readOnly = node.config.preset === "1";
+        const readOnly = node.config.preset === MODEL_PRESET;
         const name = node.config.model || entry.label;
         // the author prefix ("openai/…") eats the narrow strip — show only
         // the model segment; the full slug stays in the title tooltip

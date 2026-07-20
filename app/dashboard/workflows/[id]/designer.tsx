@@ -33,16 +33,10 @@ import type { PendingEdge } from "./edges";
 import EntryIcon from "./entryIcon";
 import {
     anchorOffsetY,
-    chipSize,
-    EVENT_H,
     GRID,
+    grabOffsetY,
     HEADER_H,
-    IF_H,
-    isChipEntry,
-    isEventEntry,
-    isIfEntry,
     isModelEntry,
-    MODEL_D,
     NODE_W,
     nodeWidth,
 } from "./geometry";
@@ -155,6 +149,23 @@ export default function Designer({
     const dirty = useMemo(() => JSON.stringify(present) !== savedJson, [present, savedJson]);
 
     const [error, setError] = useState<string | null>(null);
+
+    // transient toast: a bottom-center monospace pill that auto-dismisses after
+    // ~2.5s; a fresh notify() replaces whatever is showing. The primitive lives
+    // here so later phases can surface invalid-drop / replaced-connection /
+    // failed-spawn feedback (Phase 3/5 consume it) without threading new props
+    // through the memoized Node. Never persisted — dies with the page.
+    const [toast, setToast] = useState<string | null>(null);
+    const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- primitive added this phase; consumed by later phases (invalid-drop / replaced-connection / failed-spawn toasts)
+    const notify = useCallback((text: string) => {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setToast(text);
+        toastTimerRef.current = setTimeout(() => setToast(null), 2500);
+    }, []);
+    useEffect(() => () => {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    }, []);
 
     // test-run output; null = console hidden (never run, or closed)
     const [consoleLines, setConsoleLines] = useState<ConsoleLine[] | null>(null);
@@ -278,18 +289,10 @@ export default function Designer({
             const snap = (value: number) => Math.round(value / GRID) * GRID;
             // rectangles drop with the header centered under the pointer;
             // model circles / event blocks / grant chips center the block itself
+            // (grabOffsetY encodes the per-shape grab center — see geometry.ts)
             const entry = byKey[spawnKey];
             const w = entry ? nodeWidth(entry) : NODE_W;
-            const dy =
-                entry && isModelEntry(entry)
-                    ? MODEL_D / 2
-                    : entry && isEventEntry(entry)
-                      ? EVENT_H / 2
-                      : entry && isChipEntry(entry)
-                        ? chipSize(entry) / 2
-                        : entry && isIfEntry(entry)
-                          ? IF_H / 2
-                          : HEADER_H / 2;
+            const dy = entry ? grabOffsetY(entry) : HEADER_H / 2;
             // fresh object per spawn — never share a mutable config; catalog
             // field defaults seed first, a toolbox preset wins
             const config = { ...(entry ? defaultNodeConfig(entry) : {}), ...(preset ?? {}) };
@@ -722,6 +725,18 @@ export default function Designer({
                         <EntryIcon entry={spawnEntry} />
                     )}
                     <span>{spawn.label ?? spawnEntry.label}</span>
+                </div>
+            )}
+
+            {/* transient bottom-center toast (notify) */}
+            {toast && (
+                <div
+                    role={"status"}
+                    className={
+                        "pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 border border-foreground/20 bg-background px-3 py-1.5 font-mono text-xs text-foreground shadow-lg"
+                    }
+                >
+                    {toast}
                 </div>
             )}
         </div>
