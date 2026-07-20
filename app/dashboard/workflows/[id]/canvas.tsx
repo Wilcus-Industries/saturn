@@ -139,6 +139,9 @@ export default function Canvas({
     dispatch,
     pending,
     drag,
+    selectedEdgeId,
+    onSelectEdge,
+    onDeleteEdge,
     modelModalities,
     modelReasoning,
     onPortPointerDown,
@@ -156,9 +159,17 @@ export default function Canvas({
     byKey: Record<string, CatalogEntry>;
     selection: Set<string>;
     selectionRef: RefObject<Set<string>>;
+    // node-selection setter, wrapped in the designer to also clear the edge
+    // selection (node/edge selection are mutually exclusive)
     setSelection: Dispatch<SetStateAction<Set<string>>>;
     dispatch: Dispatch<GraphAction>;
     pending: PendingEdge | null;
+    // the currently selected edge (or null) — forwarded to Edges for its
+    // selected stroke + persistent × button
+    selectedEdgeId: string | null;
+    // stable designer callbacks: select an edge (clears node selection) / delete
+    onSelectEdge: (id: string) => void;
+    onDeleteEdge: (id: string) => void;
     // fixed origin of the in-flight edge drag (null when none) — drives the
     // honest per-port connectable highlighting; stable across the drag
     drag: PendingDrag | null;
@@ -430,7 +441,14 @@ export default function Canvas({
                 }}
             >
                 {/* edges render under the nodes */}
-                <Edges graph={graph} byKey={byKey} pending={pending} dispatch={dispatch} />
+                <Edges
+                    graph={graph}
+                    byKey={byKey}
+                    pending={pending}
+                    selectedEdgeId={selectedEdgeId}
+                    onSelect={onSelectEdge}
+                    onDelete={onDeleteEdge}
+                />
                 {graph.nodes.map((node) => {
                     const entry = byKey[node.type];
                     if (!entry) return null;

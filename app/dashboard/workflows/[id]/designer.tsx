@@ -1,6 +1,8 @@
 "use client";
 
 import {
+    type Dispatch,
+    type SetStateAction,
     useCallback,
     useEffect,
     useMemo,
@@ -138,6 +140,22 @@ export default function Designer({
 
     // selection lives outside history so undo/redo doesn't thrash it
     const [selection, setSelection] = useState<Set<string>>(new Set());
+    // the selected edge (null = none). Node and edge selection are mutually
+    // exclusive: every node-selection change routes through selectNodes, which
+    // also clears the edge; selectEdge does the reverse. An edge click selects
+    // it (no longer instant-deletes); Delete/Backspace or the midpoint × removes.
+    const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+    const selectNodes = useCallback<Dispatch<SetStateAction<Set<string>>>>((update) => {
+        setSelectedEdgeId(null);
+        setSelection(update);
+    }, []);
+    const selectEdge = useCallback((id: string) => {
+        setSelectedEdgeId(id);
+        setSelection(new Set());
+    }, []);
+    const deleteEdge = useCallback((id: string) => {
+        dispatch({ type: "deleteEdge", id });
+    }, []);
 
     // saved snapshot as state (not a ref) so a successful save re-renders
     // the dirty indicator immediately
@@ -251,6 +269,10 @@ export default function Designer({
         const alive = new Set(present.nodes.map((n) => n.id));
         const kept = [...selection].filter((id) => alive.has(id));
         if (kept.length !== selection.size) setSelection(new Set(kept));
+        // drop a stale edge selection (edge deleted, or its node removed)
+        if (selectedEdgeId && !present.edges.some((e) => e.id === selectedEdgeId)) {
+            setSelectedEdgeId(null);
+        }
         if (error) setError(null);
     }
 
@@ -625,7 +647,7 @@ export default function Designer({
                 to: { ...e.to, nodeId: idMap.get(e.to.nodeId)! },
             }));
         dispatch({ type: "addNodes", nodes, edges });
-        setSelection(new Set(nodes.map((n) => n.id)));
+        selectNodes(new Set(nodes.map((n) => n.id)));
     };
 
     // one window keydown handler; re-attached each render so it always sees
@@ -648,7 +670,9 @@ export default function Designer({
                 return;
             }
             if (e.key === "Backspace" || e.key === "Delete") {
-                if (selection.size) dispatch({ type: "deleteNodes", ids: [...selection] });
+                // a selected edge deletes first — before the node fall-through
+                if (selectedEdgeId) dispatch({ type: "deleteEdge", id: selectedEdgeId });
+                else if (selection.size) dispatch({ type: "deleteNodes", ids: [...selection] });
             } else if (mod && key === "z") {
                 e.preventDefault();
                 dispatch({ type: e.shiftKey ? "redo" : "undo" });
@@ -657,7 +681,7 @@ export default function Designer({
                 dispatch({ type: "redo" });
             } else if (mod && key === "a") {
                 e.preventDefault();
-                setSelection(new Set(present.nodes.map((n) => n.id)));
+                selectNodes(new Set(present.nodes.map((n) => n.id)));
             } else if (mod && key === "d") {
                 e.preventDefault();
                 duplicateSelection();
@@ -678,6 +702,7 @@ export default function Designer({
                     setPendingDrag(null);
                     setPendingPoint(null);
                 } else if (spawn) setSpawn(null);
+                else if (selectedEdgeId) setSelectedEdgeId(null);
                 else setSelection(new Set());
             }
         };
@@ -719,10 +744,13 @@ export default function Designer({
                     byKey={byKey}
                     selection={selection}
                     selectionRef={selectionRef}
-                    setSelection={setSelection}
+                    setSelection={selectNodes}
                     dispatch={dispatch}
                     pending={pendingEdge}
                     drag={pendingDrag}
+                    selectedEdgeId={selectedEdgeId}
+                    onSelectEdge={selectEdge}
+                    onDeleteEdge={deleteEdge}
                     modelModalities={modelModalities}
                     modelReasoning={modelReasoning}
                     onPortPointerDown={startEdgeDrag}
