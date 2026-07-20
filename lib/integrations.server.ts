@@ -317,10 +317,17 @@ const SENDERS: Record<string, SendFn> = {
 // variable) stay literal — the per-provider validators then reject them with
 // their normal error, no oracle. Runs before the senders so their SSRF
 // regexes (bot token, chat id, webhook URL) see the substituted value.
+// Exported for lib/events.server.ts, which resolves event-node config
+// (variable-fed bot tokens) at subscription-build time.
 const VAR_SENTINEL =
     /\{\{var:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}\}/gi;
 
-async function substituteVariables(
+// fresh non-global regex per call — .test on the shared /g regex would
+// mutate its lastIndex and corrupt later matchAll passes
+export const hasUnresolvedVariable = (text: string): boolean =>
+    new RegExp(VAR_SENTINEL.source, "i").test(text);
+
+export async function substituteVariables(
     userId: string,
     config: Record<string, string>,
     message: string,

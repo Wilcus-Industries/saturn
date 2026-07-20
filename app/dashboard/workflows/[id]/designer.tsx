@@ -49,14 +49,12 @@ import {
 import ModelLogo from "./modelLogo";
 import { graphReducer, initHistory } from "./graphReducer";
 import type {
-    OpenConfigHandler,
     OpenCronHandler,
     OpenPickerHandler,
     OpenToolsHandler,
     PortPointerDownHandler,
 } from "./node";
 import CronPopover from "./cronPopover";
-import ConfigPopover from "./configPopover";
 import ToolPickerPopover from "./toolPickerPopover";
 import { describeCron } from "@/lib/cron";
 import PathPicker, { type PickerSample } from "./pathPicker";
@@ -447,29 +445,6 @@ export default function Designer({
         setCronEdit(null);
     };
 
-    // event-node config popover: same before/commit undo coalescing as
-    // the cron popover — one undo step for the whole editing session
-    const [configEdit, setConfigEdit] = useState<{
-        nodeId: string;
-        anchor: { x: number; y: number };
-        before: WorkflowGraph;
-    } | null>(null);
-
-    const openConfig: OpenConfigHandler = useCallback((anchor, nodeId) => {
-        setConfigEdit({ nodeId, anchor, before: graphRef.current });
-    }, []);
-
-    const handleConfigChange = (field: string, value: string) => {
-        setConfigEdit((cur) => {
-            if (cur) dispatch({ type: "setConfig", nodeId: cur.nodeId, field, value });
-            return cur;
-        });
-    };
-    const closeConfig = () => {
-        if (configEdit) dispatch({ type: "commitConfig", before: configEdit.before });
-        setConfigEdit(null);
-    };
-
     // mcp-server-node tool picker popover: same before/commit undo coalescing
     // as the cron popover — one undo step for the whole editing session
     const [toolsEdit, setToolsEdit] = useState<{
@@ -626,7 +601,6 @@ export default function Designer({
                 dispatch({ type: "commitDrag", before });
             } else if (e.key === "Escape") {
                 if (cronEdit) closeCron();
-                else if (configEdit) closeConfig();
                 else if (toolsEdit) closeTools();
                 else if (picker) setPicker(null);
                 else if (pendingDrag) {
@@ -681,7 +655,6 @@ export default function Designer({
                     onPortPointerDown={startEdgeDrag}
                     onOpenPicker={openPicker}
                     onOpenCron={openCron}
-                    onOpenConfig={openConfig}
                     onOpenTools={openTools}
                 />
             </div>
@@ -714,39 +687,6 @@ export default function Designer({
                     onClose={closeCron}
                 />
             )}
-
-            {configEdit &&
-                (() => {
-                    const node = present.nodes.find((n) => n.id === configEdit.nodeId);
-                    const entry = node ? byKey[node.type] : undefined;
-                    if (!node || !entry) return null;
-                    // config fields whose value port is connected — dimmed as
-                    // overridden (mirrors the canvas's per-node computation)
-                    const valueTargets = new Set(
-                        present.edges
-                            .filter((e) => e.kind === "value")
-                            .map((e) => `${e.to.nodeId}:${e.to.portId}`),
-                    );
-                    const overriddenIds =
-                        entry.config
-                            ?.filter(
-                                (f) =>
-                                    f.overriddenBy !== undefined &&
-                                    valueTargets.has(`${node.id}:${f.overriddenBy}`),
-                            )
-                            .map((f) => f.id)
-                            .join(",") ?? "";
-                    return (
-                        <ConfigPopover
-                            anchor={configEdit.anchor}
-                            entry={entry}
-                            config={node.config}
-                            overriddenIds={overriddenIds}
-                            onChange={handleConfigChange}
-                            onClose={closeConfig}
-                        />
-                    );
-                })()}
 
             {toolsEdit &&
                 (() => {

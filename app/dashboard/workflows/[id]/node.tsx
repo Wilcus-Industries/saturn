@@ -88,13 +88,6 @@ export type OpenCronHandler = (
     nodeId: string,
 ) => void;
 
-// a platform event node opens its config popover when clicked (press with no
-// drag); the anchor is the node's client-space bottom-left corner, like cron
-export type OpenConfigHandler = (
-    anchor: { x: number; y: number },
-    nodeId: string,
-) => void;
-
 // an mcp server chip opens the tool picker popover when clicked (press with
 // no drag); the anchor is the node's client-space bottom-left corner, like cron
 export type OpenToolsHandler = (
@@ -107,9 +100,9 @@ export type OpenToolsHandler = (
 // h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
 // bottom pad. Model nodes render circular: h-18 w-18 = MODEL_D 72 plus an
-// h-6 name strip = MODEL_LABEL_H 24. Event nodes render circular too:
-// h-12 w-12 = EVENT_H 48 × EVENT_W 48 plus an h-6 label strip = EVENT_LABEL_H
-// 24. Change sizes only via geometry.ts. Frames come from NodeFrame (an inset
+// h-6 name strip = MODEL_LABEL_H 24. Input-less event nodes (schedule) render
+// circular too: h-12 w-12 = EVENT_H 48 × EVENT_W 48 plus an h-6 label strip =
+// EVENT_LABEL_H 24. Change sizes only via geometry.ts. Frames come from NodeFrame (an inset
 // overlay) — a real `border` on a node box would shift its ports off those
 // metrics; see nodeFrame.tsx.
 
@@ -147,7 +140,6 @@ export default memo(function Node({
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
-    onOpenConfig,
     onOpenTools,
 }: {
     node: WorkflowNode;
@@ -182,7 +174,6 @@ export default memo(function Node({
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
-    onOpenConfig?: OpenConfigHandler;
     onOpenTools?: OpenToolsHandler;
 }) {
     const styles = entryStyles(entry);
@@ -431,15 +422,14 @@ export default memo(function Node({
         );
     }
 
-    // event nodes render as a circle (h-12 w-12 = EVENT_H × EVENT_W, h-6 label
-    // strip = EVENT_LABEL_H) with the icon centered and the label underneath.
-    // A schedule event carries only a flow output (right-edge midpoint);
-    // platform events (a Discord mention) add a "payload" value output on the
-    // bottom edge — each anchors per geometry.ts. Icon: the platform favicon (logoDomain), else the emoji,
-    // else the ▶ fallback.
+    // event circles (h-12 w-12 = EVENT_H × EVENT_W, h-6 label strip =
+    // EVENT_LABEL_H) — only input-less event entries (schedule, legacy start;
+    // see geometry's isEventEntry): icon centered, label underneath, a single
+    // flow output anchored per geometry.ts. Platform events carry config-port
+    // inputs and render as generic rectangles below. Icon: the platform
+    // favicon (logoDomain), else the emoji, else the ▶ fallback.
     if (isEventEntry(entry)) {
         const flowOut = entry.outputs.find((p) => p.kind === "flow");
-        const payloadOut = entry.outputs.find((p) => p.kind !== "flow");
         // a schedule event carries a cron config field, authored via the cron
         // popover (not an inline field); the label strip shows its humanized
         // schedule so the node reads "daily at 09:00" under the clock
@@ -450,25 +440,19 @@ export default memo(function Node({
                 ? describeCron(cron)
                 : "not scheduled"
             : entry.label;
-        // a click routes to the cron popover for a schedule, else to the generic
-        // config popover when the event has any config fields (a platform
-        // event's bot token / filters), else nothing — the node just drags
-        const clickOpens: "cron" | "config" | null = hasCron
-            ? "cron"
-            : entry.config?.length
-              ? "config"
-              : null;
+        // a click opens the cron popover for a schedule; otherwise the node
+        // just drags
+        const clickOpens = hasCron;
 
         // a press that stayed under the drag threshold is a click → open the
-        // relevant popover
+        // cron popover
         const eventEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
             const wasClick = !!dragRef.current && !dragRef.current.active;
             endDrag();
             if (!wasClick) return;
             const r = e.currentTarget.getBoundingClientRect();
             const anchor = { x: r.left, y: r.bottom + 4 };
-            if (clickOpens === "cron" && onOpenCron) onOpenCron(anchor, node.id);
-            else if (clickOpens === "config" && onOpenConfig) onOpenConfig(anchor, node.id);
+            if (onOpenCron) onOpenCron(anchor, node.id);
         };
 
         // per-port "portId=lx,ly" local anchors from the canvas (rotated toward
@@ -523,7 +507,6 @@ export default memo(function Node({
                 </div>
                 {/* ports on the borderless outer box — see the model branch */}
                 {flowOut && at(flowOut, [EVENT_W, EVENT_H / 2])}
-                {payloadOut && at(payloadOut, [EVENT_W / 2, EVENT_H])}
                 {/* strip is wider than the circle (EVENT_LABEL_W, centered via
                     negative margin) so multi-word labels fit — render-only,
                     ports/edges anchor on the circle above */}

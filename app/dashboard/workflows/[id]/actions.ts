@@ -109,6 +109,9 @@ export async function saveVariable(formData: FormData): Promise<ActionResult> {
     }
 
     invalidateUserRegistry(session.user.id);
+    // a variable may feed an event node's bot token — reconnect transports
+    // now instead of waiting out the 60s reconciliation poll
+    subscriptionsChanged();
 }
 
 export async function deleteVariable(formData: FormData): Promise<ActionResult> {
@@ -121,6 +124,7 @@ export async function deleteVariable(formData: FormData): Promise<ActionResult> 
         [id, session.user.id],
     );
     invalidateUserRegistry(session.user.id);
+    subscriptionsChanged();
 }
 
 // executes one MCP tool for a designer test run. Returns errors as values

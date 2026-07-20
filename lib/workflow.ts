@@ -301,16 +301,21 @@ export const CATALOG: CatalogEntry[] = [
     })),
 
     // extension events — inbound trigger nodes generated from the platform
-    // descriptors in lib/integrations.ts (a Discord mention etc.). They render
-    // like the schedule node (events category → circle), but delivery is
-    // real-time via the in-process gateway; the single "payload" value port carries the
-    // event as a JSON string. No `section` — unlike integration actions they
-    // paint with the events color, and the `group` heads their Apps subsection.
+    // descriptors in lib/integrations.ts (a Discord mention etc.). Delivery is
+    // real-time via the in-process gateway; the single "payload" value port
+    // carries the event as a JSON string. They render as normal rectangular
+    // nodes (no flow input — events are entry points) with one value input per
+    // config field, mirroring integration actions, so tokens/filters can be
+    // wired from variable/string nodes — resolved statically by
+    // getEventSubscriptions, never by the interpreter. No `section` — unlike
+    // integration actions they paint with the events color, and the `group`
+    // heads their Apps subsection.
     ...EXTENSION_EVENTS.map((e): CatalogEntry => ({
         key: eventNodeKey(e.id), category: "events", label: e.label,
         group: e.app, logoDomain: e.logoDomain, emoji: e.emoji,
-        inputs: [], outputs: [flowOut, v("payload")],
-        config: e.config,
+        inputs: e.config.map((f) => v(f.id, f.label)),
+        outputs: [flowOut, v("payload")],
+        config: e.config.map((f) => ({ ...f, overriddenBy: f.id })),
     })),
 ];
 // mcp and skill nodes come exclusively from the user registry (lib/registry.ts)
@@ -698,17 +703,38 @@ export function validateGraphStrict(
     }
 
     // extension event nodes never fire without their required config (e.g. a
-    // Discord "mentioned" node with a blank bot token)
+    // Discord "mentioned" node with a blank bot token) — a port-fed field is
+    // fine, same as integrations
     for (const node of graph.nodes) {
         if (!node.type.startsWith(EVENT_PREFIX)) continue;
         const event = EXTENSION_EVENTS_BY_KEY[node.type];
         if (!event) continue; // unknown-type warning already covers it
         for (const field of event.requiredConfig) {
-            if (!(node.config[field] ?? "").trim()) {
+            if (!(node.config[field] ?? "").trim() && !fedPorts.has(`${node.id}:${field}`)) {
                 warnings.push(
                     `${event.label} "${node.id}" has no ${field} — the run will fail`,
                 );
             }
+        }
+    }
+
+    // event config is read statically by the always-on listener before any run
+    // (getEventSubscriptions), so only variable/string/number sources can feed
+    // an event config port — a dynamic source silently resolves to blank
+    const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
+    for (const edge of graph.edges) {
+        if (edge.kind !== "value") continue;
+        const toNode = nodeById.get(edge.to.nodeId);
+        if (!toNode?.type.startsWith(EVENT_PREFIX)) continue;
+        if (!EXTENSION_EVENTS_BY_KEY[toNode.type]) continue;
+        const src = nodeById.get(edge.from.nodeId);
+        if (!src) continue; // dangling-endpoint error already covers it
+        const srcEntry = known(src);
+        if (!srcEntry) continue; // unknown-type warning already covers it
+        if (srcEntry.category !== "variable" && !STATIC_VALUE_TYPES.has(src.type)) {
+            warnings.push(
+                `event node "${toNode.id}": port "${edge.to.portId}" is fed by a ${srcEntry.label} node — event config resolves before any run, so only variable/string/number sources apply; this edge is ignored`,
+            );
         }
     }
 

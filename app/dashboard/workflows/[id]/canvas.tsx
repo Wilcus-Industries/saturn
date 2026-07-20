@@ -26,7 +26,6 @@ import {
 } from "./geometry";
 import type { GraphAction } from "./graphReducer";
 import Node, {
-    type OpenConfigHandler,
     type OpenCronHandler,
     type OpenPickerHandler,
     type OpenToolsHandler,
@@ -116,7 +115,6 @@ export default function Canvas({
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
-    onOpenConfig,
     onOpenTools,
     ref,
 }: {
@@ -137,7 +135,6 @@ export default function Canvas({
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
-    onOpenConfig?: OpenConfigHandler;
     onOpenTools?: OpenToolsHandler;
     ref?: Ref<CanvasHandle>;
 }) {
@@ -397,7 +394,7 @@ export default function Canvas({
                     // chip/model output anchor, rotated toward the agent it
                     // feeds — a "lx,ly" local offset so Node's memo can compare
                     // it as a string (matches the edge anchor from geometry).
-                    // Event circles pivot their flow/payload outputs, so they
+                    // Event circles (schedule) pivot their flow output, so they
                     // carry a "portId=lx,ly;…" map instead of a single pair.
                     let outAnchor = "";
                     if (
@@ -441,7 +438,6 @@ export default function Canvas({
                             onPortPointerDown={onPortPointerDown}
                             onOpenPicker={onOpenPicker}
                             onOpenCron={onOpenCron}
-                            onOpenConfig={onOpenConfig}
                             onOpenTools={onOpenTools}
                         />
                     );

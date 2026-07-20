@@ -91,8 +91,11 @@ export const IF_H = IF_HEADER_H + IF_BODY_H;
 export const isModelEntry = (entry: CatalogEntry): boolean =>
     entry.category === "model" && !entry.missing;
 
+// event circles are the input-less event entries (schedule, legacy start);
+// extension event nodes carry per-config value inputs and render as generic
+// rectangles like integration actions
 export const isEventEntry = (entry: CatalogEntry): boolean =>
-    entry.category === "events" && !entry.missing;
+    entry.category === "events" && !entry.missing && entry.inputs.length === 0;
 
 // the if node renders as a compact square (see IF_W/IF_H); only the real if
 // catalog entry, never a missing placeholder mapped to "logic"
@@ -313,25 +316,15 @@ export function portGeometry(
         return { x: cx + (r * vx) / len, y: cy + (r * vy) / len, nx: vx / len, ny: vy / len };
     }
 
-    // event circle: each output rides the circle perimeter toward the node it
-    // feeds — like the integration branch, extended to two outputs. Unconnected,
-    // each falls back to its home edge: the flow "out" on the right, the
-    // "payload" value out on the bottom. The schedule/start events carry only
-    // the flow output, so they resolve to the right-edge midline as before. No
-    // inputs — the left branch is defensive.
+    // event circle (schedule/legacy start — flow "out" only): the output rides
+    // the circle perimeter toward the node it feeds, like the model branch.
+    // Unconnected, it falls back to the right-edge midline.
     if (isEventEntry(entry)) {
         const r = EVENT_W / 2;
         const cx = node.x + r;
         const cy = node.y + EVENT_H / 2;
-        if (entry.inputs.some((p) => p.id === portId))
-            return { x: node.x, y: cy, nx: -1, ny: 0 };
-        const out = entry.outputs.find((p) => p.id === portId);
-        const home: PortGeometry =
-            out && out.kind !== "flow"
-                ? { x: cx, y: node.y + EVENT_H, nx: 0, ny: 1 } // payload value out on the bottom
-                : { x: node.x + EVENT_W, y: cy, nx: 1, ny: 0 }; // flow out on the right
         const peer = graph && byKey ? portPeerCentroid(node, portId, false, graph, byKey) : null;
-        if (!peer) return home;
+        if (!peer) return { x: node.x + EVENT_W, y: cy, nx: 1, ny: 0 };
         const vx = peer.x - cx;
         const vy = peer.y - cy;
         const len = Math.hypot(vx, vy) || 1;

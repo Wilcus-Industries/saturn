@@ -7,7 +7,7 @@ import type { CatalogEntry } from "@/lib/workflow";
 const PANEL_W = 288; // w-72
 
 // fixed-position popover anchored under an mcp server chip: cherry-pick which
-// of the server's tools this node grants. Same shell as configPopover.tsx
+// of the server's tools this node grants. Same shell as cronPopover.tsx
 // (backdrop swallows canvas events and closes on click; position clamped once
 // at mount). Checked = granted; unchecking a tool adds its name to the node's
 // config.exclude (a JSON array string) — an exclude-list, so tools discovered
