@@ -27,8 +27,10 @@ import {
 import type { GraphAction } from "./graphReducer";
 import Node, {
     type OpenCronHandler,
+    type OpenInfoHandler,
     type OpenPickerHandler,
     type OpenToolsHandler,
+    type OpenVariableHandler,
     type PortPointerDownHandler,
 } from "./node";
 
@@ -125,6 +127,8 @@ export default function Canvas({
     onOpenPicker,
     onOpenCron,
     onOpenTools,
+    onOpenInfo,
+    onOpenVariable,
     ref,
 }: {
     graph: WorkflowGraph;
@@ -145,6 +149,8 @@ export default function Canvas({
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
     onOpenTools?: OpenToolsHandler;
+    onOpenInfo?: OpenInfoHandler;
+    onOpenVariable?: OpenVariableHandler;
     ref?: Ref<CanvasHandle>;
 }) {
     const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
@@ -448,6 +454,8 @@ export default function Canvas({
                             onOpenPicker={onOpenPicker}
                             onOpenCron={onOpenCron}
                             onOpenTools={onOpenTools}
+                            onOpenInfo={onOpenInfo}
+                            onOpenVariable={onOpenVariable}
                         />
                     );
                 })}

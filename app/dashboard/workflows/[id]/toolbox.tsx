@@ -16,7 +16,7 @@ import {
 } from "@/lib/workflow";
 import EntryIcon from "./entryIcon";
 import ModelLogo from "./modelLogo";
-import VariableModal, { type VariableRow } from "./variableModal";
+import type { VariableRow } from "./variableModal";
 
 const SECTIONS: { category: NodeCategory; heading: string }[] = [
     { category: "events", heading: "events" },
@@ -131,6 +131,7 @@ export default function Toolbox({
     variables,
     openrouterModels,
     onSpawnStart,
+    onEditVariable,
     hasEvent,
 }: {
     userCatalog: CatalogEntry[];
@@ -140,14 +141,16 @@ export default function Toolbox({
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
     onSpawnStart: SpawnStart;
+    // open the secret-variable modal — "new" (the +add row) or an existing row
+    // to edit. The modal itself is hosted by the designer (a variable node on
+    // the canvas opens it too), so the toolbox only signals intent.
+    onEditVariable: (target: VariableRow | "new") => void;
     // a workflow may hold only one event node — event chips disable once the
     // graph already has one
     hasEvent: boolean;
 }) {
     const [group, setGroup] = useState("blocks");
     const active = GROUPS.find((g) => g.id === group) ?? GROUPS[0];
-    // secret-variable modal: "new" or the row being edited; null = closed
-    const [variableModal, setVariableModal] = useState<VariableRow | "new" | null>(null);
 
     // registered servers can carry dozens of tools each — filter by node
     // label, app name, or a server's tool names (find the server that has
@@ -389,7 +392,7 @@ export default function Toolbox({
                     </h2>
                     <button
                         type={"button"}
-                        onClick={() => setVariableModal("new")}
+                        onClick={() => onEditVariable("new")}
                         className={
                             "text-[10px] text-gray-400 transition-colors duration-200 hover:text-foreground"
                         }
@@ -424,7 +427,7 @@ export default function Toolbox({
                                 type={"button"}
                                 title={"edit variable"}
                                 aria-label={`edit variable ${v.name}`}
-                                onClick={() => setVariableModal(v)}
+                                onClick={() => onEditVariable(v)}
                                 className={
                                     "shrink-0 px-1 text-gray-400 transition-colors duration-200 hover:text-foreground"
                                 }
@@ -435,10 +438,6 @@ export default function Toolbox({
                     );
                 })}
             </div>
-
-            {variableModal && (
-                <VariableModal target={variableModal} onClose={() => setVariableModal(null)} />
-            )}
         </aside>
     );
 }

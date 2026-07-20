@@ -20,6 +20,7 @@ import {
 } from "@/lib/workflow";
 import { describeCron } from "@/lib/cron";
 import McpLogo from "@/app/dashboard/mcpLogo";
+import EntryBadge from "./entryBadge";
 import EntryIcon from "./entryIcon";
 import NodeFrame from "./nodeFrame";
 import {
@@ -96,6 +97,18 @@ export type OpenToolsHandler = (
     nodeId: string,
 ) => void;
 
+// a skill/memory grant chip opens a read-only info popover when clicked (press
+// with no drag); the anchor is the node's client-space bottom-left corner, like
+// the tool picker
+export type OpenInfoHandler = (
+    anchor: { x: number; y: number },
+    nodeId: string,
+) => void;
+
+// a secret-variable value box opens its edit modal when clicked (press with no
+// drag); the modal is centered, so it takes just the node id (no anchor)
+export type OpenVariableHandler = (nodeId: string) => void;
+
 // renders to the geometry.ts metrics exactly: w-44 = NODE_W 176, the header
 // band's height comes straight from HEADER_H, h-6 port rows = PORT_ROW_H 24,
 // h-9 config rows =
@@ -142,6 +155,8 @@ export default memo(function Node({
     onOpenPicker,
     onOpenCron,
     onOpenTools,
+    onOpenInfo,
+    onOpenVariable,
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
@@ -176,6 +191,8 @@ export default memo(function Node({
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
     onOpenTools?: OpenToolsHandler;
+    onOpenInfo?: OpenInfoHandler;
+    onOpenVariable?: OpenVariableHandler;
 }) {
     const styles = entryStyles(entry);
     // local (x,y) offset of a rotated chip/model output marker; null → the
@@ -347,7 +364,11 @@ export default memo(function Node({
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width: MODEL_D }}
-                className={"absolute font-mono text-xs"}
+                // selection outline rides the outer wrapper (circle + name
+                // strip), matching the agent/if/generic branches
+                className={`absolute font-mono text-xs ${
+                    selected ? "outline outline-1 outline-foreground" : ""
+                }`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
@@ -355,9 +376,9 @@ export default memo(function Node({
             >
                 <div
                     style={{ width: MODEL_D, height: MODEL_D }}
-                    className={`relative flex cursor-grab items-center justify-center rounded-full border border-foreground/25 bg-background ${styles.headerBg} ${
-                        selected ? "outline outline-1 outline-foreground" : ""
-                    }`}
+                    // rose category frame (entryStyles) — the model circle used
+                    // to be the only shape with no visible category color
+                    className={`relative flex cursor-grab items-center justify-center rounded-full border ${styles.border} bg-background ${styles.headerBg}`}
                 >
                     {/* logo fills the circle; clip here (not on the circle
                         div) so the edge-straddling port isn't cut off */}
@@ -482,18 +503,24 @@ export default memo(function Node({
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width: EVENT_W }}
-                className={"absolute font-mono text-xs"}
+                // selection outline rides the outer wrapper (EVENT_W wide),
+                // matching agent/if/generic. Accepted quirk: the label strip
+                // below is wider (EVENT_LABEL_W) than the wrapper, so multi-word
+                // labels overflow the outline — the strip is render-only and
+                // never anchors a port/edge, so this is purely cosmetic.
+                className={`absolute font-mono text-xs ${
+                    selected ? "outline outline-1 outline-foreground" : ""
+                }`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={clickOpens ? eventEndDrag : endDrag}
                 onPointerCancel={endDrag}
             >
+                <EntryBadge />
                 <div
-                    // border tinted to the category color (same hex the edges use)
-                    style={{ borderColor: styles.edge, width: EVENT_W, height: EVENT_H }}
-                    className={`relative flex ${clickOpens ? "cursor-pointer" : "cursor-grab"} items-center justify-center rounded-full border bg-background ${styles.headerBg} ${
-                        selected ? "outline outline-1 outline-foreground" : ""
-                    }`}
+                    style={{ width: EVENT_W, height: EVENT_H }}
+                    // category frame via entryStyles (amber for events)
+                    className={`relative flex ${clickOpens ? "cursor-pointer hover:brightness-110" : "cursor-grab"} items-center justify-center rounded-full border ${styles.border} bg-background ${styles.headerBg}`}
                 >
                     {entry.logoDomain ? (
                         <McpLogo domain={entry.logoDomain} name={entry.label} size={32} round />
@@ -532,43 +559,46 @@ export default memo(function Node({
     // skill+memory = MCP_CHIP/SKILL_CHIP/MEMORY_CHIP, h-6 label strip =
     // CHIP_LABEL_H) with the server favicon / skill+memory emoji centered and a
     // single value output on the right-edge midpoint per geometry.ts, mirroring
-    // the model circle branch. Border is the category color as a LITERAL
-    // Tailwind class (JIT can't see computed names) — purple mcp / green skill /
-    // fuchsia memory, matching CATEGORY_STYLES.
+    // the model circle branch. Border is the category color via entryStyles —
+    // purple mcp / green skill / fuchsia memory.
     if (isMcpChipEntry(entry) || isSkillChipEntry(entry) || isMemoryChipEntry(entry)) {
         const output = entry.outputs[0];
         const mcp = isMcpChipEntry(entry);
         const memory = isMemoryChipEntry(entry);
         const size = mcp ? MCP_CHIP : memory ? MEMORY_CHIP : SKILL_CHIP;
-        const border = mcp ? "border-purple-500" : memory ? "border-fuchsia-500" : "border-green-500";
 
-        // a press that stayed under the drag threshold on an mcp server chip
-        // opens the tool picker popover (mirrors the event node's
-        // click-to-config); skill chips just drag
+        // a press that stayed under the drag threshold is a click: an mcp
+        // server chip opens the tool-picker popover, a skill/memory chip opens
+        // a read-only info popover (both anchored at the chip's bottom-left)
         const chipEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
             const wasClick = !!dragRef.current && !dragRef.current.active;
             endDrag();
-            if (wasClick && onOpenTools) {
-                const r = e.currentTarget.getBoundingClientRect();
-                onOpenTools({ x: r.left, y: r.bottom + 4 }, node.id);
-            }
+            if (!wasClick) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            const anchor = { x: r.left, y: r.bottom + 4 };
+            if (mcp) onOpenTools?.(anchor, node.id);
+            else onOpenInfo?.(anchor, node.id);
         };
 
         return (
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width: size }}
-                className={"absolute font-mono text-xs"}
+                // selection outline rides the outer wrapper (chip + label
+                // strip), matching agent/if/generic
+                className={`absolute font-mono text-xs ${
+                    selected ? "outline outline-1 outline-foreground" : ""
+                }`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
-                onPointerUp={mcp ? chipEndDrag : endDrag}
+                onPointerUp={chipEndDrag}
                 onPointerCancel={endDrag}
             >
                 <div
                     style={{ width: size, height: size }}
-                    className={`relative flex ${mcp ? "cursor-pointer" : "cursor-grab"} items-center justify-center rounded-xl border-2 bg-background ${border} ${styles.headerBg} ${
-                        selected ? "outline outline-1 outline-foreground" : ""
-                    }`}
+                    // category frame via entryStyles; every chip is clickable
+                    // (tool picker / info), so all get the pointer + hover cue
+                    className={`relative flex cursor-pointer items-center justify-center rounded-xl border-2 ${styles.border} bg-background ${styles.headerBg} hover:brightness-110`}
                 >
                     {mcp ? (
                         <McpLogo domain={entry.logoDomain ?? ""} name={entry.label} size={"fill"} />
@@ -636,7 +666,11 @@ export default memo(function Node({
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width }}
-                className={"absolute font-mono text-xs"}
+                // selection outline rides the outer wrapper, matching every
+                // other shape
+                className={`absolute font-mono text-xs ${
+                    selected ? "outline outline-1 outline-foreground" : ""
+                }`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={literalEndDrag}
@@ -644,9 +678,10 @@ export default memo(function Node({
             >
                 <div
                     style={{ height }}
-                    className={`relative flex cursor-grab items-stretch rounded border border-foreground/25 bg-background px-2 py-1.5 ${
-                        selected ? "outline outline-1 outline-foreground" : ""
-                    }`}
+                    // string/number are bare value boxes, not category members,
+                    // so they deliberately keep a neutral frame — the only shape
+                    // whose border is NOT entryStyles(entry).border
+                    className={"relative flex cursor-grab items-stretch rounded border border-foreground/25 bg-background px-2 py-1.5"}
                 >
                     {isNumber ? (
                         <input
@@ -699,27 +734,38 @@ export default memo(function Node({
 
     // secret variable nodes: a read-only literal-shaped box showing only the
     // variable's name behind a key glyph (the value never reaches the client —
-    // the node evaluates to an opaque {{var:<uuid>}} sentinel). Violet frame
-    // as a LITERAL Tailwind class, matching CATEGORY_STYLES.variable.
+    // the node evaluates to an opaque {{var:<uuid>}} sentinel). Violet category
+    // frame via entryStyles. Clicking opens the variable's edit modal.
     if (isVariableEntry(entry)) {
         const output = entry.outputs[0];
         const width = nodeWidth(entry, node);
         const height = nodeHeight(entry, node);
+
+        // a press that stayed under the drag threshold is a click → open the
+        // variable's edit modal (the toolbox's VariableModal, lifted to the
+        // designer, which resolves the row by uuid from the node type)
+        const variableEndDrag = () => {
+            const wasClick = !!dragRef.current && !dragRef.current.active;
+            endDrag();
+            if (wasClick) onOpenVariable?.(node.id);
+        };
         return (
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width }}
-                className={"absolute font-mono text-xs"}
+                // selection outline rides the outer wrapper, matching every
+                // other shape
+                className={`absolute font-mono text-xs ${
+                    selected ? "outline outline-1 outline-foreground" : ""
+                }`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
-                onPointerUp={endDrag}
+                onPointerUp={variableEndDrag}
                 onPointerCancel={endDrag}
             >
                 <div
                     style={{ height }}
-                    className={`relative flex cursor-grab items-center gap-1.5 overflow-hidden rounded border border-violet-500/60 bg-background px-2 py-1.5 ${
-                        selected ? "outline outline-1 outline-foreground" : ""
-                    }`}
+                    className={`relative flex cursor-pointer items-center gap-1.5 overflow-hidden rounded border ${styles.border} bg-background px-2 py-1.5 hover:brightness-110`}
                     title={entry.label}
                 >
                     <span aria-hidden className={"leading-[18px] text-violet-600 dark:text-violet-400"}>
@@ -1043,6 +1089,9 @@ export default memo(function Node({
             <NodeFrame
                 className={`border-l-2 ${styles.borderL} ${entry.missing ? "border-dashed" : ""}`}
             />
+            {/* rectangular extension-event nodes are entry points too — same
+                amber cue as the schedule circle */}
+            {entry.category === "events" && !entry.missing && <EntryBadge />}
             <div
                 style={{ height: HEADER_H }}
                 className={`flex cursor-grab items-center gap-1 px-2 ${styles.headerBg}`}

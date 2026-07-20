@@ -91,6 +91,10 @@ export type CatalogEntry = {
     outputs: PortSpec[];
     config?: ConfigField[];
     emoji?: string; // user skill icon
+    // user skill / memory store description — shown in the designer's chip info
+    // popover. Additive only: the hosted MCP get_catalog field-picks its output,
+    // so this never leaks there.
+    description?: string;
     logoDomain?: string; // user mcp favicon host
     missing?: boolean; // placeholder for a deleted registry entry
     // toolbox subheader (integration node: the app's name)

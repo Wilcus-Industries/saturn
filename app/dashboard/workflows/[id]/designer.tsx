@@ -44,17 +44,21 @@ import ModelLogo from "./modelLogo";
 import { graphReducer, initHistory } from "./graphReducer";
 import type {
     OpenCronHandler,
+    OpenInfoHandler,
     OpenPickerHandler,
     OpenToolsHandler,
+    OpenVariableHandler,
     PortPointerDownHandler,
 } from "./node";
+import ChipInfoPopover from "./chipInfoPopover";
 import CronPopover from "./cronPopover";
 import ToolPickerPopover from "./toolPickerPopover";
 import { describeCron } from "@/lib/cron";
+import { variableIdFromNodeType } from "@/lib/registry";
 import PathPicker, { type PickerSample } from "./pathPicker";
 import Toolbox from "./toolbox";
 import Topbar from "./topbar";
-import type { VariableRow } from "./variableModal";
+import VariableModal, { type VariableRow } from "./variableModal";
 
 // don't JSON.parse arbitrarily huge samples for the path picker
 const MAX_SAMPLE_CHARS = 500_000;
@@ -471,6 +475,31 @@ export default function Designer({
         setToolsEdit(null);
     };
 
+    // skill/memory chip info popover: read-only, so no undo coalescing — the
+    // entry is resolved through byKeyRef at open time (memo-safe, like the
+    // other popover openers) and snapshotted into state
+    const [infoView, setInfoView] = useState<{
+        anchor: { x: number; y: number };
+        entry: CatalogEntry;
+    } | null>(null);
+    const openInfo: OpenInfoHandler = useCallback((anchor, nodeId) => {
+        const node = graphRef.current.nodes.find((n) => n.id === nodeId);
+        const entry = node ? byKeyRef.current[node.type] : undefined;
+        if (entry) setInfoView({ anchor, entry });
+    }, []);
+
+    // secret-variable edit modal, lifted out of the toolbox so a variable node
+    // on the canvas can open it too. "new" (toolbox +add) / a row (toolbox edit
+    // or a canvas node click) / null closed. A canvas click resolves the row by
+    // uuid from the node type via variablesRef (memo-safe stable callback).
+    const [variableModal, setVariableModal] = useState<VariableRow | "new" | null>(null);
+    const openVariable: OpenVariableHandler = useCallback((nodeId) => {
+        const node = graphRef.current.nodes.find((n) => n.id === nodeId);
+        const id = node ? variableIdFromNodeType(node.type) : null;
+        const row = id ? variablesRef.current.find((v) => v.id === id) : undefined;
+        if (row) setVariableModal(row);
+    }, []);
+
     const [saving, startSaving] = useTransition();
     const save = () => {
         if (saving || !dirty) return;
@@ -504,6 +533,9 @@ export default function Designer({
     const savedJsonRef = useRef(savedJson);
     const byKeyRef = useRef(byKey);
     const selectionRef = useRef(selection);
+    // live mirror of the variables prop so openVariable (a stable callback fed
+    // to the memoized Node) resolves the clicked row without re-identifying
+    const variablesRef = useRef(variables);
     useEffect(() => {
         // eslint-disable-next-line react-hooks/immutability -- deliberate live-mirror refs, written in an effect (never during render)
         graphRef.current = present;
@@ -511,6 +543,8 @@ export default function Designer({
         // eslint-disable-next-line react-hooks/immutability -- see above
         byKeyRef.current = byKey;
         selectionRef.current = selection;
+        // eslint-disable-next-line react-hooks/immutability -- see above
+        variablesRef.current = variables;
     });
 
     // flush on unmount: in-app navigation (e.g. "← workflows") doesn't fire
@@ -605,6 +639,7 @@ export default function Designer({
             } else if (e.key === "Escape") {
                 if (cronEdit) closeCron();
                 else if (toolsEdit) closeTools();
+                else if (infoView) setInfoView(null);
                 else if (picker) setPicker(null);
                 else if (pendingDrag) {
                     setPendingDrag(null);
@@ -642,6 +677,7 @@ export default function Designer({
                     onSpawnStart={(key, x, y, preset) =>
                         setSpawn({ key, x, y, config: preset?.config, label: preset?.label })
                     }
+                    onEditVariable={setVariableModal}
                 />
                 <Canvas
                     ref={canvasRef}
@@ -659,6 +695,8 @@ export default function Designer({
                     onOpenPicker={openPicker}
                     onOpenCron={openCron}
                     onOpenTools={openTools}
+                    onOpenInfo={openInfo}
+                    onOpenVariable={openVariable}
                 />
             </div>
 
@@ -706,6 +744,18 @@ export default function Designer({
                         />
                     );
                 })()}
+
+            {infoView && (
+                <ChipInfoPopover
+                    anchor={infoView.anchor}
+                    entry={infoView.entry}
+                    onClose={() => setInfoView(null)}
+                />
+            )}
+
+            {variableModal && (
+                <VariableModal target={variableModal} onClose={() => setVariableModal(null)} />
+            )}
 
             {/* drag-spawn ghost chip following the pointer */}
             {spawn && spawnEntry && (

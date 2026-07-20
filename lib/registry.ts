@@ -104,6 +104,7 @@ function toSkillEntry(row: RegistryEntryRow): CatalogEntry {
         inputs: [],
         outputs: [valuePort("skill")],
         emoji: row.emoji,
+        description: row.description,
     };
 }
 
@@ -118,6 +119,7 @@ function toMemoryEntry(row: RegistryEntryRow): CatalogEntry {
         inputs: [],
         outputs: [valuePort("memory")],
         emoji: row.emoji,
+        description: row.description,
     };
 }
 
