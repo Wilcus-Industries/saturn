@@ -297,11 +297,21 @@ export default function Designer({
         onUp: (e) => {
             const preset = spawn?.config;
             setSpawn(null);
+            if (!spawnKey) return; // no active spawn (unreachable — guarded above)
             const point = canvasRef.current?.clientToWorld(e.clientX, e.clientY);
-            if (!point || !spawnKey) return; // dropped outside the canvas — cancel
+            // clientToWorld returns null when the pointer is outside the canvas
+            // bounds — the drop missed its target, so say so instead of no-oping
+            if (!point) {
+                notify("drop on the canvas to place the node");
+                return;
+            }
             // one event node per workflow — the toolbox chip is already disabled
-            // when one exists; this guards any other drop path
-            if (byKey[spawnKey]?.category === "events" && events.length > 0) return;
+            // when one exists; this guards any other drop path (e.g. dropping a
+            // ghost that was mid-flight when the graph gained its event)
+            if (byKey[spawnKey]?.category === "events" && events.length > 0) {
+                notify("one event node per workflow — remove the existing one first");
+                return;
+            }
             // same grid as the canvas dots and drag-end snapping
             const snap = (value: number) => Math.round(value / GRID) * GRID;
             // rectangles drop with the header centered under the pointer;
