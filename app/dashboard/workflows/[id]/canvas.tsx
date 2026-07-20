@@ -127,7 +127,15 @@ type Gesture =
           moved: boolean;
           clearOnClick: boolean;
       }
-    | { mode: "marquee"; rectLeft: number; rectTop: number; startWX: number; startWY: number };
+    | {
+          mode: "marquee";
+          // shift-drag adds to the selection; a bare drag replaces it
+          additive: boolean;
+          rectLeft: number;
+          rectTop: number;
+          startWX: number;
+          startWY: number;
+      };
 
 export default function Canvas({
     graph,
@@ -195,6 +203,11 @@ export default function Canvas({
         null,
     );
     const [panning, setPanning] = useState(false);
+    // space is a pan modifier (like Figma): while held, a mouse/pen left-drag
+    // pans instead of marqueeing and the cursor shows `grab`. Mirrored into a
+    // ref so the pointerdown handler reads the live value synchronously.
+    const [spaceHeld, setSpaceHeld] = useState(false);
+    const spaceRef = useRef(false);
 
     const outerRef = useRef<HTMLDivElement>(null);
     const gestureRef = useRef<Gesture | null>(null);
@@ -276,7 +289,10 @@ export default function Canvas({
             const rect = el.getBoundingClientRect();
             const px = e.clientX - rect.left;
             const py = e.clientY - rect.top;
-            // pinch arrives as wheel+ctrlKey with small deltas — stronger factor
+            // pinch arrives as wheel+ctrlKey with small deltas — stronger factor.
+            // Trackpad pinch is covered here; two-finger touch pinch-zoom (a
+            // second active pointer) is deliberately DEFERRED — it would need
+            // multi-pointer bookkeeping in the gesture ref, out of scope here.
             const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.001));
             setView((v) => {
                 const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, v.zoom * factor));
@@ -292,25 +308,69 @@ export default function Canvas({
         return () => el.removeEventListener("wheel", onWheel);
     }, []);
 
-    // only empty-canvas pointerdowns arrive here for button 0 (nodes, ports and
-    // config inputs stopPropagation); middle button bubbles from anywhere
+    // space-as-pan-modifier: hold space → `grab` cursor + left-drag pans. Guards
+    // the same way the designer's key handlers do (skip while typing in a form
+    // control) and preventDefault stops space from scrolling/activating while
+    // it's claimed for panning.
+    useEffect(() => {
+        const isSpace = (e: KeyboardEvent) => e.code === "Space" || e.key === " ";
+        const typing = (t: EventTarget | null) =>
+            t instanceof HTMLInputElement ||
+            t instanceof HTMLTextAreaElement ||
+            t instanceof HTMLSelectElement ||
+            (t instanceof HTMLElement && t.isContentEditable);
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (!isSpace(e) || typing(e.target)) return;
+            e.preventDefault();
+            if (!spaceRef.current) {
+                spaceRef.current = true;
+                setSpaceHeld(true);
+            }
+        };
+        const onKeyUp = (e: KeyboardEvent) => {
+            if (!isSpace(e)) return;
+            if (spaceRef.current) {
+                spaceRef.current = false;
+                setSpaceHeld(false);
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        window.addEventListener("keyup", onKeyUp);
+        return () => {
+            window.removeEventListener("keydown", onKeyDown);
+            window.removeEventListener("keyup", onKeyUp);
+        };
+    }, []);
+
+    // Empty-canvas pointerdowns arrive here (nodes, ports and config inputs
+    // stopPropagation on button 0; middle button bubbles from anywhere). Gesture
+    // routing by pointer type:
+    //   - touch: any bare drag pans (unchanged — touch has no marquee)
+    //   - mouse/pen middle-button, or space+left: pan
+    //   - mouse/pen left-drag: marquee (shift = additive, bare = replace)
+    // A left-click with no drag falls out of a zero-size replace marquee, which
+    // clears the selection via setSelection (the selectNodes seam, so an edge
+    // selection clears too).
     const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
         const outer = outerRef.current;
         if (!outer || gestureRef.current) return;
         const v = viewRef.current;
-        if (e.button === 0 && e.shiftKey) {
+        const touch = e.pointerType === "touch";
+        const pan = touch || e.button === 1 || (e.button === 0 && spaceRef.current);
+        if (e.button === 0 && !touch && !spaceRef.current) {
             const rect = outer.getBoundingClientRect();
             const wx = (e.clientX - rect.left - v.x) / v.zoom;
             const wy = (e.clientY - rect.top - v.y) / v.zoom;
             gestureRef.current = {
                 mode: "marquee",
+                additive: e.shiftKey,
                 rectLeft: rect.left,
                 rectTop: rect.top,
                 startWX: wx,
                 startWY: wy,
             };
             setMarquee({ x: wx, y: wy, w: 0, h: 0 });
-        } else if (e.button === 0 || e.button === 1) {
+        } else if (pan) {
             e.preventDefault();
             gestureRef.current = {
                 mode: "pan",
@@ -319,7 +379,9 @@ export default function Canvas({
                 viewX: v.x,
                 viewY: v.y,
                 moved: false,
-                clearOnClick: e.button === 0,
+                // only a touch tap clears on release; middle/space pans don't
+                // (marquee owns click-to-clear on mouse/pen)
+                clearOnClick: touch,
             };
             setPanning(true);
         } else {
@@ -379,8 +441,14 @@ export default function Canvas({
                     );
                 })
                 .map((n) => n.id);
-            // marquee starts with shift held, so it always adds to the selection
-            if (hit.length) setSelection((prev) => new Set([...prev, ...hit]));
+            if (g.additive) {
+                // shift-drag unions with the current selection
+                if (hit.length) setSelection((prev) => new Set([...prev, ...hit]));
+            } else {
+                // bare drag replaces the selection — always set, so a zero-size
+                // marquee (a plain click) clears it
+                setSelection(new Set(hit));
+            }
         } else if (!cancelled && !g.moved && g.clearOnClick) {
             // click on empty canvas (no drag) clears the selection
             setSelection(new Set());
@@ -431,7 +499,7 @@ export default function Canvas({
                     "radial-gradient(circle, color-mix(in srgb, var(--foreground) 12%, transparent) 1px, transparent 1px)",
                 backgroundSize: `${GRID * view.zoom}px ${GRID * view.zoom}px`,
                 backgroundPosition: `${view.x}px ${view.y}px`,
-                cursor: panning ? "grabbing" : undefined,
+                cursor: panning ? "grabbing" : spaceHeld ? "grab" : undefined,
             }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
@@ -550,7 +618,7 @@ export default function Canvas({
                         "pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-sm text-gray-400"
                     }
                 >
-                    drag nodes from the toolbox · drag to pan · shift+drag to select
+                    drag nodes from the toolbox · drag to select · space or middle-drag to pan
                 </p>
             )}
             {graph.nodes.length > 0 && (

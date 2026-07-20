@@ -82,14 +82,23 @@ export default function Topbar({
                 {emoji} {name}
             </span>
 
-            {/* run history lives on a shell page, not in the designer */}
+            {/* run history lives on a shell page, not in the designer. Visible
+                at every width — a compact glyph below sm, the full label from
+                sm up (accessible name comes from aria-label either way). */}
             <Link
                 href={`/dashboard/workflows/${workflowId}/runs`}
-                className={`hidden shrink-0 rounded-full border border-foreground/15 px-3 py-0.5
-                    text-xs text-gray-400 transition-colors duration-200
-                    hover:border-foreground/40 hover:text-foreground sm:inline`}
+                aria-label={"runs"}
+                title={"run history"}
+                className={`inline-flex shrink-0 items-center rounded-full border border-foreground/15
+                    px-2 py-0.5 text-xs text-gray-400 transition-colors duration-200
+                    hover:border-foreground/40 hover:text-foreground sm:px-3`}
             >
-                runs
+                <span aria-hidden className={"sm:hidden"}>
+                    ↻
+                </span>
+                <span aria-hidden className={"hidden sm:inline"}>
+                    runs
+                </span>
             </Link>
 
             <span className={"ml-auto flex items-center gap-2"}>

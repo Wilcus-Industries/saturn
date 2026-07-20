@@ -227,11 +227,12 @@ export default memo(function Node({
 
     // Escape mid-drag restores the pre-gesture positions (no history entry).
     // The handler lives in a ref: drags re-render, so removeEventListener
-    // must get the same instance addEventListener got.
+    // must get the same instance addEventListener got (and the same capture
+    // flag — see onEscape below).
     const dragEscapeRef = useRef<((e: KeyboardEvent) => void) | null>(null);
     const removeDragEscape = () => {
         if (!dragEscapeRef.current) return;
-        window.removeEventListener("keydown", dragEscapeRef.current);
+        window.removeEventListener("keydown", dragEscapeRef.current, { capture: true });
         dragEscapeRef.current = null;
     };
 
@@ -257,15 +258,22 @@ export default memo(function Node({
             ids = [node.id];
         }
         e.currentTarget.setPointerCapture(e.pointerId);
+        // Escape-ordering contract: this listener runs in the CAPTURE phase, so
+        // it fires before the designer's bubble-phase window Escape ladder. When
+        // a drag is actually active it cancels the drag AND stopPropagation()s,
+        // so the ladder doesn't ALSO clear the selection (the old double-fire).
+        // When no drag is active (pointer down but not yet moved past slop) it
+        // stays silent and lets the event fall through to the ladder.
         const onEscape = (ev: KeyboardEvent) => {
             if (ev.key !== "Escape") return;
             const drag = dragRef.current;
+            if (drag?.active) ev.stopPropagation();
             dragRef.current = null;
             removeDragEscape();
             if (drag?.active) dispatch({ type: "cancelDrag", before: drag.before });
         };
         dragEscapeRef.current = onEscape;
-        window.addEventListener("keydown", onEscape);
+        window.addEventListener("keydown", onEscape, { capture: true });
         dragRef.current = {
             ids,
             before: graphRef.current,

@@ -216,6 +216,35 @@ export default function Designer({
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     }, []);
 
+    // arrow-key nudge coalescing: a burst of arrow presses moves the selection
+    // one grid cell each via TRANSIENT moveNodes (same action a live drag uses
+    // mid-gesture — no history push), then a settle timer commits the whole
+    // burst as ONE undo step through the existing before/commitDrag machinery.
+    // `before` snapshots the graph on the first press of a burst. Flushed early
+    // by any non-arrow key action, a selection change, or unmount (see below).
+    const nudgeRef = useRef<{
+        before: WorkflowGraph | null;
+        timer: ReturnType<typeof setTimeout> | null;
+    }>({ before: null, timer: null });
+    const flushNudge = useCallback(() => {
+        const n = nudgeRef.current;
+        if (n.timer) {
+            clearTimeout(n.timer);
+            n.timer = null;
+        }
+        if (n.before) {
+            dispatch({ type: "commitDrag", before: n.before });
+            n.before = null;
+        }
+    }, []);
+    // a selection change means the user did something other than nudge (clicked
+    // a node, marqueed, cleared) — the burst is over, so commit it. The nudge
+    // itself never touches selection, so this never fires mid-burst. No-op when
+    // nothing is pending (mount, ordinary selection churn).
+    useEffect(() => {
+        flushNudge();
+    }, [selection, flushNudge]);
+
     // test-run output; null = console hidden (never run, or closed)
     const [consoleLines, setConsoleLines] = useState<ConsoleLine[] | null>(null);
     // console panel height, drag-resized via its top edge; lives here (not in
@@ -493,13 +522,18 @@ export default function Designer({
         // port naming
         const node = graph.nodes.find((n) => n.id === nodeId);
         const entry = node ? byKeyRef.current[node.type] : undefined;
-        const valueInput = entry?.inputs.find((p) => p.kind === "value");
-        const edge = valueInput
+        // sample the port that actually feeds this field: when the field
+        // declares an overriddenBy port (paired input), read that port's edge;
+        // otherwise fall back to the node's first value input (extract's
+        // historical behavior — its `path` field has no overriddenBy)
+        const field = entry?.config?.find((f) => f.id === fieldId);
+        const portId = field?.overriddenBy ?? entry?.inputs.find((p) => p.kind === "value")?.id;
+        const edge = portId
             ? graph.edges.find(
                   (e) =>
                       e.kind === "value" &&
                       e.to.nodeId === nodeId &&
-                      e.to.portId === valueInput.id,
+                      e.to.portId === portId,
               )
             : undefined;
         let sample: PickerSample;
@@ -653,11 +687,16 @@ export default function Designer({
     // Fire-and-forget — the SPA stays alive across client-side navigation.
     useEffect(() => {
         return () => {
+            // commit any pending nudge FIRST (also clears its settle timer so it
+            // can't fire post-unmount), before this flush reads graphRef. The
+            // transient moves already live in graphRef, so the save is correct
+            // either way — this ordering is about the timer and undo hygiene.
+            flushNudge();
             if (JSON.stringify(graphRef.current) !== savedJsonRef.current) {
                 saveWorkflow(workflow.id, graphRef.current).catch(() => {});
             }
         };
-    }, [workflow.id]);
+    }, [workflow.id, flushNudge]);
 
     // warn before leaving with unsaved changes
     useEffect(() => {
@@ -702,6 +741,9 @@ export default function Designer({
         const onKeyDown = (e: KeyboardEvent) => {
             const key = e.key.toLowerCase();
             const mod = e.metaKey || e.ctrlKey;
+            // any non-arrow key ends a pending nudge burst, committing it as one
+            // undo step before this key's own action (delete/undo/duplicate/…)
+            if (!e.key.startsWith("Arrow")) flushNudge();
             if (mod && key === "s") {
                 e.preventDefault();
                 save();
@@ -732,14 +774,23 @@ export default function Designer({
                 e.preventDefault();
                 duplicateSelection();
             } else if (e.key.startsWith("Arrow") && selection.size) {
-                // nudge the selection one grid cell; each press is an undo step
+                // nudge the selection one grid cell; a burst of presses coalesces
+                // into ONE undo step via a settle timer (see nudgeRef/flushNudge)
                 e.preventDefault();
                 const dx = e.key === "ArrowLeft" ? -GRID : e.key === "ArrowRight" ? GRID : 0;
                 const dy = e.key === "ArrowUp" ? -GRID : e.key === "ArrowDown" ? GRID : 0;
-                const before = present;
+                if (dx === 0 && dy === 0) return; // a non-directional arrow (unreachable)
+                const n = nudgeRef.current;
+                if (!n.before) n.before = present; // first press of the burst snapshots
+                if (n.timer) clearTimeout(n.timer);
                 dispatch({ type: "moveNodes", ids: [...selection], dx, dy });
-                dispatch({ type: "commitDrag", before });
+                n.timer = setTimeout(flushNudge, 500);
             } else if (e.key === "Escape") {
+                // Escape ladder (bubble phase). Ordering contract: a node's
+                // drag-cancel listener runs in the CAPTURE phase and
+                // stopPropagation()s while a node drag is active, so this ladder
+                // is skipped during a drag (no double-fire clearing the
+                // selection). It only reaches here when no node drag is active.
                 if (cronEdit) closeCron();
                 else if (toolsEdit) closeTools();
                 else if (infoView) setInfoView(null);
