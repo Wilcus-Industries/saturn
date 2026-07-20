@@ -5,7 +5,7 @@
 import { ALL_TOOLS } from "@/lib/agent";
 import { type CatalogEntry, type McpToolParam, valuePort } from "@/lib/workflow";
 
-export type RegistryKind = "mcp" | "skill" | "memory";
+export type RegistryKind = "mcp" | "skill" | "memory" | "variable";
 export type McpTool = {
     name: string;
     access: "read" | "write";
@@ -39,6 +39,19 @@ export const MAX_ENTRIES_PER_KIND = 50;
 export const MAX_MCP_TOOLS = 40;
 
 export const userNodeKey = (kind: RegistryKind, id: string) => `${kind}:${id}`;
+
+// Secret variables (kind 'variable'): the node evaluates to an opaque
+// sentinel client-side; only executeIntegration swaps in the real value,
+// server-side, scoped to the owning user. The plaintext never enters the
+// graph, the interpreter, logs, or onValue samples.
+export const VARIABLE_PREFIX = "variable:";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function variableIdFromNodeType(type: string): string | null {
+    if (!type.startsWith(VARIABLE_PREFIX)) return null;
+    const id = type.slice(VARIABLE_PREFIX.length);
+    return UUID_RE.test(id) ? id : null;
+}
+export const variableSentinel = (id: string) => `{{var:${id}}}`;
 
 // favicon lookup wants the brand's apex domain, not the MCP host —
 // agent.robinhood.com's favicon is a blank, robinhood.com's is the logo
@@ -134,11 +147,26 @@ function toServerEntry(row: RegistryEntryRow): CatalogEntry {
     };
 }
 
+// secret variable value box: a read-only literal-shaped node showing only the
+// variable's name. Its single value output evaluates to the {{var:<uuid>}}
+// sentinel — never the secret itself (see VARIABLE_PREFIX above).
+function toVariableEntry(row: RegistryEntryRow): CatalogEntry {
+    return {
+        key: userNodeKey(row.kind, row.id),
+        label: row.name,
+        category: "variable",
+        inputs: [],
+        outputs: [valuePort("value")],
+    };
+}
+
 export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
     rows.map((row) =>
         row.kind === "skill"
             ? toSkillEntry(row)
             : row.kind === "memory"
               ? toMemoryEntry(row)
-              : toServerEntry(row),
+              : row.kind === "variable"
+                ? toVariableEntry(row)
+                : toServerEntry(row),
     );

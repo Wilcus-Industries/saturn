@@ -62,6 +62,7 @@ import { describeCron } from "@/lib/cron";
 import PathPicker, { type PickerSample } from "./pathPicker";
 import Toolbox from "./toolbox";
 import Topbar from "./topbar";
+import type { VariableRow } from "./variableModal";
 
 // don't JSON.parse arbitrarily huge samples for the path picker
 const MAX_SAMPLE_CHARS = 500_000;
@@ -108,11 +109,14 @@ function useWindowDrag(
 export default function Designer({
     workflow,
     userCatalog,
+    variables,
     openrouterModels,
     cronFloorMinutes,
 }: {
     workflow: WorkflowRow;
     userCatalog: CatalogEntry[];
+    // secret variables for the toolbox's pinned split (name + has-value only)
+    variables: VariableRow[];
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
     // tightest schedule interval the owner's tier allows — caps the cron picker
@@ -655,6 +659,7 @@ export default function Designer({
             <div className={"flex min-h-0 flex-1"}>
                 <Toolbox
                     userCatalog={userCatalog}
+                    variables={variables}
                     openrouterModels={openrouterModels}
                     hasEvent={events.length > 0}
                     onSpawnStart={(key, x, y, preset) =>

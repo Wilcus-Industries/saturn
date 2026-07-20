@@ -24,6 +24,7 @@ import {
     toolRefFromNodeType,
 } from "@/lib/agent";
 import { integrationProviderId } from "@/lib/integrations";
+import { variableIdFromNodeType, variableSentinel } from "@/lib/registry";
 import type { CatalogEntry, WorkflowGraph, WorkflowNode } from "@/lib/workflow";
 
 // kind "image": text is a data:image/… URL — the designer console renders
@@ -317,6 +318,16 @@ export async function runWorkflow(
                     return stored;
                 }
                 default: {
+                    // secret variable boxes emit their opaque sentinel — the
+                    // real value substitutes server-side in executeIntegration
+                    // only, so plaintext never enters the interpreter or logs
+                    const varId = variableIdFromNodeType(node.type);
+                    if (varId !== null) {
+                        if (!entry || entry.missing) {
+                            warn(`${label(node)}: variable was deleted — its value will not resolve`);
+                        }
+                        return variableSentinel(varId);
+                    }
                     // event nodes carry the trigger payload on their value
                     // output (the sole "payload" port) — a test run seeds it
                     // from sampleEventPayload, a real event run from the ingress

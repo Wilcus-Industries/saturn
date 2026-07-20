@@ -49,12 +49,12 @@ alter table workflow_run add constraint workflow_run_trigger_check
 create table if not exists registry_entry (
     id          uuid primary key default gen_random_uuid(),
     user_id     text not null references "user"(id) on delete cascade,
-    kind        text not null check (kind in ('mcp', 'skill', 'memory')),
+    kind        text not null check (kind in ('mcp', 'skill', 'memory', 'variable')),
     name        text not null,
     emoji       text not null default '',        -- skill only
     description text not null default '',        -- skill only
     server_url  text not null default '',        -- mcp only
-    auth_token  text not null default '',        -- mcp only; write-only, never sent to client
+    auth_token  text not null default '',        -- mcp secret / variable value; write-only, never sent to client
     tools       jsonb not null default '[]',     -- mcp allowlist: [{name, access: "read"|"write", enabled}]
     oauth       jsonb not null default '{}',     -- mcp only; oauth client + tokens, server-only
     created_at  timestamptz not null default now(),
@@ -64,9 +64,10 @@ create index if not exists registry_entry_user_id_idx on registry_entry (user_id
 -- added after initial rollout; keeps existing tables in sync with the create above
 alter table registry_entry add column if not exists oauth jsonb not null default '{}';
 -- ('memory' = a persistent agent-memory store; its items live in memory_item)
+-- ('variable' = a named user secret; value lives in auth_token, write-only)
 alter table registry_entry drop constraint if exists registry_entry_kind_check;
 alter table registry_entry add constraint registry_entry_kind_check
-    check (kind in ('mcp', 'skill', 'memory'));
+    check (kind in ('mcp', 'skill', 'memory', 'variable'));
 
 -- items held by a memory store (registry_entry of kind 'memory'). Embeddings
 -- are pgvector; agents search them semantically (cosine distance). Per-store

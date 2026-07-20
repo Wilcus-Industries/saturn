@@ -5,6 +5,7 @@
 // logs can render them.
 import type { McpCallResult } from "@/lib/agent";
 import { INTEGRATIONS_BY_ID } from "@/lib/integrations";
+import { getVariableValues } from "@/lib/registry.server";
 
 const MAX_INTEGRATION_MESSAGE = 4096; // text cap (matches Telegram's message limit)
 const MAX_INTEGRATION_IMAGE = 4_194_304; // image data-URL cap (mirrors runner MAX_IMAGE_DATA_URL)
@@ -310,6 +311,34 @@ const SENDERS: Record<string, SendFn> = {
     "telegram-typing": sendTelegramTyping,
 };
 
+// Secret-variable sentinel substitution: variable nodes evaluate to
+// {{var:<uuid>}} client-side; the plaintext exists only past this point,
+// scoped to the calling user. Unresolved sentinels (foreign uuid, deleted
+// variable) stay literal — the per-provider validators then reject them with
+// their normal error, no oracle. Runs before the senders so their SSRF
+// regexes (bot token, chat id, webhook URL) see the substituted value.
+const VAR_SENTINEL =
+    /\{\{var:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}\}/gi;
+
+async function substituteVariables(
+    userId: string,
+    config: Record<string, string>,
+    message: string,
+): Promise<{ config: Record<string, string>; message: string }> {
+    const ids = new Set<string>();
+    for (const text of [...Object.values(config), message]) {
+        for (const m of text.matchAll(VAR_SENTINEL)) ids.add(m[1].toLowerCase());
+    }
+    if (ids.size === 0) return { config, message };
+    const values = await getVariableValues(userId, [...ids]);
+    const sub = (text: string) =>
+        text.replace(VAR_SENTINEL, (whole, id: string) => values.get(id.toLowerCase()) ?? whole);
+    return {
+        config: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, sub(v)])),
+        message: sub(message),
+    };
+}
+
 // executes one integration send for a workflow run (test, cron, or manual)
 export async function executeIntegration(
     userId: string,
@@ -336,7 +365,11 @@ export async function executeIntegration(
         return { error: "invalid config" };
     }
     try {
-        return await send(userId, config, message);
+        // length caps above run pre-substitution (a sentinel is ~43 chars); a
+        // substituted secret can grow the message past the cap, but every
+        // sender truncates at its own platform limit anyway
+        const substituted = await substituteVariables(userId, config, message);
+        return await send(userId, substituted.config, substituted.message);
     } catch (err) {
         return { error: err instanceof Error ? err.message : "integration send failed" };
     }

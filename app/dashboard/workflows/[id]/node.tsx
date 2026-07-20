@@ -47,6 +47,7 @@ import {
     isMemoryChipEntry,
     isModelEntry,
     isSkillChipEntry,
+    isVariableEntry,
     MCP_CHIP,
     MEMORY_CHIP,
     MODEL_D,
@@ -694,6 +695,53 @@ export default memo(function Node({
                             className={`${fieldClass} resize-none overflow-hidden whitespace-pre`}
                         />
                     )}
+                </div>
+                {/* port on the borderless outer box — see the model branch */}
+                {output &&
+                    (() => {
+                        const [ax, ay] = parsedOutAnchor ?? [width, height / 2];
+                        return (
+                            <span
+                                className={"absolute flex"}
+                                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                            >
+                                {port(output, "out", "")}
+                            </span>
+                        );
+                    })()}
+            </div>
+        );
+    }
+
+    // secret variable nodes: a read-only literal-shaped box showing only the
+    // variable's name behind a key glyph (the value never reaches the client —
+    // the node evaluates to an opaque {{var:<uuid>}} sentinel). Violet frame
+    // as a LITERAL Tailwind class, matching CATEGORY_STYLES.variable.
+    if (isVariableEntry(entry)) {
+        const output = entry.outputs[0];
+        const width = nodeWidth(entry, node);
+        const height = nodeHeight(entry, node);
+        return (
+            <div
+                data-node-id={node.id}
+                style={{ left: node.x, top: node.y, width }}
+                className={"absolute font-mono text-xs"}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+            >
+                <div
+                    style={{ height }}
+                    className={`relative flex cursor-grab items-center gap-1.5 overflow-hidden rounded border border-violet-500/60 bg-background px-2 py-1.5 ${
+                        selected ? "outline outline-1 outline-foreground" : ""
+                    }`}
+                    title={entry.label}
+                >
+                    <span aria-hidden className={"leading-[18px] text-violet-600 dark:text-violet-400"}>
+                        ⚿
+                    </span>
+                    <span className={"truncate leading-[18px]"}>{entry.label}</span>
                 </div>
                 {/* port on the borderless outer box — see the model branch */}
                 {output &&

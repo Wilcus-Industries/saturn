@@ -14,6 +14,8 @@ import { subscriptionsChanged } from "@/lib/events.server";
 import { executeIntegration } from "@/lib/integrations.server";
 import type { CallAgentRequest } from "@/lib/interpreter";
 import { executeMemoryTool } from "@/lib/memory.server";
+import { MAX_ENTRIES_PER_KIND } from "@/lib/registry";
+import { invalidateUserRegistry } from "@/lib/registry.server";
 import { executeAgentTurn, executeMcpTool, UUID } from "@/lib/runner.server";
 import { requireUser } from "@/lib/subscription";
 import { isWorkflowGraph, MAX_EDGES, MAX_GRAPH_JSON, MAX_NODES } from "@/lib/workflow";
@@ -41,6 +43,84 @@ export async function saveWorkflow(id: string, graph: unknown) {
     // graph edits add/remove event nodes and change bot tokens — poke the
     // gateway (debounced there, so autosave bursts collapse)
     subscriptionsChanged();
+}
+
+// --- secret variables (toolbox-managed registry_entry rows, kind 'variable';
+// value lives in the write-only auth_token column and never reaches the
+// client — variable nodes evaluate to a {{var:<uuid>}} sentinel that only
+// executeIntegration substitutes server-side) ---
+
+const MAX_VARIABLE_NAME = 60;
+const MAX_VARIABLE_VALUE = 4096;
+
+// expected failures come back as a value the modal renders inline; a thrown
+// error would only reach Next's generic error page (message redacted in prod)
+type ActionResult = { error: string } | undefined;
+
+export async function saveVariable(formData: FormData): Promise<ActionResult> {
+    const { session } = await requireUser();
+
+    try {
+        const id = String(formData.get("id") ?? "").trim();
+        if (id && !UUID.test(id)) throw new Error("Invalid id");
+        const name = String(formData.get("name") ?? "").trim();
+        if (!name || name.length > MAX_VARIABLE_NAME) {
+            throw new Error(`Name is required (max ${MAX_VARIABLE_NAME} chars)`);
+        }
+        const value = String(formData.get("value") ?? "").trim();
+        if (value.length > MAX_VARIABLE_VALUE) throw new Error("Value too long");
+        const clearValue = formData.get("clearValue") === "on";
+
+        if (id) {
+            // blank value keeps the stored one; clearValue erases; filled overwrites
+            const params: unknown[] = [name];
+            let valueSql = "auth_token";
+            if (clearValue) {
+                valueSql = "''";
+            } else if (value) {
+                params.push(value);
+                valueSql = `$${params.length}`;
+            }
+            params.push(id, session.user.id);
+            const { rowCount } = await db.query(
+                `update registry_entry
+                 set name = $1, auth_token = ${valueSql}, updated_at = now()
+                 where id = $${params.length - 1} and user_id = $${params.length} and kind = 'variable'`,
+                params,
+            );
+            if (!rowCount) throw new Error("Not found");
+        } else {
+            if (!value) throw new Error("Value is required");
+            const { rows } = await db.query<{ count: string }>(
+                "select count(*) from registry_entry where user_id = $1 and kind = 'variable'",
+                [session.user.id],
+            );
+            if (Number(rows[0].count) >= MAX_ENTRIES_PER_KIND) {
+                throw new Error(`Limit of ${MAX_ENTRIES_PER_KIND} variables reached`);
+            }
+            await db.query(
+                `insert into registry_entry (user_id, kind, name, auth_token)
+                 values ($1, 'variable', $2, $3)`,
+                [session.user.id, name, value],
+            );
+        }
+    } catch (err) {
+        return { error: err instanceof Error ? err.message : "Something went wrong" };
+    }
+
+    invalidateUserRegistry(session.user.id);
+}
+
+export async function deleteVariable(formData: FormData): Promise<ActionResult> {
+    const { session } = await requireUser();
+    const id = String(formData.get("id") ?? "").trim();
+    if (!UUID.test(id)) return { error: "Invalid id" };
+    // idempotent — deleting an already-deleted variable is fine
+    await db.query(
+        "delete from registry_entry where id = $1 and user_id = $2 and kind = 'variable'",
+        [id, session.user.id],
+    );
+    invalidateUserRegistry(session.user.id);
 }
 
 // executes one MCP tool for a designer test run. Returns errors as values

@@ -47,6 +47,22 @@ export async function getMcpSecrets(id: string, userId: string): Promise<McpSecr
     return (rows[0] as McpSecretsRow) ?? null;
 }
 
+// secret values for variable entries (kind 'variable', value in auth_token) —
+// for server-side sentinel substitution only (lib/integrations.server.ts);
+// uncached like getMcpSecrets, and nothing here may be returned to the client
+export async function getVariableValues(
+    userId: string,
+    ids: string[],
+): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    const { rows } = await db.query(
+        `select id, auth_token from registry_entry
+         where user_id = $1 and kind = 'variable' and id = any($2::uuid[])`,
+        [userId, ids],
+    );
+    return new Map(rows.map((r: { id: string; auth_token: string }) => [r.id, r.auth_token]));
+}
+
 // bearer token for server-side MCP calls: a manual token wins, otherwise the
 // stored OAuth access token (refreshed + persisted when expired). Also returns
 // the oauth object as stored after any refresh so callers never hold a stale

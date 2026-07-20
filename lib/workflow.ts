@@ -23,6 +23,7 @@ export type NodeCategory =
     | "mcp"
     | "skill"
     | "memory"
+    | "variable"
     | "saturn"
     | "model"
     | "integration";
@@ -336,7 +337,11 @@ export const MAX_GRAPH_JSON = 262_144;
 export function missingEntry(type: string): CatalogEntry {
     const prefix = type.split(":")[0];
     const category: NodeCategory =
-        prefix === "mcp" || prefix === "skill" || prefix === "memory" || prefix === "integration"
+        prefix === "mcp" ||
+        prefix === "skill" ||
+        prefix === "memory" ||
+        prefix === "variable" ||
+        prefix === "integration"
             ? prefix
             : "logic";
     return { key: type, category, label: "(deleted)", inputs: [], outputs: [], missing: true };
@@ -379,6 +384,12 @@ export const CATEGORY_STYLES = {
         headerBg: "bg-fuchsia-500/10",
         text: "text-fuchsia-600 dark:text-fuchsia-400",
         edge: "#d946ef",
+    },
+    variable: {
+        borderL: "border-l-violet-500",
+        headerBg: "bg-violet-500/10",
+        text: "text-violet-600 dark:text-violet-400",
+        edge: "#8b5cf6",
     },
     saturn: {
         borderL: "border-l-cyan-500",

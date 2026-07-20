@@ -74,6 +74,10 @@ export const LIT_PAD_Y = 12; // py-1.5 top+bottom
 export const LIT_CHAR_W = 7.2; // Geist Mono advance at text-xs (12px)
 export const NUM_W = 80;
 
+// secret variable nodes: a read-only literal-shaped box showing only the
+// variable's name behind a key glyph, sized from the name (single line)
+export const VAR_ICON_W = 16; // key glyph + gap before the name
+
 // the if node renders as a compact square carrying the agent node's frame: a
 // header band on top, then a body whose center holds the operator dropdown,
 // with the l/in/r inputs stacked on the body's left edge and the true/false
@@ -128,6 +132,17 @@ export const isLiteralEntry = (entry: CatalogEntry): boolean =>
     (entry.key === "string" || entry.key === "number") &&
     !entry.missing;
 
+// secret variable value boxes render like a single-line literal, but sized
+// from the entry's label (the variable name) — node.config carries nothing
+export const isVariableEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "variable" && !entry.missing;
+
+export const variableWidth = (entry: CatalogEntry): number =>
+    Math.min(
+        LIT_MAX_W,
+        Math.max(LIT_MIN_W, Math.ceil(entry.label.length * LIT_CHAR_W) + LIT_PAD_X + VAR_ICON_W),
+    );
+
 // string box grows with content; height counts explicit lines only (the box
 // never soft-wraps — long lines scroll inside the max-width cap)
 function literalMetrics(value: string): { width: number; height: number } {
@@ -146,6 +161,7 @@ export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number => {
     if (isChipEntry(entry)) return chipSize(entry);
     if (isLiteralEntry(entry))
         return entry.key === "number" ? NUM_W : literalMetrics(node?.config.value ?? "").width;
+    if (isVariableEntry(entry)) return variableWidth(entry);
     return NODE_W;
 };
 
@@ -182,6 +198,7 @@ export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
         return entry.key === "number"
             ? LIT_LINE_H + LIT_PAD_Y
             : literalMetrics(node?.config.value ?? "").height;
+    if (isVariableEntry(entry)) return LIT_LINE_H + LIT_PAD_Y;
     return (
         HEADER_H +
         portRows(entry) * PORT_ROW_H +
@@ -202,7 +219,7 @@ export function anchorOffsetY(entry: CatalogEntry, node?: WorkflowNode): number 
     if (isIfEntry(entry)) return IF_HEADER_H + IF_BODY_H / 2; // the middle "in" input
     if (isAgentEntry(entry)) return AGENT_HEADER_H + AGENT_BODY_H / 2; // flow "in" on the left edge
     if (isChipEntry(entry)) return chipSize(entry) / 2;
-    if (isLiteralEntry(entry)) return nodeHeight(entry, node) / 2;
+    if (isLiteralEntry(entry) || isVariableEntry(entry)) return nodeHeight(entry, node) / 2;
     return HEADER_H + PORT_ROW_H / 2; // generic rect: first port row
 }
 
@@ -367,11 +384,12 @@ export function portGeometry(
         return { x: cx + vx * t, y: cy + vy * t, nx: vx / len, ny: vy / len };
     }
 
-    // literal box: its single value output rides the box perimeter toward the
-    // node it feeds (right-edge midline when unconnected), like the model
-    // circle / grant chip but projected onto a rectangle (width/height derive
-    // from content). No inputs — the left branch is defensive.
-    if (isLiteralEntry(entry)) {
+    // literal box (and the read-only variable box): its single value output
+    // rides the box perimeter toward the node it feeds (right-edge midline
+    // when unconnected), like the model circle / grant chip but projected
+    // onto a rectangle (width/height derive from content / the variable
+    // name). No inputs — the left branch is defensive.
+    if (isLiteralEntry(entry) || isVariableEntry(entry)) {
         const w = nodeWidth(entry, node);
         const h = nodeHeight(entry, node);
         const cx = node.x + w / 2;

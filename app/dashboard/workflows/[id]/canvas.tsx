@@ -19,6 +19,7 @@ import {
     isEventEntry,
     isLiteralEntry,
     isModelEntry,
+    isVariableEntry,
     nodeHeight,
     nodeWidth,
     portPosition,
@@ -402,7 +403,8 @@ export default function Canvas({
                     if (
                         isModelEntry(entry) ||
                         isChipEntry(entry) ||
-                        isLiteralEntry(entry)
+                        isLiteralEntry(entry) ||
+                        isVariableEntry(entry)
                     ) {
                         const out = entry.outputs[0];
                         if (out) {

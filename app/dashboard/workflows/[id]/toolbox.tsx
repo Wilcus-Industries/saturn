@@ -15,6 +15,7 @@ import {
 } from "@/lib/workflow";
 import EntryIcon from "./entryIcon";
 import ModelLogo from "./modelLogo";
+import VariableModal, { type VariableRow } from "./variableModal";
 
 const SECTIONS: { category: NodeCategory; heading: string }[] = [
     { category: "events", heading: "events" },
@@ -126,11 +127,15 @@ function Chip({
 
 export default function Toolbox({
     userCatalog,
+    variables,
     openrouterModels,
     onSpawnStart,
     hasEvent,
 }: {
     userCatalog: CatalogEntry[];
+    // secret variables (kind 'variable' registry rows) — listed in the pinned
+    // bottom split, managed via VariableModal; hasValue mirrors has_token
+    variables: VariableRow[];
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
     onSpawnStart: SpawnStart;
@@ -140,6 +145,8 @@ export default function Toolbox({
 }) {
     const [group, setGroup] = useState("blocks");
     const active = GROUPS.find((g) => g.id === group) ?? GROUPS[0];
+    // secret-variable modal: "new" or the row being edited; null = closed
+    const [variableModal, setVariableModal] = useState<VariableRow | "new" | null>(null);
 
     // registered servers can carry dozens of tools each — filter by node
     // label, app name, or a server's tool names (find the server that has
@@ -158,12 +165,20 @@ export default function Toolbox({
         (m) => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
     );
 
+    const varQ = variables.filter((v) => !q || v.name.toLowerCase().includes(q));
+    const variableByKey = new Map(
+        userCatalog.filter((e) => e.category === "variable").map((e) => [e.key, e]),
+    );
+
     return (
         <aside
             className={
-                "flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-foreground/15 bg-background p-3 font-mono text-xs"
+                "flex w-56 shrink-0 flex-col border-r border-foreground/15 bg-background font-mono text-xs"
             }
         >
+            {/* tabbed sections scroll on their own; the variables split below
+                stays pinned to the toolbox bottom across every group tab */}
+            <div className={"flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3"}>
             {/* group tabs: faint circular Saturn-ringed backing per icon */}
             <div className={"flex justify-between gap-1"}>
                 {GROUPS.map(({ id, label, Icon }) => {
@@ -357,6 +372,72 @@ export default function Toolbox({
                     </section>
                 );
             })}
+            </div>
+
+            {/* variables split: pinned below the tabbed sections, outside the
+                group filter — secret values managed here (VariableModal), each
+                row drag-spawning its read-only variable:<uuid> value box */}
+            <div
+                className={
+                    "flex max-h-[45%] shrink-0 flex-col gap-1.5 overflow-y-auto border-t border-foreground/15 p-3"
+                }
+            >
+                <div className={"flex items-center justify-between"}>
+                    <h2 className={"text-[10px] uppercase tracking-wider text-gray-400"}>
+                        variables
+                    </h2>
+                    <button
+                        type={"button"}
+                        onClick={() => setVariableModal("new")}
+                        className={
+                            "text-[10px] text-gray-400 transition-colors duration-200 hover:text-foreground"
+                        }
+                    >
+                        + add
+                    </button>
+                </div>
+                {variables.length > 0 && (
+                    <p className={"text-[10px] text-gray-400"}>
+                        secret values — resolved only inside app action nodes
+                    </p>
+                )}
+                {varQ.length === 0 && (
+                    <p className={"text-[10px] text-gray-400"}>
+                        {q && variables.length > 0 ? "no matches" : "none yet — secrets like bot tokens live here"}
+                    </p>
+                )}
+                {varQ.map((v) => {
+                    const entry = variableByKey.get(`variable:${v.id}`);
+                    if (!entry) return null;
+                    return (
+                        <div key={v.id} className={"flex items-center gap-1"}>
+                            <div className={"min-w-0 flex-1"}>
+                                <Chip
+                                    entry={entry}
+                                    enabled
+                                    borderL={CATEGORY_STYLES.variable.borderL}
+                                    onSpawnStart={onSpawnStart}
+                                />
+                            </div>
+                            <button
+                                type={"button"}
+                                title={"edit variable"}
+                                aria-label={`edit variable ${v.name}`}
+                                onClick={() => setVariableModal(v)}
+                                className={
+                                    "shrink-0 px-1 text-gray-400 transition-colors duration-200 hover:text-foreground"
+                                }
+                            >
+                                ✎
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {variableModal && (
+                <VariableModal target={variableModal} onClose={() => setVariableModal(null)} />
+            )}
         </aside>
     );
 }

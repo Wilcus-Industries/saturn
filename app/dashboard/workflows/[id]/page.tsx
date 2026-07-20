@@ -31,11 +31,17 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     const row = rows[0] as WorkflowRow;
 
     // user-registered mcp servers/skills join the static catalog as nodes
-    const [userCatalog, keyed, level] = await Promise.all([
-        getUserRegistry(session.user.id).then(buildUserCatalog),
+    const [registry, keyed, level] = await Promise.all([
+        getUserRegistry(session.user.id),
         hasOpenrouterKey(session.user.id),
         getActivation(requestHeaders),
     ]);
+    const userCatalog = buildUserCatalog(registry);
+    // secret variables for the toolbox split — name + whether a value is set,
+    // never the value itself (has_token is the derived boolean)
+    const variables = registry
+        .filter((r) => r.kind === "variable")
+        .map((r) => ({ id: r.id, name: r.name, hasValue: r.has_token }));
     // models list unlocks with built-in credits (any activated tier with an
     // allowance — level null gets none, matching getCreditUsage) or a BYOK key.
     // null = neither (toolbox hints at settings); [] = unlocked but fetch failed
@@ -48,6 +54,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
         <Designer
             workflow={row}
             userCatalog={userCatalog}
+            variables={variables}
             openrouterModels={openrouterModels}
             cronFloorMinutes={limitsFor(level).cronFloorMinutes}
         />
