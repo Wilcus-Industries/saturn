@@ -150,7 +150,7 @@ export default memo(function Node({
     outputOptions,
     reasoningOptions,
     outAnchor,
-    pendingKind,
+    connectable,
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
@@ -184,9 +184,15 @@ export default memo(function Node({
     // for every other node) — computed by the canvas from geometry so it
     // matches the edge anchor and Node's memo can compare it as a string
     outAnchor: string;
-    // kind of the in-flight edge drag (null when none, or when it started on
-    // this node) — matching ports scale up as a drop affordance
-    pendingKind: PortKind | null;
+    // honest port-drop affordance during an edge drag (comparable string so
+    // Node's memo survives; computed once per drag by the canvas from the fixed
+    // drag origin via canConnect, NOT from the moving pointer):
+    //   ""  — no drag in progress: every port renders normally
+    //   "-" — drag active but nothing on this node is a legal target: dim all
+    //         this node's ports
+    //   "a,b,…" — the comma-joined ids of the ports that ARE legal drop targets:
+    //         those scale+glow, the rest of this node's ports dim
+    connectable: string;
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
@@ -195,6 +201,13 @@ export default memo(function Node({
     onOpenVariable?: OpenVariableHandler;
 }) {
     const styles = entryStyles(entry);
+    // honest highlighting: a drag is active whenever `connectable` is non-empty;
+    // the set holds only the port ids on THIS node that are legal drop targets
+    // (empty/"-" → none here). Candidates are always opposite-direction ports
+    // of the drag origin, so a legal id can't collide with a same-side port id.
+    const dragActive = connectable !== "";
+    const connectableSet =
+        connectable && connectable !== "-" ? new Set(connectable.split(",")) : null;
     // local (x,y) offset of a rotated chip/model output marker; null → the
     // branch's right-edge default
     const parsedOutAnchor: [number, number] | null = outAnchor
@@ -315,7 +328,12 @@ export default memo(function Node({
         // rectangular rows straddle the node edge via a negative margin; the
         // circular model branch positions the port itself and passes ""
         marginClass = dir === "in" ? "-ml-1.5" : "-mr-1.5",
-    ) => (
+    ) => {
+        // honest highlighting: only legal drop targets scale + glow; during a
+        // drag every other port on this node dims (opacity-40). No drag → normal.
+        const portConnectable = dragActive && !!connectableSet?.has(spec.id);
+        const portDimmed = dragActive && !portConnectable;
+        return (
         <button
             type={"button"}
             data-port={"true"}
@@ -329,12 +347,24 @@ export default memo(function Node({
                 e.currentTarget.setPointerCapture(e.pointerId);
                 onPortPointerDown(e, node.id, spec.id, spec.kind, dir);
             }}
-            className={`flex shrink-0 cursor-crosshair items-center justify-center text-[10px] leading-none transition-transform ${marginClass} ${
+            className={`relative flex shrink-0 cursor-crosshair items-center justify-center text-[10px] leading-none transition-[transform,opacity] ${marginClass} ${
                 spec.kind === "flow" ? "text-foreground" : styles.text
             } ${
-                pendingKind === spec.kind ? "scale-125" : ""
+                portConnectable
+                    ? "scale-125 drop-shadow-[0_0_3px_currentColor]"
+                    : portDimmed
+                      ? "opacity-40"
+                      : ""
             }`}
         >
+            {/* invisible fat hit target inside the button (parity with edges'
+                12px fat twin): ~26px wide / ~14px tall so a ~10px glyph is
+                comfortably clickable. Vertical inset is deliberately small —
+                if-node inputs (l/in/r) sit only 16px apart, so a taller overlay
+                would cross the midline into the neighbouring port. data-port
+                stays on the button, so elementFromPoint().closest("[data-port]")
+                resolves a hit on this span to the button either way. */}
+            <span aria-hidden className={"absolute -inset-x-2 -inset-y-0.5"} />
             {/* flow ports are a filled diamond (a 45°-tilted square), value
                 ports a hollow circle. The diamond's 7px box keeps the layout
                 width of the glyph it replaced; the rotation overflows it
@@ -346,7 +376,8 @@ export default memo(function Node({
                 "○"
             )}
         </button>
-    );
+        );
+    };
 
     // model nodes render as a circle (MODEL_D 54, h-6 name strip =
     // MODEL_LABEL_H 24) — the single value output anchors on the circle's

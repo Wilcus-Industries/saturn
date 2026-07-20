@@ -8,10 +8,17 @@ import {
     type SetStateAction,
     useEffect,
     useImperativeHandle,
+    useMemo,
     useRef,
     useState,
 } from "react";
-import type { CatalogEntry, WorkflowGraph, WorkflowNode } from "@/lib/workflow";
+import {
+    canConnect,
+    type CatalogEntry,
+    type PortKind,
+    type WorkflowGraph,
+    type WorkflowNode,
+} from "@/lib/workflow";
 import Edges, { type PendingEdge } from "./edges";
 import {
     GRID,
@@ -38,6 +45,16 @@ import Node, {
 export type CanvasHandle = {
     // client coords → world coords; null when the point is outside the canvas
     clientToWorld: (clientX: number, clientY: number) => { x: number; y: number } | null;
+};
+
+// the fixed origin of an in-flight edge drag (set at pointerdown, cleared on
+// drop) — distinct from PendingEdge, which also carries the live pointer
+// position. Stable across a drag, so the connectable-ports memo keyed on it
+// recomputes once per drag, never per pointermove.
+export type PendingDrag = {
+    from: { nodeId: string; portId: string };
+    kind: PortKind;
+    dir: "in" | "out";
 };
 
 type View = { x: number; y: number; zoom: number };
@@ -121,6 +138,7 @@ export default function Canvas({
     setSelection,
     dispatch,
     pending,
+    drag,
     modelModalities,
     modelReasoning,
     onPortPointerDown,
@@ -141,6 +159,9 @@ export default function Canvas({
     setSelection: Dispatch<SetStateAction<Set<string>>>;
     dispatch: Dispatch<GraphAction>;
     pending: PendingEdge | null;
+    // fixed origin of the in-flight edge drag (null when none) — drives the
+    // honest per-port connectable highlighting; stable across the drag
+    drag: PendingDrag | null;
     // OpenRouter model slug → output modalities, for dynamicOptions fields
     modelModalities: Map<string, string[]>;
     // OpenRouter model slug → reasoning capability, for the reasoning select
@@ -357,6 +378,34 @@ export default function Canvas({
             .map((e) => `${e.to.nodeId}:${e.to.portId}`),
     );
 
+    // honest port highlighting: for each node, the comma-joined ids of the ports
+    // that would legally accept the current drag ("-" when none). Computed once
+    // per drag from the fixed origin (deps EXCLUDE the moving pointer) by running
+    // the authoritative canConnect for every opposite-direction port — so illegal
+    // targets (same direction, self, kind/accepts mismatch, duplicate) are never
+    // highlighted, unlike the old kind-only affordance. null when no drag.
+    const connectableByNode = useMemo(() => {
+        if (!drag) return null;
+        const map = new Map<string, string>();
+        for (const node of graph.nodes) {
+            const entry = byKey[node.type];
+            if (!entry) {
+                map.set(node.id, "-");
+                continue;
+            }
+            // a legal target must face the opposite way from the drag origin
+            const candidates = drag.dir === "out" ? entry.inputs : entry.outputs;
+            const ok: string[] = [];
+            for (const p of candidates) {
+                const target = { nodeId: node.id, portId: p.id };
+                const [from, to] = drag.dir === "out" ? [drag.from, target] : [target, drag.from];
+                if (canConnect(graph, from, to, byKey)) ok.push(p.id);
+            }
+            map.set(node.id, ok.length ? ok.join(",") : "-");
+        }
+        return map;
+    }, [drag, graph, byKey]);
+
     return (
         <div
             ref={outerRef}
@@ -447,8 +496,8 @@ export default function Canvas({
                             outputOptions={outputOptions}
                             reasoningOptions={reasoningOptions}
                             outAnchor={outAnchor}
-                            pendingKind={
-                                pending && pending.from.nodeId !== node.id ? pending.kind : null
+                            connectable={
+                                connectableByNode ? (connectableByNode.get(node.id) ?? "-") : ""
                             }
                             onPortPointerDown={onPortPointerDown}
                             onOpenPicker={onOpenPicker}

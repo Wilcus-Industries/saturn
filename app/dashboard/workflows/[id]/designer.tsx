@@ -13,11 +13,11 @@ import {
     CATALOG_BY_KEY,
     canConnect,
     type CatalogEntry,
+    chipKind,
     defaultNodeConfig,
     edgesToReplace,
     entryStyles,
     missingEntry,
-    type PortKind,
     type WorkflowGraph,
     type WorkflowNode,
     type WorkflowRow,
@@ -27,7 +27,7 @@ import { sampleEventPayload } from "@/lib/integrations";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
 import { callAgentModel, callIntegration, callMcpTool, callMemoryTool, saveWorkflow } from "./actions";
-import Canvas, { type CanvasHandle } from "./canvas";
+import Canvas, { type CanvasHandle, type PendingDrag } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
 import EntryIcon from "./entryIcon";
@@ -62,14 +62,6 @@ import VariableModal, { type VariableRow } from "./variableModal";
 
 // don't JSON.parse arbitrarily huge samples for the path picker
 const MAX_SAMPLE_CHARS = 500_000;
-
-// an in-flight port drag; from/kind/dir are fixed at pointerdown, the live
-// pointer position lives in separate state so this object stays stable
-type PendingDrag = {
-    from: { nodeId: string; portId: string };
-    kind: PortKind;
-    dir: "in" | "out";
-};
 
 // window pointer listeners for gestures that outlive their start element
 // (toolbox spawn, port edge drags). Handlers live in a ref so the listeners
@@ -155,13 +147,12 @@ export default function Designer({
     const [error, setError] = useState<string | null>(null);
 
     // transient toast: a bottom-center monospace pill that auto-dismisses after
-    // ~2.5s; a fresh notify() replaces whatever is showing. The primitive lives
-    // here so later phases can surface invalid-drop / replaced-connection /
-    // failed-spawn feedback (Phase 3/5 consume it) without threading new props
-    // through the memoized Node. Never persisted — dies with the page.
+    // ~2.5s; a fresh notify() replaces whatever is showing. Consumed by the edge
+    // drop handler below (invalid-drop reasons + replaced-connection notice) and
+    // later phases (failed-spawn feedback), without threading new props through
+    // the memoized Node. Never persisted — dies with the page.
     const [toast, setToast] = useState<string | null>(null);
     const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- primitive added this phase; consumed by later phases (invalid-drop / replaced-connection / failed-spawn toasts)
     const notify = useCallback((text: string) => {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setToast(text);
@@ -343,24 +334,66 @@ export default function Designer({
             const target = document
                 .elementFromPoint(e.clientX, e.clientY)
                 ?.closest<HTMLElement>("[data-port]");
-            if (!target) return; // empty drop — cancel silently
+            // dropping on empty canvas (nothing under the cursor) is a legit
+            // cancel gesture — stay silent. Every other bare-return below became
+            // a specific toast so the drop never fails wordlessly.
+            if (!target) return;
             const { nodeId, portId, kind, dir } = target.dataset;
-            if (!nodeId || !portId) return;
-            if (kind !== pendingDrag.kind) return; // flow↔value never connects
-            if ((dir !== "in" && dir !== "out") || dir === pendingDrag.dir) return;
+            if (!nodeId || !portId) return; // a [data-port] element always carries both
+            if (kind !== pendingDrag.kind) {
+                notify("flow and value ports don't connect");
+                return;
+            }
+            if (dir !== "in" && dir !== "out") return; // malformed dataset (unreachable)
+            if (dir === pendingDrag.dir) {
+                notify("connect an output to an input");
+                return;
+            }
             // drags may start from an input port — the stored edge is always out→in
             const drop = { nodeId, portId };
             const [from, to] =
                 pendingDrag.dir === "out" ? [pendingDrag.from, drop] : [drop, pendingDrag.from];
-            if (!canConnect(present, from, to, byKey)) return;
+            // ordered cheap reason checks so the failure names the actual
+            // problem; canConnect stays authoritative for the final accept.
+            if (from.nodeId === to.nodeId) {
+                notify("can't connect a node to itself");
+                return;
+            }
+            const toNode = present.nodes.find((n) => n.id === to.nodeId);
+            const toPort = toNode ? byKey[toNode.type]?.inputs.find((p) => p.id === to.portId) : undefined;
+            const fromNode = present.nodes.find((n) => n.id === from.nodeId);
+            const srcChip = chipKind(fromNode ? byKey[fromNode.type] : undefined);
+            if (toPort?.accepts && srcChip !== toPort.accepts) {
+                notify(`this port only takes a ${toPort.accepts} chip`);
+                return;
+            }
+            if (srcChip && !toPort?.accepts) {
+                notify("grant chips only connect to an agent's matching port");
+                return;
+            }
+            const duplicate = present.edges.some(
+                (edge) =>
+                    edge.from.nodeId === from.nodeId && edge.from.portId === from.portId &&
+                    edge.to.nodeId === to.nodeId && edge.to.portId === to.portId,
+            );
+            if (duplicate) {
+                notify("already connected");
+                return;
+            }
+            if (!canConnect(present, from, to, byKey)) {
+                notify("can't connect these ports");
+                return;
+            }
+            // the value-input single-edge limit replaces the old edge atomically
+            // — one history entry for the whole swap (flow outputs fan out;
+            // await "values" is multi-edge)
+            const replacing = edgesToReplace(present, from, to, byKey);
             dispatch({
                 type: "addEdge",
                 edge: { id: crypto.randomUUID(), from, to, kind: pendingDrag.kind },
-                // the value-input single-edge limit replaces the old edge
-                // atomically — one history entry for the whole swap (flow
-                // outputs fan out; await "values" is multi-edge)
-                replacing: edgesToReplace(present, from, to, byKey),
+                replacing,
             });
+            if (replacing.length) notify("replaced the existing connection");
         },
         onCancel: () => {
             setPendingDrag(null);
@@ -689,6 +722,7 @@ export default function Designer({
                     setSelection={setSelection}
                     dispatch={dispatch}
                     pending={pendingEdge}
+                    drag={pendingDrag}
                     modelModalities={modelModalities}
                     modelReasoning={modelReasoning}
                     onPortPointerDown={startEdgeDrag}

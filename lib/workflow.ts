@@ -527,8 +527,10 @@ function findPort(
 
 // grant-chip nodes: an mcp server node ("tool"), a skill node ("skill"), or a
 // memory store node ("memory"), whose value output feeds only an agent's
-// matching accepts port.
-function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | "memory" | null {
+// matching accepts port. Exported so the designer's invalid-drop feedback can
+// name the mismatch (chip into ordinary port / wrong accepts port) without
+// re-deriving these rules.
+export function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | "memory" | null {
     if (!entry || entry.missing) return null;
     if (entry.category === "mcp" && typeof entry.toolName === "string") return "tool";
     if (entry.category === "skill") return "skill";
