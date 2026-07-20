@@ -114,21 +114,3 @@ create index if not exists model_usage_user_created_idx
 alter table model_usage drop constraint if exists model_usage_source_check;
 alter table model_usage add constraint model_usage_source_check
     check (source in ('designer', 'cron', 'manual', 'event'));
-
--- persistent per-user chat logs for bot workflows (the "log append" /
--- "log read" designer nodes; lib/chatlog.server.ts). Ring buffer: each
--- (user_id, log_key) log keeps its last 200 rows, pruned in code on append
--- (same prune-in-code pattern as workflow_run retention). bigint identity —
--- not the usual uuid PK — because insertion order IS the chat order, so
--- reads and prunes sort by id exactly (created_at can tie within a ms).
--- log_key length (256) and content length (4096) are enforced in code.
-create table if not exists chat_message (
-    id         bigint generated always as identity primary key,
-    user_id    text not null references "user"(id) on delete cascade,
-    log_key    text not null,
-    role       text not null check (role in ('user', 'bot')),
-    content    text not null,
-    created_at timestamptz not null default now()
-);
-create index if not exists chat_message_user_key_id_idx
-    on chat_message (user_id, log_key, id desc);
