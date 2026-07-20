@@ -22,6 +22,7 @@ import { describeCron } from "@/lib/cron";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import EntryBadge from "./entryBadge";
 import EntryIcon from "./entryIcon";
+import IssueDot from "./issueDot";
 import NodeFrame from "./nodeFrame";
 import {
     AGENT_BODY_H,
@@ -151,6 +152,7 @@ export default memo(function Node({
     reasoningOptions,
     outAnchor,
     connectable,
+    issueLevel,
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
@@ -193,6 +195,10 @@ export default memo(function Node({
     //   "a,b,…" — the comma-joined ids of the ports that ARE legal drop targets:
     //         those scale+glow, the rest of this node's ports dim
     connectable: string;
+    // live validation state for THIS node, as a comparable string so the memo
+    // survives: "" none / "warning" / "error". Drives the top-right IssueDot on
+    // every shape branch (paint-only — never an outline, which means selection).
+    issueLevel: string;
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
@@ -405,6 +411,7 @@ export default memo(function Node({
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
             >
+                <IssueDot level={issueLevel} />
                 <div
                     style={{ width: MODEL_D, height: MODEL_D }}
                     // rose category frame (entryStyles) — the model circle used
@@ -548,6 +555,7 @@ export default memo(function Node({
                 onPointerCancel={endDrag}
             >
                 <EntryBadge />
+                <IssueDot level={issueLevel} />
                 <div
                     style={{ width: EVENT_W, height: EVENT_H }}
                     // category frame via entryStyles (amber for events)
@@ -625,6 +633,7 @@ export default memo(function Node({
                 onPointerUp={chipEndDrag}
                 onPointerCancel={endDrag}
             >
+                <IssueDot level={issueLevel} />
                 <div
                     style={{ width: size, height: size }}
                     // category frame via entryStyles; every chip is clickable
@@ -707,6 +716,7 @@ export default memo(function Node({
                 onPointerUp={literalEndDrag}
                 onPointerCancel={endDrag}
             >
+                <IssueDot level={issueLevel} />
                 <div
                     style={{ height }}
                     // string/number are bare value boxes, not category members,
@@ -794,6 +804,7 @@ export default memo(function Node({
                 onPointerUp={variableEndDrag}
                 onPointerCancel={endDrag}
             >
+                <IssueDot level={issueLevel} />
                 <div
                     style={{ height }}
                     className={`relative flex cursor-pointer items-center gap-1.5 overflow-hidden rounded border ${styles.border} bg-background px-2 py-1.5 hover:brightness-110`}
@@ -892,6 +903,7 @@ export default memo(function Node({
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
             >
+                <IssueDot level={issueLevel} />
                 <NodeFrame accent={styles.edge} />
 
                 <div
@@ -995,6 +1007,7 @@ export default memo(function Node({
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
             >
+                <IssueDot level={issueLevel} />
                 <NodeFrame accent={styles.edge} />
 
                 <div
@@ -1117,6 +1130,7 @@ export default memo(function Node({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
         >
+            <IssueDot level={issueLevel} />
             <NodeFrame
                 className={`border-l-2 ${styles.borderL} ${entry.missing ? "border-dashed" : ""}`}
             />

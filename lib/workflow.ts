@@ -571,6 +571,18 @@ export function canConnect(
     return !duplicate;
 }
 
+// one validation finding: a level + human message, plus the node or edge it
+// concerns (when the check is node/edge-specific — most are). The designer
+// surfaces these live (topbar badge → issues panel → click-to-select a node's
+// issue, plus a per-node dot); the MCP tools (validate_graph/save_graph) still
+// read the flat errors/warnings string arrays, which are derived from these.
+export type ValidationIssue = {
+    level: "error" | "warning";
+    message: string;
+    nodeId?: string;
+    edgeId?: string;
+};
+
 // deep validation for graphs authored without the designer's UI guardrails
 // (the MCP server's validate_graph/save_graph tools). Assumes the graph
 // already passed isWorkflowGraph. Errors are states the canvas can't produce
@@ -580,12 +592,20 @@ export function canConnect(
 // resolve as inert "(deleted)" placeholders, no event node means the workflow
 // never triggers, a chip output wired into an ordinary value input grants
 // nothing).
+//
+// Findings are collected as structured `issues` (each carrying the node/edge it
+// concerns where applicable); the flat `errors`/`warnings` string arrays are
+// derived from them in push order, so every existing consumer sees the exact
+// same strings in the exact same order.
 export function validateGraphStrict(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
-): { errors: string[]; warnings: string[] } {
-    const errors: string[] = [];
-    const warnings: string[] = [];
+): { errors: string[]; warnings: string[]; issues: ValidationIssue[] } {
+    const issues: ValidationIssue[] = [];
+    const err = (message: string, ref?: { nodeId?: string; edgeId?: string }) =>
+        issues.push({ level: "error", message, ...ref });
+    const warn = (message: string, ref?: { nodeId?: string; edgeId?: string }) =>
+        issues.push({ level: "warning", message, ...ref });
 
     const known = (node: WorkflowNode) => {
         const entry = byKey[node.type];
@@ -593,8 +613,9 @@ export function validateGraphStrict(
     };
     for (const node of graph.nodes) {
         if (!known(node)) {
-            warnings.push(
+            warn(
                 `node "${node.id}" has unknown type "${node.type}" — it renders as an inert (deleted) placeholder`,
+                { nodeId: node.id },
             );
         }
     }
@@ -604,17 +625,19 @@ export function validateGraphStrict(
     const isEvent = (node: WorkflowNode) => known(node)?.category === "events";
     const eventCount = graph.nodes.filter(isEvent).length;
     if (eventCount === 0) {
-        warnings.push("no event node — add a 'scheduled to run' block so the workflow can trigger");
+        warn("no event node — add a 'scheduled to run' block so the workflow can trigger");
     } else if (eventCount > 1) {
-        errors.push(`a workflow may have only one event node, but this graph has ${eventCount}`);
+        err(`a workflow may have only one event node, but this graph has ${eventCount}`);
     }
     // a schedule node with a blank/invalid cron never fires
     for (const node of graph.nodes) {
         if (node.type !== "schedule") continue;
         const cron = (node.config.cron ?? "").trim();
-        if (!cron) warnings.push(`schedule node "${node.id}" has no cron — it will never fire`);
+        if (!cron) warn(`schedule node "${node.id}" has no cron — it will never fire`, { nodeId: node.id });
         else if (!isValidCron(cron)) {
-            warnings.push(`schedule node "${node.id}" has an invalid cron "${cron}" — it will never fire`);
+            warn(`schedule node "${node.id}" has an invalid cron "${cron}" — it will never fire`, {
+                nodeId: node.id,
+            });
         }
     }
 
@@ -627,12 +650,12 @@ export function validateGraphStrict(
         const label = `edge "${edge.id}" (${edge.from.nodeId}.${edge.from.portId} → ${edge.to.nodeId}.${edge.to.portId})`;
 
         if (edge.from.nodeId === edge.to.nodeId) {
-            errors.push(`${label}: a node cannot connect to itself`);
+            err(`${label}: a node cannot connect to itself`, { edgeId: edge.id });
             continue;
         }
         const dupKey = `${edge.from.nodeId}.${edge.from.portId}>${edge.to.nodeId}.${edge.to.portId}`;
         if (seen.has(dupKey)) {
-            errors.push(`${label}: duplicate edge`);
+            err(`${label}: duplicate edge`, { edgeId: edge.id });
             continue;
         }
         seen.add(dupKey);
@@ -646,15 +669,22 @@ export function validateGraphStrict(
         const fromPort = fromEntry.outputs.find((p) => p.id === edge.from.portId);
         const toPort = toEntry.inputs.find((p) => p.id === edge.to.portId);
         if (!fromPort) {
-            errors.push(`${label}: "${fromNode.type}" has no output port "${edge.from.portId}"`);
+            err(`${label}: "${fromNode.type}" has no output port "${edge.from.portId}"`, {
+                edgeId: edge.id,
+            });
             continue;
         }
         if (!toPort) {
-            errors.push(`${label}: "${toNode.type}" has no input port "${edge.to.portId}"`);
+            err(`${label}: "${toNode.type}" has no input port "${edge.to.portId}"`, {
+                edgeId: edge.id,
+            });
             continue;
         }
         if (fromPort.kind !== toPort.kind || edge.kind !== fromPort.kind) {
-            errors.push(`${label}: port kinds don't match (${fromPort.kind} output → ${toPort.kind} input, edge kind "${edge.kind}")`);
+            err(
+                `${label}: port kinds don't match (${fromPort.kind} output → ${toPort.kind} input, edge kind "${edge.kind}")`,
+                { edgeId: edge.id },
+            );
             continue;
         }
         // grant-chip gating (mirrors canConnect): an accepts port takes only
@@ -663,14 +693,15 @@ export function validateGraphStrict(
         const srcChip = chipKind(fromEntry);
         if (toPort.accepts) {
             if (srcChip !== toPort.accepts) {
-                errors.push(
-                    `${label}: input "${toPort.id}" accepts only ${toPort.accepts} grant-chip nodes`,
-                );
+                err(`${label}: input "${toPort.id}" accepts only ${toPort.accepts} grant-chip nodes`, {
+                    edgeId: edge.id,
+                });
                 continue;
             }
         } else if (srcChip) {
-            warnings.push(
+            warn(
                 `${label}: ${srcChip} nodes only grant agents — this edge into an ordinary value input is ignored`,
+                { edgeId: edge.id },
             );
         }
         if (toPort.kind === "value" && !toPort.multi) {
@@ -678,8 +709,9 @@ export function validateGraphStrict(
             const count = (valueInDegree.get(inKey) ?? 0) + 1;
             valueInDegree.set(inKey, count);
             if (count === 2) {
-                errors.push(
+                err(
                     `input ${inKey} has multiple incoming value edges — this value input accepts one edge`,
+                    { nodeId: edge.to.nodeId, edgeId: edge.id },
                 );
             }
         }
@@ -694,18 +726,20 @@ export function validateGraphStrict(
             (e) => e.to.nodeId === node.id && e.to.portId === "model" && e.kind === "value",
         );
         if (!hasModelEdge && !(node.config.model ?? "").trim()) {
-            warnings.push(`agent "${node.id}" has no model — the run will fail`);
+            warn(`agent "${node.id}" has no model — the run will fail`, { nodeId: node.id });
         }
         const grantCount = (portId: string) =>
             graph.edges.filter((e) => e.to.nodeId === node.id && e.to.portId === portId).length;
         if (grantCount("tools") > MAX_GRANTED_TOOLS) {
-            warnings.push(
+            warn(
                 `agent "${node.id}" has more than ${MAX_GRANTED_TOOLS} tool grants — extras are dropped at run time`,
+                { nodeId: node.id },
             );
         }
         if (grantCount("skills") > MAX_GRANTED_SKILLS) {
-            warnings.push(
+            warn(
                 `agent "${node.id}" has more than ${MAX_GRANTED_SKILLS} skill grants — extras are dropped at run time`,
+                { nodeId: node.id },
             );
         }
     }
@@ -718,16 +752,18 @@ export function validateGraphStrict(
         if (!entry || chipKind(entry) !== "tool") continue;
         const exclude = parseToolExclusions(node.config.exclude);
         if (exclude === null) {
-            warnings.push(
+            warn(
                 `mcp node "${node.id}": exclude is not a JSON array of tool names — ignored, all enabled tools granted`,
+                { nodeId: node.id },
             );
             continue;
         }
         const names = new Set((entry.tools ?? []).map((t) => t.name));
         for (const name of exclude) {
             if (!names.has(name)) {
-                warnings.push(
+                warn(
                     `mcp node "${node.id}": excluded tool "${name}" doesn't exist on ${entry.label} — ignored`,
+                    { nodeId: node.id },
                 );
             }
         }
@@ -744,9 +780,9 @@ export function validateGraphStrict(
         if (!provider) continue; // unknown-type warning already covers it
         for (const field of provider.requiredConfig) {
             if (!(node.config[field] ?? "").trim() && !fedPorts.has(`${node.id}:${field}`)) {
-                warnings.push(
-                    `${provider.label} "${node.id}" has no ${field} — the run will fail`,
-                );
+                warn(`${provider.label} "${node.id}" has no ${field} — the run will fail`, {
+                    nodeId: node.id,
+                });
             }
         }
     }
@@ -760,9 +796,9 @@ export function validateGraphStrict(
         if (!event) continue; // unknown-type warning already covers it
         for (const field of event.requiredConfig) {
             if (!(node.config[field] ?? "").trim() && !fedPorts.has(`${node.id}:${field}`)) {
-                warnings.push(
-                    `${event.label} "${node.id}" has no ${field} — the run will fail`,
-                );
+                warn(`${event.label} "${node.id}" has no ${field} — the run will fail`, {
+                    nodeId: node.id,
+                });
             }
         }
     }
@@ -781,13 +817,18 @@ export function validateGraphStrict(
         const srcEntry = known(src);
         if (!srcEntry) continue; // unknown-type warning already covers it
         if (srcEntry.category !== "variable" && !STATIC_VALUE_TYPES.has(src.type)) {
-            warnings.push(
+            warn(
                 `event node "${toNode.id}": port "${edge.to.portId}" is fed by a ${srcEntry.label} node — event config resolves before any run, so only variable/string/number sources apply; this edge is ignored`,
+                { nodeId: toNode.id, edgeId: edge.id },
             );
         }
     }
 
-    return { errors, warnings };
+    // derive the flat arrays in push order so every existing consumer (the MCP
+    // validate_graph/save_graph tools, saveWorkflow) sees identical strings
+    const errors = issues.filter((i) => i.level === "error").map((i) => i.message);
+    const warnings = issues.filter((i) => i.level === "warning").map((i) => i.message);
+    return { errors, warnings, issues };
 }
 
 // edges that must be deleted before adding from→to, to keep value inputs at

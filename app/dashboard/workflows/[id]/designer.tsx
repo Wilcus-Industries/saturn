@@ -4,6 +4,7 @@ import {
     type Dispatch,
     type SetStateAction,
     useCallback,
+    useDeferredValue,
     useEffect,
     useMemo,
     useReducer,
@@ -20,6 +21,8 @@ import {
     edgesToReplace,
     entryStyles,
     missingEntry,
+    type ValidationIssue,
+    validateGraphStrict,
     type WorkflowGraph,
     type WorkflowNode,
     type WorkflowRow,
@@ -138,6 +141,32 @@ export default function Designer({
         [openrouterModels],
     );
 
+    // live validation surfaced in the topbar (issues panel) and as per-node
+    // dots. The deferred graph IS the debounce — present settles between edits,
+    // and validateGraphStrict is linear over a graph capped at MAX_NODES, so
+    // re-running it per settled edit is cheap. Suppressed on an empty graph so a
+    // fresh workflow doesn't nag ("no event node") before anything is placed.
+    const deferredGraph = useDeferredValue(present);
+    const validation = useMemo(
+        () => validateGraphStrict(deferredGraph, byKey),
+        [deferredGraph, byKey],
+    );
+    const issues = useMemo<ValidationIssue[]>(
+        () => (deferredGraph.nodes.length === 0 ? [] : validation.issues),
+        [deferredGraph, validation],
+    );
+    // node id → the worst level an issue pins to it (error wins over warning);
+    // a node absent from the map has no issue. Feeds the canvas's per-node dot.
+    const issuesByNode = useMemo(() => {
+        const map = new Map<string, "error" | "warning">();
+        for (const issue of issues) {
+            if (!issue.nodeId) continue;
+            if (issue.level === "error") map.set(issue.nodeId, "error");
+            else if (!map.has(issue.nodeId)) map.set(issue.nodeId, "warning");
+        }
+        return map;
+    }, [issues]);
+
     // selection lives outside history so undo/redo doesn't thrash it
     const [selection, setSelection] = useState<Set<string>>(new Set());
     // the selected edge (null = none). Node and edge selection are mutually
@@ -156,6 +185,13 @@ export default function Designer({
     const deleteEdge = useCallback((id: string) => {
         dispatch({ type: "deleteEdge", id });
     }, []);
+    // clicking a node-bearing issue in the topbar's issues panel selects that
+    // node — routed through selectNodes (stable), which also clears any edge
+    // selection so the two selection kinds stay mutually exclusive
+    const selectIssueNode = useCallback(
+        (nodeId: string) => selectNodes(new Set([nodeId])),
+        [selectNodes],
+    );
 
     // saved snapshot as state (not a ref) so a successful save re-renders
     // the dirty indicator immediately
@@ -729,6 +765,8 @@ export default function Designer({
                 dirty={dirty}
                 saving={saving}
                 error={error}
+                issues={issues}
+                onSelectIssue={selectIssueNode}
                 events={events}
                 selectedEventId={selectedEventId}
                 onSelectEvent={setSelectedEventId}
@@ -763,6 +801,7 @@ export default function Designer({
                     onDeleteEdge={deleteEdge}
                     modelModalities={modelModalities}
                     modelReasoning={modelReasoning}
+                    issuesByNode={issuesByNode}
                     onPortPointerDown={startEdgeDrag}
                     onOpenPicker={openPicker}
                     onOpenCron={openCron}

@@ -144,6 +144,7 @@ export default function Canvas({
     onDeleteEdge,
     modelModalities,
     modelReasoning,
+    issuesByNode,
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
@@ -177,6 +178,10 @@ export default function Canvas({
     modelModalities: Map<string, string[]>;
     // OpenRouter model slug → reasoning capability, for the reasoning select
     modelReasoning: Map<string, boolean>;
+    // node id → live validation level ("error" wins over "warning"); a node not
+    // in the map has no issue. Derived per node into a comparable-string
+    // `issueLevel` prop so Node's memo survives.
+    issuesByNode: Map<string, "error" | "warning">;
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
@@ -517,6 +522,7 @@ export default function Canvas({
                             connectable={
                                 connectableByNode ? (connectableByNode.get(node.id) ?? "-") : ""
                             }
+                            issueLevel={issuesByNode.get(node.id) ?? ""}
                             onPortPointerDown={onPortPointerDown}
                             onOpenPicker={onOpenPicker}
                             onOpenCron={onOpenCron}

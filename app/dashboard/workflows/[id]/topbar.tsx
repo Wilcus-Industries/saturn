@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import DeleteWorkflowButton from "@/app/dashboard/deleteWorkflowButton";
+import type { ValidationIssue } from "@/lib/workflow";
+import PopoverShell from "./popoverShell";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -13,6 +15,8 @@ export default function Topbar({
     dirty,
     saving,
     error,
+    issues,
+    onSelectIssue,
     events,
     selectedEventId,
     onSelectEvent,
@@ -26,6 +30,11 @@ export default function Topbar({
     dirty: boolean;
     saving: boolean;
     error: string | null;
+    // live validation findings (already suppressed on an empty graph by the
+    // designer); the badge summarizes them, the panel lists them
+    issues: ValidationIssue[];
+    // select the node an issue concerns (issues with a nodeId only)
+    onSelectIssue: (nodeId: string) => void;
     // event nodes in the graph — the test runner fires the selected one
     events: { id: string; label: string }[];
     selectedEventId: string;
@@ -35,12 +44,24 @@ export default function Topbar({
     running: boolean;
 }) {
     const [frame, setFrame] = useState(0);
+    // the issues panel's anchor (null = closed); set to the badge's bottom-left
+    // corner on click so PopoverShell measures-and-clamps from there
+    const [panelAnchor, setPanelAnchor] = useState<{ x: number; y: number } | null>(null);
 
     useEffect(() => {
         if (!saving) return;
         const id = setInterval(() => setFrame((f) => (f + 1) % FRAMES.length), 80);
         return () => clearInterval(id);
     }, [saving]);
+
+    const errorCount = issues.reduce((n, i) => n + (i.level === "error" ? 1 : 0), 0);
+    const warningCount = issues.length - errorCount;
+
+    // if every issue clears while the panel is open, close it during render —
+    // the badge that anchored it is gone, so a stale anchor must not linger or
+    // reopen on the next issue. Adjust-state-during-render, not an effect (it
+    // converges: the next pass sees panelAnchor null and the branch is dead).
+    if (panelAnchor && issues.length === 0) setPanelAnchor(null);
 
     return (
         <header
@@ -121,6 +142,26 @@ export default function Topbar({
                 <DeleteWorkflowButton id={workflowId} />
             </span>
 
+            {/* validation summary badge — red errors win, else amber warnings,
+                nothing when the graph is clean or empty. Opens the issues panel. */}
+            {issues.length > 0 && (
+                <button
+                    type={"button"}
+                    onClick={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setPanelAnchor((cur) => (cur ? null : { x: r.left, y: r.bottom + 4 }));
+                    }}
+                    title={"validation issues"}
+                    className={`shrink-0 border px-2 py-0.5 text-xs transition-colors duration-200 ${
+                        errorCount > 0
+                            ? "border-red-500/60 text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                            : "border-amber-500/60 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400"
+                    }`}
+                >
+                    {errorCount > 0 ? `✕ ${errorCount}` : `⚠ ${warningCount}`}
+                </button>
+            )}
+
             {/* autosave status — one slot, always rendered, so the layout doesn't shift */}
             <span className={"text-xs"} aria-live={"polite"} aria-busy={saving}>
                 {saving ? (
@@ -135,6 +176,51 @@ export default function Topbar({
                     <span className={"text-gray-400"}>saved</span>
                 )}
             </span>
+
+            {panelAnchor && issues.length > 0 && (
+                <PopoverShell
+                    anchor={panelAnchor}
+                    onClose={() => setPanelAnchor(null)}
+                    className={
+                        "flex max-h-80 w-96 max-w-[calc(100vw-16px)] flex-col overflow-y-auto border border-foreground/15 bg-background py-1 font-mono text-xs shadow-lg"
+                    }
+                >
+                    {issues.map((issue, i) => {
+                        const clickable = !!issue.nodeId;
+                        return (
+                            <button
+                                key={i}
+                                type={"button"}
+                                disabled={!clickable}
+                                onClick={() => {
+                                    if (!issue.nodeId) return;
+                                    onSelectIssue(issue.nodeId);
+                                    setPanelAnchor(null);
+                                }}
+                                className={`flex items-start gap-2 px-3 py-1.5 text-left ${
+                                    clickable
+                                        ? "cursor-pointer hover:bg-foreground/5"
+                                        : "cursor-default"
+                                }`}
+                            >
+                                <span
+                                    aria-hidden
+                                    className={`mt-px shrink-0 ${
+                                        issue.level === "error"
+                                            ? "text-red-600 dark:text-red-400"
+                                            : "text-amber-600 dark:text-amber-400"
+                                    }`}
+                                >
+                                    {issue.level === "error" ? "✕" : "⚠"}
+                                </span>
+                                <span className={"min-w-0 flex-1 break-words text-gray-500 dark:text-gray-400"}>
+                                    {issue.message}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </PopoverShell>
+            )}
         </header>
     );
 }
