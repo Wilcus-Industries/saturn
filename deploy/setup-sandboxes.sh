@@ -107,6 +107,27 @@ Delegate=memory pids cpu cpuset io
 EOF
 systemctl daemon-reload
 
+# The delegation drop-in is useless if the KERNEL disabled a controller: Raspberry
+# Pi OS ships `cgroup_disable=memory` in /boot/firmware/cmdline.txt, so the memory
+# controller is absent from /sys/fs/cgroup/cgroup.controllers and crun cannot
+# write memory.max — every sandbox create with a memory limit fails at start
+# ("opening file \`memory.max\` for writing: No such file or directory"). Fix the
+# cmdline (idempotent, backup kept) and demand a reboot before continuing.
+if ! grep -qw memory /sys/fs/cgroup/cgroup.controllers; then
+  CMDLINE=/boot/firmware/cmdline.txt
+  [[ -f "${CMDLINE}" ]] || CMDLINE=/boot/cmdline.txt
+  if [[ -f "${CMDLINE}" ]] && grep -q 'cgroup_disable=memory' "${CMDLINE}"; then
+    cp "${CMDLINE}" "${CMDLINE}.bak-cgroup"
+    sed -i 's/cgroup_disable=memory/cgroup_enable=memory cgroup_memory=1/' "${CMDLINE}"
+    echo "!! memory cgroup controller was DISABLED via cgroup_disable=memory —" >&2
+    echo "   fixed ${CMDLINE} (backup ${CMDLINE}.bak-cgroup). REBOOT, then re-run this script." >&2
+  else
+    echo "!! memory cgroup controller missing from /sys/fs/cgroup/cgroup.controllers" >&2
+    echo "   and no cgroup_disable=memory found to fix — enable it for this kernel, reboot, re-run." >&2
+  fi
+  exit 1
+fi
+
 echo ">> 4/9 relocate the podman socket to ${SOCK_DIR}"
 # WHY relocate: the default rootless socket lives under /run/user/<uid>, which is
 # mode 0700 owned by ${SB_USER} — the saturn user can't reach it. We publish the
@@ -265,11 +286,14 @@ fi
 # sshd (:22, a reliable local listener) as the private-reachability probe: a TCP
 # connect that succeeds means the lockdown is broken. Runs from /tmp — ${SB_USER}
 # cannot chdir into root's login dir. rc legend: 20 no internet / 21 bad status /
-# 22 REACHED the Pi LAN (nft broken).
+# 22 REACHED the Pi LAN (nft broken). --memory mirrors the app's per-sandbox
+# resource_limits: it proves the memory controller is delegated all the way down
+# (a kernel-disabled or undelegated controller fails this run at start, exactly
+# like the first real sandbox would).
 LANIP="$(hostname -I | awk '{print $1}')"
 egress_rc=0
 ( cd /tmp && sudo -u "${SB_USER}" XDG_RUNTIME_DIR="/run/user/${SB_UID}" \
-    podman run --rm "${IMAGE}" bash -lc "
+    podman run --rm --memory 128m "${IMAGE}" bash -lc "
       code=\$(curl -sS -m 8 -o /dev/null -w '%{http_code}' https://example.com) || exit 20
       [ \"\$code\" = 200 ] || exit 21
       timeout 5 bash -c 'exec 3<>/dev/tcp/${LANIP}/22' 2>/dev/null && exit 22
