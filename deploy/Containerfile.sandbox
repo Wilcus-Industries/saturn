@@ -39,6 +39,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # the read-only rootfs means /home/sandbox is only writable via the tmpfs/volume.
 RUN useradd -m -u 1000 -s /bin/bash sandbox
 
+# /work must be owned by uid 1000 IN THE IMAGE: podman's copy-up clones the image
+# directory's ownership onto a fresh named volume, and a bare WORKDIR would create
+# it root-owned — leaving every volume 0:0/755 and all writes from uid 1000 EPERM.
+RUN mkdir -p /work && chown 1000:1000 /work
+
 WORKDIR /work
 
 # Drop to the unprivileged uid for every process the app exec's into the box.
