@@ -20,6 +20,7 @@ import {
     type McpCallResult,
     memoryIdFromNodeType,
     parseToolExclusions,
+    sandboxIdFromNodeType,
     skillIdFromNodeType,
     toolRefFromNodeType,
 } from "@/lib/agent";
@@ -39,6 +40,9 @@ export type CallAgentRequest = {
     // id of the attached memory store (memory:<uuid> node), if any — the
     // server prepends its three tools (memory_search/save/forget) to the turn
     memoryId?: string;
+    // id of the attached sandbox (sandbox:<uuid> node), if any — the server
+    // prepends its three tools (sandbox_exec/write_file/read_file) to the turn
+    sandboxId?: string;
     messages: AgentMessage[];
     outputImage?: boolean;
     // raw reasoning mode from the agent node ("off"|"low"|"medium"|"high");
@@ -61,6 +65,9 @@ export type RunHooks = {
     // one memory-store operation (search/save/forget) — executed server-side
     // against the local store, tokens/embeddings never reach the browser
     callMemory: (memoryId: string, op: string, input: string) => Promise<McpCallResult>;
+    // one sandbox operation (exec/write_file/read_file) — executed server-side
+    // against the local podman sandbox, never reaching the browser
+    callSandbox: (sandboxId: string, op: string, input: string) => Promise<McpCallResult>;
     // one outbound integration send (Discord webhook, …) — executed
     // server-side so URL validation and future tokens stay off the client
     callIntegration: (
@@ -86,6 +93,9 @@ const MAX_STEPS = 10_000;
 // agent-initiated MCP calls (the only MCP execution path) — keep a busy
 // agent loop from hammering an MCP server
 const MAX_AGENT_MCP_CALLS = 40;
+// agent-initiated sandbox calls (exec/write/read) — budgeted separately from
+// MCP calls so a busy sandbox loop can't crowd out the MCP allowance
+const MAX_SANDBOX_CALLS = 40;
 // integration sends budget separately from MCP calls for the same reason
 const MAX_INTEGRATION_CALLS = 20;
 // long tool results would drown the console
@@ -155,11 +165,12 @@ function toList(items: RunValue): RunValue[] {
 export async function runWorkflow(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
-    { emit, callMcp, callMemory, callIntegration, callAgent, onValue, signal }: RunHooks,
+    { emit, callMcp, callMemory, callSandbox, callIntegration, callAgent, onValue, signal }: RunHooks,
     opts: { entryNodeIds?: string[]; eventPayloads?: Record<string, string> } = {},
 ): Promise<void> {
     let steps = 0;
     let agentMcpCalls = 0;
+    let sandboxCalls = 0;
     let integrationCalls = 0;
     const loopValues = new Map<string, RunValue>(); // loop nodeId → current item
     const saturnResults = new Map<string, string>(); // agent/await "nodeId:portId" → output
@@ -363,6 +374,7 @@ export async function runWorkflow(
         toolRefs: AgentToolRef[];
         skillIds: string[];
         memoryId?: string;
+        sandboxId?: string;
         userText: string;
         outputImage: boolean;
         reasoning?: string;
@@ -381,6 +393,7 @@ export async function runWorkflow(
                 skillIds: opts.skillIds,
                 tools: opts.toolRefs,
                 memoryId: opts.memoryId,
+                sandboxId: opts.sandboxId,
                 messages,
                 outputImage: opts.outputImage,
                 reasoning: opts.reasoning,
@@ -410,17 +423,26 @@ export async function runWorkflow(
             messages.push({ role: "assistant", content, toolCalls: calls });
             for (const call of calls) {
                 if (signal?.aborted) fail("run stopped");
-                if (++agentMcpCalls > MAX_AGENT_MCP_CALLS) {
+                // memory and sandbox tools ride the same wire as MCP tools; the
+                // decoded call's entryId is the store/sandbox id, so route to
+                // callMemory/callSandbox. Each debits its own run-scoped budget.
+                const isMemory =
+                    opts.memoryId !== undefined && call.entryId === opts.memoryId;
+                const isSandbox =
+                    opts.sandboxId !== undefined && call.entryId === opts.sandboxId;
+                if (isSandbox) {
+                    if (++sandboxCalls > MAX_SANDBOX_CALLS) {
+                        fail(`agent sandbox call limit (${MAX_SANDBOX_CALLS}) exceeded for one run`);
+                    }
+                } else if (++agentMcpCalls > MAX_AGENT_MCP_CALLS) {
                     fail(`agent MCP call limit (${MAX_AGENT_MCP_CALLS}) exceeded for one run`);
                 }
                 emit({ kind: "info", text: `${opts.prefix}: → ${call.toolName}…` });
-                // memory tools ride the same wire as MCP tools; the decoded
-                // call's entryId is the store id, so route to callMemory
-                const isMemory =
-                    opts.memoryId !== undefined && call.entryId === opts.memoryId;
-                const result = isMemory
-                    ? await callMemory(call.entryId, call.toolName, call.arguments)
-                    : await callMcp(call.entryId, call.toolName, call.arguments);
+                const result = isSandbox
+                    ? await callSandbox(call.entryId, call.toolName, call.arguments)
+                    : isMemory
+                      ? await callMemory(call.entryId, call.toolName, call.arguments)
+                      : await callMcp(call.entryId, call.toolName, call.arguments);
                 let text: string;
                 if ("error" in result) {
                     // feed the error back — the model can often recover
@@ -668,7 +690,24 @@ export async function runWorkflow(
                         memoryId = id;
                         break;
                     }
-                    if (outputImage && (toolRefs.length || memoryId)) {
+                    // sandbox grant: single-edge port, but hand-authored graphs
+                    // may wire several — take the first source that resolves to
+                    // a live sandbox chip entry (mirrors the memory-loop gating).
+                    let sandboxId: string | undefined;
+                    for (const edge of incomingValueEdges(node.id, "sandbox")) {
+                        const src = nodeById.get(edge.from.nodeId);
+                        const srcEntry = src ? byKey[src.type] : undefined;
+                        const id = src ? sandboxIdFromNodeType(src.type) : null;
+                        const isChip = !!srcEntry && !srcEntry.missing &&
+                            srcEntry.category === "sandbox" && id !== null;
+                        if (!isChip || !id) {
+                            warn(`agent: sandbox edge from "${src ? label(src) : edge.from.nodeId}" — sandbox unavailable, skipping`);
+                            continue;
+                        }
+                        sandboxId = id;
+                        break;
+                    }
+                    if (outputImage && (toolRefs.length || memoryId || sandboxId)) {
                         warn("agent: image output doesn't support tools — grants ignored for this run");
                     }
                     const userText = fmt(evalInput(node, "prompt", ctx));
@@ -690,6 +729,8 @@ export async function runWorkflow(
                         skillIds,
                         // image runs are single-turn — memory tools can't fire
                         memoryId: outputImage ? undefined : memoryId,
+                        // image runs are single-turn — sandbox tools can't fire
+                        sandboxId: outputImage ? undefined : sandboxId,
                         userText,
                         outputImage,
                         reasoning: node.config.reasoning,

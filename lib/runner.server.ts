@@ -28,6 +28,7 @@ import { callTool, McpAuthRequired } from "@/lib/mcp";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { buildUserCatalog, canCallTool } from "@/lib/registry";
 import { freshMcpToken, getMcpSecrets, getUserRegistry } from "@/lib/registry.server";
+import { executeSandboxTool, sandboxToolSpecs } from "@/lib/sandbox.server";
 import { getActivationLevels, limitsFor } from "@/lib/subscription";
 import { CATALOG_BY_KEY, type CatalogEntry, missingEntry, type WorkflowGraph } from "@/lib/workflow";
 
@@ -114,6 +115,9 @@ export async function executeAgentTurn(
     if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID.test(req.memoryId))) {
         return { error: "invalid memory store" };
     }
+    if (req.sandboxId !== undefined && (typeof req.sandboxId !== "string" || !UUID.test(req.sandboxId))) {
+        return { error: "invalid sandbox" };
+    }
     if (!Array.isArray(req.tools) || req.tools.length > MAX_GRANTED_TOOLS) {
         return { error: "too many tools" };
     }
@@ -169,17 +173,24 @@ export async function executeAgentTurn(
         if (!row) return { error: "skill not found" };
         system += `\n\n## Skill: ${row.name}\n${row.description}`;
     }
-    // memory store: reject a missing store outright (never silently drop — a
-    // granted-but-gone store is a misconfiguration the user must see). Its
-    // three tools are unshifted AFTER the MAX_GRANTED_TOOLS slice above, so
-    // they always survive the cap and sit at the head of the array — head
-    // position reserves the clean wire names (buildToolDefs renames the later
-    // collider, not the first).
+    // memory store and sandbox: reject a missing store/sandbox outright (never
+    // silently drop — a granted-but-gone resource is a misconfiguration the
+    // user must see). Their tools are unshifted AFTER the MAX_GRANTED_TOOLS
+    // slice above, so they always survive the cap and sit at the head of the
+    // array — head position reserves the clean wire names (buildToolDefs
+    // renames the later collider, not the first). With memory attached an agent
+    // gets at most 17 MCP tools; with a sandbox, 17; with both, 14.
     if (req.memoryId !== undefined) {
         const row = registry.find((r) => r.id === req.memoryId && r.kind === "memory");
         if (!row) return { error: "memory store not found" };
         system += `\n\n## Memory: ${row.name}\n${row.description}\nSearch before answering questions that may involve prior context; save durable facts (not transcripts); forget stale items by id.`;
         specs.unshift(...memoryToolSpecs(req.memoryId));
+    }
+    if (req.sandboxId !== undefined) {
+        const row = registry.find((r) => r.id === req.sandboxId && r.kind === "sandbox");
+        if (!row) return { error: "sandbox not found" };
+        system += `\n\n## Sandbox: ${row.name}${row.description ? `\n${row.description}` : ""}\nA persistent Linux sandbox (Debian: bash, node, python3, pip, git, curl). Files under /work persist across runs; everything else resets. Commands run via sandbox_exec time out per plan tier.`;
+        specs.unshift(...sandboxToolSpecs(req.sandboxId));
     }
     // key selection: platform key while credits remain, else BYOK fallback.
     // The check-then-call-then-record sequence can overshoot the allowance by
@@ -419,6 +430,8 @@ export async function executeWorkflowRun(
                     executeMcpTool(wf.user_id, entryId, toolName, input),
                 callMemory: (memoryId, op, input) =>
                     executeMemoryTool(wf.user_id, memoryId, op, input, opts.trigger),
+                callSandbox: (sandboxId, op, input) =>
+                    executeSandboxTool(wf.user_id, sandboxId, op, input),
                 callIntegration: (providerId, config, message) =>
                     executeIntegration(wf.user_id, providerId, config, message),
                 callAgent: (req) => executeAgentTurn(wf.user_id, req, opts.trigger),

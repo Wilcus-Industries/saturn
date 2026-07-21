@@ -8,6 +8,7 @@ import {
     type SetStateAction,
     useRef,
 } from "react";
+import { FaTerminal } from "react-icons/fa6";
 import {
     type CatalogEntry,
     type ConfigField,
@@ -50,6 +51,7 @@ import {
     isMcpChipEntry,
     isMemoryChipEntry,
     isModelEntry,
+    isSandboxChipEntry,
     isSkillChipEntry,
     isVariableEntry,
     MCP_CHIP,
@@ -57,6 +59,7 @@ import {
     MODEL_D,
     nodeHeight,
     nodeWidth,
+    SANDBOX_CHIP,
     SKILL_CHIP,
     unpairedInputs,
 } from "./geometry";
@@ -613,17 +616,24 @@ export default memo(function Node({
         );
     }
 
-    // mcp/skill/memory grant chips render as a rounded square (60px mcp / 48px
-    // skill+memory = MCP_CHIP/SKILL_CHIP/MEMORY_CHIP, h-6 label strip =
-    // CHIP_LABEL_H) with the server favicon / skill+memory emoji centered and a
-    // single value output on the right-edge midpoint per geometry.ts, mirroring
-    // the model circle branch. Border is the category color via entryStyles —
-    // purple mcp / green skill / fuchsia memory.
-    if (isMcpChipEntry(entry) || isSkillChipEntry(entry) || isMemoryChipEntry(entry)) {
+    // mcp/skill/memory/sandbox grant chips render as a rounded square (60px mcp
+    // / 48px skill+memory+sandbox = MCP_CHIP/SKILL_CHIP/MEMORY_CHIP/SANDBOX_CHIP,
+    // h-6 label strip = CHIP_LABEL_H) with the server favicon / skill+memory
+    // emoji / sandbox terminal icon centered and a single value output on the
+    // right-edge midpoint per geometry.ts, mirroring the model circle branch.
+    // Border is the category color via entryStyles — purple mcp / green skill /
+    // fuchsia memory / lime sandbox.
+    if (
+        isMcpChipEntry(entry) ||
+        isSkillChipEntry(entry) ||
+        isMemoryChipEntry(entry) ||
+        isSandboxChipEntry(entry)
+    ) {
         const output = entry.outputs[0];
         const mcp = isMcpChipEntry(entry);
         const memory = isMemoryChipEntry(entry);
-        const size = mcp ? MCP_CHIP : memory ? MEMORY_CHIP : SKILL_CHIP;
+        const sandbox = isSandboxChipEntry(entry);
+        const size = mcp ? MCP_CHIP : memory ? MEMORY_CHIP : sandbox ? SANDBOX_CHIP : SKILL_CHIP;
 
         // a press that stayed under the drag threshold is a click: an mcp
         // server chip opens the tool-picker popover, a skill/memory chip opens
@@ -661,6 +671,8 @@ export default memo(function Node({
                 >
                     {mcp ? (
                         <McpLogo domain={entry.logoDomain ?? ""} name={entry.label} size={"fill"} />
+                    ) : sandbox ? (
+                        <FaTerminal className={`text-2xl ${styles.text}`} />
                     ) : (
                         <span className={"text-2xl leading-none"}>{entry.emoji}</span>
                     )}

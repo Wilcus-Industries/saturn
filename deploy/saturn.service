@@ -28,6 +28,13 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 # the only path `next start` writes (image/fetch cache)
 ReadWritePaths=/srv/saturn/app/.next/cache
+# NOTE: the sandbox feature needs two more grants — SupplementaryGroups=sandboxes
+# (reach the 0750 rootless-Podman socket dir) and ReadWritePaths=/run/sandboxes
+# (connect() writes the socket inode, blocked by ProtectSystem=strict). They are
+# deliberately NOT here: both reference host state that only exists after
+# deploy/setup-sandboxes.sh runs, so baking them in would wedge every deploy on
+# an un-provisioned box (216/GROUP, 226/NAMESPACE). setup-sandboxes.sh installs
+# them as a drop-in (saturn.service.d/sandbox.conf) once the host is prepared.
 
 MemoryMax=2G
 MemoryHigh=1536M

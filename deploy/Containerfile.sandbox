@@ -1,0 +1,48 @@
+# Per-user sandbox image for Saturn agent code execution.
+#
+# WHY a dedicated image: every sandbox container runs from this one image, so
+# the toolchain agents get is fixed and auditable here — nothing is installed at
+# runtime (the rootfs is mounted read-only; only the named volume at /work and a
+# tmpfs /tmp are writable).
+#
+# Built on the Pi AS THE sandboxes USER (rootless podman stores the image in that
+# user's own storage, which is the only storage the libpod socket at
+# /run/sandboxes/podman.sock can see):
+#   sudo -u sandboxes podman build -t saturn-sandbox:latest -f deploy/Containerfile.sandbox deploy/
+# (setup-sandboxes.sh does this for you; this header is the manual-rebuild recipe.)
+
+FROM debian:bookworm-slim
+
+# Single RUN so the install + list-cleanup collapse into one layer (a separate
+# `rm` layer would keep the apt lists in the lower layer and bloat the image).
+# --no-install-recommends keeps the image lean — agents get exactly this set.
+# NOTE: bookworm ships nodejs v18. That is fine for v1. If agents need a newer
+# Node, swap this line for a NodeSource setup (curl -fsSL https://deb.nodesource.com/setup_22.x | bash -)
+# BEFORE the apt-get install, and drop `nodejs npm` from the package list below.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      python3 \
+      python3-pip \
+      python3-venv \
+      build-essential \
+      nodejs \
+      npm \
+      procps \
+      coreutils \
+      bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# A real login user so tools that read $HOME / expect a passwd entry behave.
+# uid 1000 matches the `--user 1000` the app passes at container-create time, and
+# the read-only rootfs means /home/sandbox is only writable via the tmpfs/volume.
+RUN useradd -m -u 1000 -s /bin/bash sandbox
+
+WORKDIR /work
+
+# Drop to the unprivileged uid for every process the app exec's into the box.
+USER 1000
+
+# No ENTRYPOINT / CMD on purpose: the app creates each container with the command
+# ["sleep","infinity"] so the box idles, and exec's individual agent commands in.
