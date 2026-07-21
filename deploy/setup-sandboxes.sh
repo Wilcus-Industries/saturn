@@ -47,11 +47,36 @@ loginctl enable-linger "${SB_USER}"
 SB_UID="$(id -u "${SB_USER}")"
 echo "   ${SB_USER} uid=${SB_UID}"
 
-echo ">> 2/8 install podman + slirp4netns + nftables"
-# slirp4netns/pasta gives rootless containers their egress-only userspace network;
-# nftables enforces the private-range egress lockdown below.
+# Rootless podman maps container uids/gids through a subordinate range in
+# /etc/subuid + /etc/subgid. `useradd -r` (system account) does NOT allocate one,
+# so without this podman fails: "no subuid ranges found for user sandboxes". Give
+# it a 65536 block starting after the highest range already present (avoids
+# colliding with e.g. lucas:100000:65536). Idempotent: only added once.
+if ! grep -q "^${SB_USER}:" /etc/subuid; then
+  SUB_START="$(awk -F: 'BEGIN{m=100000}{e=$2+$3; if(e>m)m=e} END{print m}' \
+    /etc/subuid /etc/subgid 2>/dev/null)"
+  : "${SUB_START:=165536}"
+  usermod --add-subuids "${SUB_START}-$((SUB_START+65535))" \
+          --add-subgids "${SUB_START}-$((SUB_START+65535))" "${SB_USER}"
+  echo "   allocated subid range ${SUB_START}-$((SUB_START+65535))"
+  # podman caches the mapping; make it re-read the fresh ranges.
+  sudo -u "${SB_USER}" XDG_RUNTIME_DIR="/run/user/${SB_UID}" \
+    podman system migrate >/dev/null 2>&1 || true
+else
+  echo "   subid range already allocated"
+fi
+
+echo ">> 2/8 install podman + pasta/slirp4netns + nftables + uidmap"
+# Rootless container networking: podman 5.x defaults to pasta (from the `passt`
+# package); slirp4netns is kept as the fallback engine. Both give egress-only
+# userspace NAT with no host-loopback, and both egress the HOST as the sandboxes
+# uid — so the nftables skuid rule below locks either one down identically.
+# uidmap provides newuidmap/newgidmap — REQUIRED for rootless multi-id namespace
+# mapping (podman fails "command required for rootless mode with multiple IDs"
+# without it). All three (passt, slirp4netns, uidmap) are only Recommends of
+# podman, so --no-install-recommends drops them and we must name them explicitly.
 missing=()
-for pkg in podman slirp4netns nftables; do
+for pkg in podman passt slirp4netns nftables uidmap; do
   dpkg -s "${pkg}" >/dev/null 2>&1 || missing+=("${pkg}")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
@@ -177,8 +202,17 @@ fi
 echo ">> 6/8 build the sandbox image as ${SB_USER}"
 # Build in the sandboxes user's own rootless storage — that is the only storage
 # the libpod socket serves, so the app can `podman create` from it.
+#
+# Build from a ${SB_USER}-owned temp dir, NOT ${SCRIPT_DIR}: the script's cwd is
+# root's login dir (e.g. /home/lucas, mode 700) which ${SB_USER} cannot chdir
+# into ("cannot chdir to /home/lucas: Permission denied"), and ${SCRIPT_DIR}
+# under /srv/saturn/app may be unreadable to it too. Copy the small context out.
+BUILD_DIR="$(mktemp -d /tmp/saturn-sandbox-build.XXXXXX)"
+cp "${SCRIPT_DIR}/Containerfile.sandbox" "${BUILD_DIR}/Containerfile.sandbox"
+chown -R "${SB_USER}:${SB_USER}" "${BUILD_DIR}"
 sudo -u "${SB_USER}" XDG_RUNTIME_DIR="/run/user/${SB_UID}" \
-  podman build -t "${IMAGE}" -f "${SCRIPT_DIR}/Containerfile.sandbox" "${SCRIPT_DIR}"
+  sh -c "cd '${BUILD_DIR}' && exec podman build -t '${IMAGE}' -f Containerfile.sandbox ."
+rm -rf "${BUILD_DIR}"
 
 echo ">> 7/8 disk space check"
 # Container images + named volumes live under the sandboxes user's home. Warn
