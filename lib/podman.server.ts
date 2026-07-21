@@ -319,17 +319,22 @@ export async function assertContainerHardened(name: string): Promise<void> {
         if (m.Type === "bind") bad(`host bind mount present at ${m.Destination ?? "?"}`);
     }
 
-    // 4. all capabilities dropped. cap_drop:["ALL"] leaves the container with
-    //    no effective caps: EffectiveCaps (top-level, libpod) empty is the
-    //    strongest signal, CapDrop containing ALL the best-effort fallback. We
-    //    only fail on positive evidence caps survived — a present CapDrop that
-    //    omits ALL while EffectiveCaps is not confirmed empty — so a version
-    //    that renames/omits both simply skips this leg.
+    // 4. all capabilities dropped. cap_drop:["ALL"] surfaces in inspect either
+    //    as the literal ["ALL"] or (podman 5.4.x) expanded to the full
+    //    default-cap list — so any non-empty CapDrop means the field
+    //    registered, while a silently-dropped/renamed key leaves CapDrop ===
+    //    [] (verified against 5.4.2: with --cap-drop ALL it lists every
+    //    default cap, without it it's []). EffectiveCaps is useless rootless:
+    //    a non-root container reports null whether or not caps were dropped,
+    //    so confirmed-empty [] stays a fallback but null proves nothing. We
+    //    only fail on positive evidence — CapDrop present-and-empty with
+    //    EffectiveCaps not confirmed empty — so a version that renames/omits
+    //    both simply skips this leg.
     const capDrop = c.HostConfig?.CapDrop;
     const effective = c.EffectiveCaps;
-    const dropsAll = Array.isArray(capDrop) && capDrop.some((cap) => cap.toUpperCase() === "ALL");
+    const dropRegistered = Array.isArray(capDrop) && capDrop.length > 0;
     const noEffective = Array.isArray(effective) && effective.length === 0;
-    if (Array.isArray(capDrop) && !dropsAll && !noEffective) {
+    if (Array.isArray(capDrop) && !dropRegistered && !noEffective) {
         bad("cap_drop did not drop ALL capabilities");
     }
 }
