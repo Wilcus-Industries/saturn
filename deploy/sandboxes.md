@@ -67,9 +67,13 @@ SANDBOX_PODMAN_SOCKET=/run/sandboxes/podman.sock
 sudo systemctl restart saturn
 ```
 
-`saturn.service` already carries `SupplementaryGroups=sandboxes` and
-`ReadWritePaths=/run/sandboxes` (connect() needs write on the socket inode, which
-`ProtectSystem=strict` blocks otherwise).
+`setup-sandboxes.sh` step 4b installs a `saturn.service.d/sandbox.conf` drop-in
+carrying `SupplementaryGroups=sandboxes` and `ReadWritePaths=/run/sandboxes`
+(connect() needs write on the socket inode, which `ProtectSystem=strict` blocks
+otherwise). These grants live in the drop-in, NOT the shipped base unit, so a
+plain `deploy.sh` to an un-provisioned box never wedges on a missing group or
+socket dir (216/GROUP, 226/NAMESPACE). Removing the drop-in fully detaches the
+feature at the systemd layer.
 
 ## Rebuilding the image
 

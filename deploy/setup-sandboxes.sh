@@ -27,10 +27,16 @@ IMAGE=saturn-sandbox:latest
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ">> 1/8 create system user ${SB_USER}"
+# Ensure the group exists first and pin the user to it with -g. WHY: on Debian
+# (USERGROUPS_ENAB yes) a bare `useradd` tries to create a per-user group and
+# ERRORS if one named ${SB_USER} already exists (e.g. a deploy created it for
+# saturn.service's SupplementaryGroups). Creating it ourselves + -g makes this
+# step idempotent regardless of prior state.
+getent group "${SB_USER}" >/dev/null 2>&1 || groupadd -r "${SB_USER}"
 if ! id -u "${SB_USER}" >/dev/null 2>&1; then
   # -r system account, -m so it gets a home (rootless podman needs ~/.config +
   # ~/.local/share/containers storage), nologin shell (never an interactive login).
-  useradd -r -m -s /usr/sbin/nologin "${SB_USER}"
+  useradd -r -m -s /usr/sbin/nologin -g "${SB_USER}" "${SB_USER}"
 else
   echo "   ${SB_USER} exists"
 fi
@@ -114,6 +120,24 @@ if ! run_user_ctl enable --now podman.socket; then
 EOF
 fi
 
+echo ">> 4b/8 grant saturn.service access to the socket (drop-in)"
+# WHY a drop-in and not the base saturn.service: these two grants reference host
+# state (${SB_USER} group, ${SOCK_DIR}) that only exists AFTER this script runs.
+# Baking them into the shipped unit would wedge every deploy on an un-provisioned
+# box (216/GROUP then 226/NAMESPACE). Installing them here means the grants appear
+# exactly when the host is ready. ReadWritePaths is additive across drop-ins, so
+# the base unit's .next/cache grant is preserved.
+SATURN_DROPIN_DIR=/etc/systemd/system/saturn.service.d
+install -d -m 755 "${SATURN_DROPIN_DIR}"
+cat > "${SATURN_DROPIN_DIR}/sandbox.conf" <<EOF
+# Managed by deploy/setup-sandboxes.sh — grants the saturn app access to the
+# rootless Podman socket. Remove this file to fully detach the sandbox feature.
+[Service]
+SupplementaryGroups=${SB_USER}
+ReadWritePaths=${SOCK_DIR}
+EOF
+systemctl daemon-reload
+
 echo ">> 5/8 nftables egress lockdown for uid ${SB_UID}"
 # WHY keyed on the uid: all rootless container traffic egresses the HOST as the
 # ${SB_USER} uid (slirp4netns/pasta NATs it), so a single skuid-matched output
@@ -178,7 +202,7 @@ Then wire the app up:
   1. add this line to /etc/saturn/saturn.env:
        SANDBOX_PODMAN_SOCKET=${SOCK_PATH}
   2. restart the app:  sudo systemctl restart saturn
-     (saturn.service already grants SupplementaryGroups=${SB_USER} +
+     (the drop-in written in step 4b grants SupplementaryGroups=${SB_USER} +
       ReadWritePaths=${SOCK_DIR}, so it can connect once the env var is set.)
 
 NOTE: the saturn user was just added to the ${SB_USER} group — the running
