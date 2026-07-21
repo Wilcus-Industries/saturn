@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # One-time (idempotent) host setup for Saturn's per-user Podman sandboxes.
 #
-# Run this ONCE on the Pi as root (sudo bash deploy/setup-sandboxes.sh); it is
+# Run this ONCE on a new box as root (sudo bash deploy/setup-sandboxes.sh); it is
 # NOT invoked by deploy.sh — deploy.sh only rsyncs the app and restarts the
 # service, so ops changes here are deliberate and out of the deploy hot path.
-# Re-running is safe: every step checks-then-acts.
+# Re-running is safe: every step checks-then-acts (fully idempotent).
+#
+# The last two steps make provisioning turnkey: step 8 self-verifies the runtime
+# (socket reachable, image resolves, egress locked down) and ABORTS on any
+# failure — a broken host never gets the feature enabled; step 9 then wires
+# SANDBOX_PODMAN_SOCKET into /etc/saturn/saturn.env and restarts saturn. So on a
+# machine where the app is already deployed, this one command takes sandboxes
+# from nothing to live-and-verified.
 #
 # WHY a dedicated `sandboxes` user: rootless Podman runs the containers as that
 # unprivileged system user, so a container escape lands in an account that cannot
@@ -26,7 +33,7 @@ IMAGE=saturn-sandbox:latest
 # Resolve this script's dir so the Containerfile build works from any cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo ">> 1/8 create system user ${SB_USER}"
+echo ">> 1/9 create system user ${SB_USER}"
 # Ensure the group exists first and pin the user to it with -g. WHY: on Debian
 # (USERGROUPS_ENAB yes) a bare `useradd` tries to create a per-user group and
 # ERRORS if one named ${SB_USER} already exists (e.g. a deploy created it for
@@ -66,7 +73,7 @@ else
   echo "   subid range already allocated"
 fi
 
-echo ">> 2/8 install podman + pasta/slirp4netns + nftables + uidmap"
+echo ">> 2/9 install podman + pasta/slirp4netns + nftables + uidmap"
 # Rootless container networking: podman 5.x defaults to pasta (from the `passt`
 # package); slirp4netns is kept as the fallback engine. Both give egress-only
 # userspace NAT with no host-loopback, and both egress the HOST as the sandboxes
@@ -86,7 +93,7 @@ else
   echo "   podman/slirp4netns/nftables already present"
 fi
 
-echo ">> 3/8 cgroups v2 cpu/cpuset/io delegation for user slices"
+echo ">> 3/9 cgroups v2 cpu/cpuset/io delegation for user slices"
 # WHY: Debian's systemd delegates only `memory pids` to user-manager slices by
 # default. Without cpu here, the cpu quota we set on sandbox containers silently
 # no-ops (rootless podman can't write cpu.max in an undelegated cgroup). This
@@ -100,7 +107,7 @@ Delegate=memory pids cpu cpuset io
 EOF
 systemctl daemon-reload
 
-echo ">> 4/8 relocate the podman socket to ${SOCK_DIR}"
+echo ">> 4/9 relocate the podman socket to ${SOCK_DIR}"
 # WHY relocate: the default rootless socket lives under /run/user/<uid>, which is
 # mode 0700 owned by ${SB_USER} — the saturn user can't reach it. We publish the
 # socket into ${SOCK_DIR} (0750, group ${SB_USER}) and add saturn to that group.
@@ -145,7 +152,7 @@ if ! run_user_ctl enable --now podman.socket; then
 EOF
 fi
 
-echo ">> 4b/8 grant saturn.service access to the socket (drop-in)"
+echo ">> 4b/9 grant saturn.service access to the socket (drop-in)"
 # WHY a drop-in and not the base saturn.service: these two grants reference host
 # state (${SB_USER} group, ${SOCK_DIR}) that only exists AFTER this script runs.
 # Baking them into the shipped unit would wedge every deploy on an un-provisioned
@@ -163,7 +170,7 @@ ReadWritePaths=${SOCK_DIR}
 EOF
 systemctl daemon-reload
 
-echo ">> 5/8 nftables egress lockdown for uid ${SB_UID}"
+echo ">> 5/9 nftables egress lockdown for uid ${SB_UID}"
 # WHY keyed on the uid: all rootless container traffic egresses the HOST as the
 # ${SB_USER} uid (slirp4netns/pasta NATs it), so a single skuid-matched output
 # rule covers every sandbox with no per-container plumbing. We drop only NEW
@@ -199,7 +206,7 @@ if ! nft -f "${NFT_CONF}"; then
   nft -f "${NFT_FILE}"
 fi
 
-echo ">> 6/8 build the sandbox image as ${SB_USER}"
+echo ">> 6/9 build the sandbox image as ${SB_USER}"
 # Build in the sandboxes user's own rootless storage — that is the only storage
 # the libpod socket serves, so the app can `podman create` from it.
 #
@@ -214,7 +221,7 @@ sudo -u "${SB_USER}" XDG_RUNTIME_DIR="/run/user/${SB_UID}" \
   sh -c "cd '${BUILD_DIR}' && exec podman build -t '${IMAGE}' -f Containerfile.sandbox ."
 rm -rf "${BUILD_DIR}"
 
-echo ">> 7/8 disk space check"
+echo ">> 7/9 disk space check"
 # Container images + named volumes live under the sandboxes user's home. Warn
 # early if the storage volume is tight (image alone is ~500MB, volumes grow).
 STORAGE_PATH="${SB_HOME}"
@@ -226,19 +233,91 @@ else
   echo "   ${AVAIL_GB}GB free — ok"
 fi
 
-echo ">> 8/8 done"
-cat <<EOF
+echo ">> 8/9 self-verify runtime (fails loud so a broken host never ships)"
+# Prove the three things that actually broke during first provisioning, so a NEW
+# machine surfaces any drift HERE, not silently at the first agent run:
+#   a) the app user can reach the libpod socket (group/perms),
+#   b) the image resolves under the exact name the app requests, and
+#   c) container egress is contained (public reachable, private space dropped).
+verify_fail=0
 
-Smoke test the socket AS THE APP USER (must print an OK ping):
-  sudo -u ${APP_USER} curl --unix-socket ${SOCK_PATH} http://d/v4.0.0/libpod/_ping
+# a) socket reachable by the app user over the relocated unix socket.
+if [[ "$(sudo -u "${APP_USER}" curl -s --unix-socket "${SOCK_PATH}" \
+        http://d/v4.0.0/libpod/_ping 2>/dev/null)" == "OK" ]]; then
+  echo "   [ok] socket ping as ${APP_USER}"
+else
+  echo "!! [FAIL] ${APP_USER} cannot ping ${SOCK_PATH} — check group membership + dir perms" >&2
+  verify_fail=1
+fi
 
-Then wire the app up:
-  1. add this line to /etc/saturn/saturn.env:
-       SANDBOX_PODMAN_SOCKET=${SOCK_PATH}
-  2. restart the app:  sudo systemctl restart saturn
-     (the drop-in written in step 4b grants SupplementaryGroups=${SB_USER} +
-      ReadWritePaths=${SOCK_DIR}, so it can connect once the env var is set.)
+# b) image present via the API under the unqualified name lib/sandbox.server.ts uses.
+IMG_CODE="$(sudo -u "${APP_USER}" curl -s -o /dev/null -w '%{http_code}' \
+  --unix-socket "${SOCK_PATH}" "http://d/v4.0.0/libpod/images/${IMAGE}/exists" 2>/dev/null || true)"
+if [[ "${IMG_CODE}" == 204 ]]; then
+  echo "   [ok] image ${IMAGE} resolves"
+else
+  echo "!! [FAIL] image ${IMAGE} not found via API (HTTP ${IMG_CODE:-none}) — build step failed?" >&2
+  verify_fail=1
+fi
 
-NOTE: the saturn user was just added to the ${SB_USER} group — the running
-saturn process only picks up the new group on restart (step 2 covers it).
-EOF
+# c) network containment: run a throwaway container as ${SB_USER} and assert public
+# egress works while the Pi's own LAN is DROPPED by the nftables skuid rule. Uses
+# sshd (:22, a reliable local listener) as the private-reachability probe: a TCP
+# connect that succeeds means the lockdown is broken. Runs from /tmp — ${SB_USER}
+# cannot chdir into root's login dir. rc legend: 20 no internet / 21 bad status /
+# 22 REACHED the Pi LAN (nft broken).
+LANIP="$(hostname -I | awk '{print $1}')"
+egress_rc=0
+( cd /tmp && sudo -u "${SB_USER}" XDG_RUNTIME_DIR="/run/user/${SB_UID}" \
+    podman run --rm "${IMAGE}" bash -lc "
+      code=\$(curl -sS -m 8 -o /dev/null -w '%{http_code}' https://example.com) || exit 20
+      [ \"\$code\" = 200 ] || exit 21
+      timeout 5 bash -c 'exec 3<>/dev/tcp/${LANIP}/22' 2>/dev/null && exit 22
+      exit 0
+    " ) || egress_rc=$?
+if [[ ${egress_rc} -eq 0 ]]; then
+  echo "   [ok] egress: public https reachable, Pi LAN ${LANIP} blocked"
+else
+  echo "!! [FAIL] egress self-test rc=${egress_rc} (20=no internet 21=bad status 22=REACHED Pi LAN — nft lockdown broken)" >&2
+  verify_fail=1
+fi
+
+if [[ ${verify_fail} -ne 0 ]]; then
+  echo "!! runtime verification FAILED — leaving the feature OFF. Fix the above, re-run." >&2
+  echo "   (SANDBOX_PODMAN_SOCKET is NOT wired, so the app stays safely degraded.)" >&2
+  exit 1
+fi
+echo "   all runtime checks passed"
+
+echo ">> 9/9 wire the app + restart"
+# Turn the feature on: set SANDBOX_PODMAN_SOCKET and bounce the service. Only done
+# once verification passed, so we never point a live app at a broken runtime.
+ENV_FILE=/etc/saturn/saturn.env
+if [[ -f "${ENV_FILE}" ]]; then
+  if grep -q '^SANDBOX_PODMAN_SOCKET=' "${ENV_FILE}"; then
+    echo "   ${ENV_FILE} already sets SANDBOX_PODMAN_SOCKET"
+  else
+    printf 'SANDBOX_PODMAN_SOCKET=%s\n' "${SOCK_PATH}" >> "${ENV_FILE}"
+    echo "   added SANDBOX_PODMAN_SOCKET=${SOCK_PATH}"
+  fi
+  if systemctl cat saturn.service >/dev/null 2>&1; then
+    systemctl restart saturn
+    sleep 3
+    if systemctl is-active --quiet saturn; then
+      echo "   saturn restarted — sandboxes are LIVE"
+    else
+      echo "!! saturn did not come back — inspect: journalctl -u saturn -n 30" >&2
+      exit 1
+    fi
+  else
+    echo "   (no saturn.service installed yet — run deploy.sh, then: sudo systemctl restart saturn)"
+  fi
+else
+  cat <<EOF2
+   ${ENV_FILE} not found — app not deployed on this box yet. After deploy.sh:
+     echo 'SANDBOX_PODMAN_SOCKET=${SOCK_PATH}' | sudo tee -a ${ENV_FILE}
+     sudo systemctl restart saturn
+EOF2
+fi
+
+echo ">> done. Sandbox runtime provisioned + verified."
