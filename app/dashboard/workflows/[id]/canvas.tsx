@@ -130,8 +130,6 @@ type Gesture =
       }
     | {
           mode: "marquee";
-          // shift-drag adds to the selection; a bare drag replaces it
-          additive: boolean;
           rectLeft: number;
           rectTop: number;
           startWX: number;
@@ -347,33 +345,29 @@ export default function Canvas({
 
     // Empty-canvas pointerdowns arrive here (nodes, ports and config inputs
     // stopPropagation on button 0; middle button bubbles from anywhere). Gesture
-    // routing by pointer type:
-    //   - touch: any bare drag pans (unchanged — touch has no marquee)
-    //   - mouse/pen middle-button, or space+left: pan
-    //   - mouse/pen left-drag: marquee (shift = additive, bare = replace)
-    // A left-click with no drag falls out of a zero-size replace marquee, which
-    // clears the selection via setSelection (the selectNodes seam, so an edge
-    // selection clears too).
+    // routing:
+    //   - bare left-drag (any pointer type), middle-drag, or space+left: pan
+    //   - mouse/pen shift+left-drag: additive marquee select
+    // A bare left-click with no drag clears the selection via setSelection (the
+    // selectNodes seam, so an edge selection clears too).
     const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
         const outer = outerRef.current;
         if (!outer || gestureRef.current) return;
         const v = viewRef.current;
         const touch = e.pointerType === "touch";
-        const pan = touch || e.button === 1 || (e.button === 0 && spaceRef.current);
-        if (e.button === 0 && !touch && !spaceRef.current) {
+        if (e.button === 0 && !touch && !spaceRef.current && e.shiftKey) {
             const rect = outer.getBoundingClientRect();
             const wx = (e.clientX - rect.left - v.x) / v.zoom;
             const wy = (e.clientY - rect.top - v.y) / v.zoom;
             gestureRef.current = {
                 mode: "marquee",
-                additive: e.shiftKey,
                 rectLeft: rect.left,
                 rectTop: rect.top,
                 startWX: wx,
                 startWY: wy,
             };
             setMarquee({ x: wx, y: wy, w: 0, h: 0 });
-        } else if (pan) {
+        } else if (e.button === 0 || e.button === 1) {
             e.preventDefault();
             gestureRef.current = {
                 mode: "pan",
@@ -382,9 +376,9 @@ export default function Canvas({
                 viewX: v.x,
                 viewY: v.y,
                 moved: false,
-                // only a touch tap clears on release; middle/space pans don't
-                // (marquee owns click-to-clear on mouse/pen)
-                clearOnClick: touch,
+                // a bare left-click (no drag) clears the selection; middle and
+                // space pans never clear
+                clearOnClick: e.button === 0 && !spaceRef.current,
             };
             setPanning(true);
         } else {
@@ -444,14 +438,9 @@ export default function Canvas({
                     );
                 })
                 .map((n) => n.id);
-            if (g.additive) {
-                // shift-drag unions with the current selection
-                if (hit.length) setSelection((prev) => new Set([...prev, ...hit]));
-            } else {
-                // bare drag replaces the selection — always set, so a zero-size
-                // marquee (a plain click) clears it
-                setSelection(new Set(hit));
-            }
+            // shift-drag marquee unions with the current selection; clearing
+            // is the bare click's job (the pan branch's clearOnClick)
+            if (hit.length) setSelection((prev) => new Set([...prev, ...hit]));
         } else if (!cancelled && !g.moved && g.clearOnClick) {
             // click on empty canvas (no drag) clears the selection
             setSelection(new Set());
@@ -622,7 +611,7 @@ export default function Canvas({
                         "pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-sm text-gray-400"
                     }
                 >
-                    drag nodes from the toolbox · drag to select · space or middle-drag to pan
+                    drag nodes from the toolbox · drag to pan · shift+drag to select
                 </p>
             )}
             {graph.nodes.length > 0 && (
