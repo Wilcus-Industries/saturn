@@ -189,7 +189,7 @@ export async function executeAgentTurn(
     if (req.sandboxId !== undefined) {
         const row = registry.find((r) => r.id === req.sandboxId && r.kind === "sandbox");
         if (!row) return { error: "sandbox not found" };
-        system += `\n\n## Sandbox: ${row.name}${row.description ? `\n${row.description}` : ""}\nA persistent Linux sandbox (Debian: bash, node, python3, pip, git, curl). Files under /work persist across runs; everything else resets. Commands run via sandbox_exec time out per plan tier. The sandbox is a container with its own resource limits: free/nproc/df report the HOST, not the sandbox — for the sandbox's real limits read /sys/fs/cgroup/memory.max (bytes), /sys/fs/cgroup/cpu.max (quota period), and /sys/fs/cgroup/pids.max.`;
+        system += `\n\n## Sandbox: ${row.name}${row.description ? `\n${row.description}` : ""}\nA persistent Linux sandbox (Debian: bash, Node 22, python3, pip, git, curl). Files under /work persist across runs ($HOME is /work); everything else resets. The rootfs is read-only: never try to install runtimes or system packages (no apt, no nvm — they fail or get OOM-killed); small installs go into /work via \`pip install --user\` or \`npm install\` in a /work project dir. Commands run via sandbox_exec time out per plan tier. The sandbox is a container with its own resource limits: free/nproc/df report the HOST, not the sandbox — for the sandbox's real limits read /sys/fs/cgroup/memory.max (bytes), /sys/fs/cgroup/cpu.max (quota period), and /sys/fs/cgroup/pids.max.`;
         specs.unshift(...sandboxToolSpecs(req.sandboxId));
     }
     // key selection: platform key while credits remain, else BYOK fallback.

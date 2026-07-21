@@ -16,9 +16,10 @@ FROM debian:bookworm-slim
 # Single RUN so the install + list-cleanup collapse into one layer (a separate
 # `rm` layer would keep the apt lists in the lower layer and bloat the image).
 # --no-install-recommends keeps the image lean — agents get exactly this set.
-# NOTE: bookworm ships nodejs v18. That is fine for v1. If agents need a newer
-# Node, swap this line for a NodeSource setup (curl -fsSL https://deb.nodesource.com/setup_22.x | bash -)
-# BEFORE the apt-get install, and drop `nodejs npm` from the package list below.
+# Node comes from NodeSource (22.x), not bookworm's stale v18 — agents can't
+# install toolchains at runtime anyway (read-only rootfs; tier memory limits
+# OOM-kill big extractions). Anything an agent needs beyond pip/npm-into-/work
+# must be added HERE.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
@@ -27,11 +28,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-pip \
       python3-venv \
       build-essential \
-      nodejs \
-      npm \
       procps \
       coreutils \
       bash \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # A real login user so tools that read $HOME / expect a passwd entry behave.
