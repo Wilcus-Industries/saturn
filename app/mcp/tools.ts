@@ -16,6 +16,7 @@ import { baseUrl, getActivationLevels, limitsFor } from "@/lib/subscription";
 import {
     CATALOG_BY_KEY,
     type CatalogEntry,
+    graphShapeError,
     isWorkflowGraph,
     MAX_EDGES,
     MAX_GRAPH_JSON,
@@ -269,10 +270,7 @@ function checkGraph(
     byKey: Record<string, CatalogEntry>,
 ): { graph: WorkflowGraph; errors: string[]; warnings: string[] } | { reject: string } {
     if (!isWorkflowGraph(graph)) {
-        return {
-            reject:
-                "invalid graph shape — needs {nodes, edges} with unique string node ids, numeric x/y, string-valued config, and edges anchored to existing nodes",
-        };
+        return { reject: `invalid graph shape — ${graphShapeError(graph)}` };
     }
     if (graph.nodes.length > MAX_NODES) return { reject: `too many nodes (max ${MAX_NODES})` };
     if (graph.edges.length > MAX_EDGES) return { reject: `too many edges (max ${MAX_EDGES})` };

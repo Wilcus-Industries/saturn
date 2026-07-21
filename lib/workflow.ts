@@ -498,35 +498,66 @@ const isPortRef = (x: unknown): x is PortRef =>
 // action): unique node ids, at most one start node, edges anchored to nodes
 // that exist. Port ids aren't checked — registry node types resolve per-owner
 // at read time, so the server can't know their port lists.
-export function isWorkflowGraph(g: unknown): g is WorkflowGraph {
-    if (!isRecord(g) || !Array.isArray(g.nodes) || !Array.isArray(g.edges)) return false;
+// Returns the first violation as a human/agent-readable message, or null when
+// the graph is shape-valid — MCP save_graph/validate_graph surface it so a
+// graph-authoring agent can self-correct instead of dead-ending on a generic
+// rejection (the designer never produces these shapes, so its save action
+// keeps the boolean guard).
+export function graphShapeError(g: unknown): string | null {
+    if (!isRecord(g)) return "graph must be a JSON object with nodes and edges arrays";
+    if (!Array.isArray(g.nodes)) return "graph.nodes must be an array";
+    if (!Array.isArray(g.edges)) return "graph.edges must be an array";
 
     const nodeIds = new Set<string>();
-    for (const n of g.nodes) {
-        if (!isRecord(n)) return false;
-        if (typeof n.id !== "string" || nodeIds.has(n.id)) return false;
+    for (const [i, n] of g.nodes.entries()) {
+        if (!isRecord(n)) return `nodes[${i}] must be an object`;
+        if (typeof n.id !== "string") return `nodes[${i}].id must be a string`;
+        if (nodeIds.has(n.id)) return `duplicate node id "${n.id}"`;
         nodeIds.add(n.id);
         // unknown types are allowed — they render as inert "(deleted)"
         // placeholders (user registry entries resolve per-owner at read time,
         // and removed static catalog entries must not brick saved graphs)
-        if (typeof n.type !== "string" || n.type.length > MAX_NODE_TYPE_LENGTH) return false;
+        if (typeof n.type !== "string" || n.type.length > MAX_NODE_TYPE_LENGTH) {
+            return `node "${n.id}": type must be a string of at most ${MAX_NODE_TYPE_LENGTH} chars`;
+        }
         // event-node count (max one per workflow) is a semantic rule enforced
         // by the designer UI and validateGraphStrict, not this shape guard
-        if (typeof n.x !== "number" || !Number.isFinite(n.x)) return false;
-        if (typeof n.y !== "number" || !Number.isFinite(n.y)) return false;
-        if (!isRecord(n.config)) return false;
-        if (Object.values(n.config).some((val) => typeof val !== "string")) return false;
+        if (
+            typeof n.x !== "number" || !Number.isFinite(n.x) ||
+            typeof n.y !== "number" || !Number.isFinite(n.y)
+        ) {
+            return `node "${n.id}": x and y must be finite numbers`;
+        }
+        if (!isRecord(n.config)) return `node "${n.id}": config must be an object`;
+        for (const [key, val] of Object.entries(n.config)) {
+            if (typeof val !== "string") {
+                return `node "${n.id}": config.${key} must be a string, got ${typeof val} — numbers and booleans are written as strings (e.g. "20", "true")`;
+            }
+        }
     }
 
-    for (const e of g.edges) {
-        if (!isRecord(e)) return false;
-        if (typeof e.id !== "string") return false;
-        if (!isPortRef(e.from) || !isPortRef(e.to)) return false;
-        if (!nodeIds.has(e.from.nodeId) || !nodeIds.has(e.to.nodeId)) return false;
-        if (e.kind !== "flow" && e.kind !== "value") return false;
+    for (const [i, e] of g.edges.entries()) {
+        if (!isRecord(e)) return `edges[${i}] must be an object`;
+        if (typeof e.id !== "string") return `edges[${i}].id must be a string`;
+        if (!isPortRef(e.from) || !isPortRef(e.to)) {
+            return `edge "${e.id}": from and to must each be {nodeId, portId} with string values`;
+        }
+        if (!nodeIds.has(e.from.nodeId)) {
+            return `edge "${e.id}": from.nodeId "${e.from.nodeId}" is not a node in this graph`;
+        }
+        if (!nodeIds.has(e.to.nodeId)) {
+            return `edge "${e.id}": to.nodeId "${e.to.nodeId}" is not a node in this graph`;
+        }
+        if (e.kind !== "flow" && e.kind !== "value") {
+            return `edge "${e.id}": kind must be "flow" or "value"`;
+        }
     }
 
-    return true;
+    return null;
+}
+
+export function isWorkflowGraph(g: unknown): g is WorkflowGraph {
+    return graphShapeError(g) === null;
 }
 
 function findPort(
