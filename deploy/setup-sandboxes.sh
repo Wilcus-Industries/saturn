@@ -107,23 +107,31 @@ Delegate=memory pids cpu cpuset io
 EOF
 systemctl daemon-reload
 
-# The delegation drop-in is useless if the KERNEL disabled a controller: Raspberry
-# Pi OS ships `cgroup_disable=memory` in /boot/firmware/cmdline.txt, so the memory
-# controller is absent from /sys/fs/cgroup/cgroup.controllers and crun cannot
-# write memory.max — every sandbox create with a memory limit fails at start
-# ("opening file \`memory.max\` for writing: No such file or directory"). Fix the
-# cmdline (idempotent, backup kept) and demand a reboot before continuing.
+# The delegation drop-in is useless if the KERNEL disabled a controller: the
+# Raspberry Pi FIRMWARE injects `cgroup_disable=memory` into the kernel cmdline
+# (visible in /proc/cmdline but NOT in cmdline.txt), so the memory controller is
+# absent from /sys/fs/cgroup/cgroup.controllers and crun cannot write memory.max
+# — every sandbox create with a memory limit fails at start ("opening file
+# \`memory.max\` for writing: No such file or directory"). The documented fix is
+# appending `cgroup_enable=memory cgroup_memory=1` to the single cmdline.txt
+# line (it wins over the firmware-injected disable). Fix it (idempotent, backup
+# kept) and demand a reboot before continuing.
 if ! grep -qw memory /sys/fs/cgroup/cgroup.controllers; then
   CMDLINE=/boot/firmware/cmdline.txt
   [[ -f "${CMDLINE}" ]] || CMDLINE=/boot/cmdline.txt
-  if [[ -f "${CMDLINE}" ]] && grep -q 'cgroup_disable=memory' "${CMDLINE}"; then
+  if [[ -f "${CMDLINE}" ]] && ! grep -q 'cgroup_enable=memory' "${CMDLINE}"; then
     cp "${CMDLINE}" "${CMDLINE}.bak-cgroup"
-    sed -i 's/cgroup_disable=memory/cgroup_enable=memory cgroup_memory=1/' "${CMDLINE}"
-    echo "!! memory cgroup controller was DISABLED via cgroup_disable=memory —" >&2
-    echo "   fixed ${CMDLINE} (backup ${CMDLINE}.bak-cgroup). REBOOT, then re-run this script." >&2
+    # strip an explicit disable if present, then append the enable flags to the
+    # one-and-only line (cmdline.txt must stay a single line)
+    sed -i 's/ *cgroup_disable=memory//' "${CMDLINE}"
+    sed -i '1s/$/ cgroup_enable=memory cgroup_memory=1/' "${CMDLINE}"
+    echo "!! memory cgroup controller is DISABLED (firmware injects cgroup_disable=memory) —" >&2
+    echo "   appended cgroup_enable flags to ${CMDLINE} (backup ${CMDLINE}.bak-cgroup)." >&2
+    echo "   REBOOT, then re-run this script." >&2
   else
     echo "!! memory cgroup controller missing from /sys/fs/cgroup/cgroup.controllers" >&2
-    echo "   and no cgroup_disable=memory found to fix — enable it for this kernel, reboot, re-run." >&2
+    echo "   (cmdline fix already applied or no cmdline.txt found) — reboot or enable it" >&2
+    echo "   for this kernel, then re-run." >&2
   fi
   exit 1
 fi

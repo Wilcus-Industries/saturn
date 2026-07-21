@@ -152,13 +152,14 @@ still attached to a container.)
   default, so without this the cpu quota silently no-ops.
 - **Sandbox start fails `crun: opening file 'memory.max' for writing: No such
   file or directory`** — the KERNEL booted with the memory cgroup controller
-  disabled: Raspberry Pi OS ships `cgroup_disable=memory` in
-  `/boot/firmware/cmdline.txt`, so `memory` never appears in
-  `/sys/fs/cgroup/cgroup.controllers` no matter what the delegation drop-in
-  says, and every container created with a memory limit fails at start. Fix:
-  replace `cgroup_disable=memory` with `cgroup_enable=memory cgroup_memory=1`
-  in the cmdline and reboot (`setup-sandboxes.sh` step 3 now detects + rewrites
-  this itself and aborts asking for the reboot). Verify after boot:
+  disabled: the Raspberry Pi firmware injects `cgroup_disable=memory` into the
+  cmdline (shows in `/proc/cmdline` but not in `cmdline.txt`), so `memory`
+  never appears in `/sys/fs/cgroup/cgroup.controllers` no matter what the
+  delegation drop-in says, and every container created with a memory limit
+  fails at start. Fix: append `cgroup_enable=memory cgroup_memory=1` to the
+  single line of `/boot/firmware/cmdline.txt` and reboot
+  (`setup-sandboxes.sh` step 3 now detects + rewrites this itself and aborts
+  asking for the reboot). Verify after boot:
   `grep -w memory /sys/fs/cgroup/cgroup.controllers`.
 - **nftables rules gone after reboot** — confirm `/etc/nftables.conf` has the
   `include "/etc/nftables.d/sandboxes.nft"` line and the `nftables` service is
