@@ -20,6 +20,7 @@ import {
 } from "@/lib/workflow";
 import { describeCron } from "@/lib/cron";
 import McpLogo from "@/app/dashboard/mcpLogo";
+import ConfigControl from "./configControl";
 import EntryBadge from "./entryBadge";
 import EntryIcon from "./entryIcon";
 import IssueDot from "./issueDot";
@@ -110,6 +111,14 @@ export type OpenInfoHandler = (
 // drag); the modal is centered, so it takes just the node id (no anchor)
 export type OpenVariableHandler = (nodeId: string) => void;
 
+// an agent node's "system" button opens the system-prompt popover when clicked;
+// the anchor is the button's client-space bottom-left corner, like the cron
+// popover opener
+export type OpenSystemHandler = (
+    anchor: { x: number; y: number },
+    nodeId: string,
+) => void;
+
 // renders to the geometry.ts metrics exactly: w-44 = NODE_W 176, the header
 // band's height comes straight from HEADER_H, h-6 port rows = PORT_ROW_H 24,
 // h-9 config rows =
@@ -159,6 +168,7 @@ export default memo(function Node({
     onOpenTools,
     onOpenInfo,
     onOpenVariable,
+    onOpenSystem,
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
@@ -205,6 +215,7 @@ export default memo(function Node({
     onOpenTools?: OpenToolsHandler;
     onOpenInfo?: OpenInfoHandler;
     onOpenVariable?: OpenVariableHandler;
+    onOpenSystem?: OpenSystemHandler;
 }) {
     const styles = entryStyles(entry);
     // honest highlighting: a drag is active whenever `connectable` is non-empty;
@@ -849,52 +860,61 @@ export default memo(function Node({
         const bottomPorts = entry.inputs.filter((p) => p.kind !== "flow");
         const flowInput = entry.inputs.find((p) => p.kind === "flow");
         const width = nodeWidth(entry);
+        // a config field whose port is connected dims + locks (same as the
+        // generic branch) — only "system" declares an overriddenBy port here
+        const overriddenSet = new Set(overriddenIds ? overriddenIds.split(",") : []);
 
-        // one output/reasoning dropdown — mirrors the generic select branch's
-        // dynamicOptions handling, gated on the resolved model
-        const renderSelect = (field: ConfigField) => {
-            const dynStr = field.id === "reasoning" ? reasoningOptions : outputOptions;
-            const options = field.dynamicOptions
-                ? dynStr
-                    ? dynStr.split(",")
-                    : []
-                : (field.options ?? []);
-            const locked = field.dynamicOptions && options.length === 0;
+        // one config control in the dropdown row. output/reasoning render as
+        // ConfigControl selects (shared with the generic branch); "system" is a
+        // compact button showing its set-state that opens the system-prompt
+        // popover (config.system is long text, edited off-node like cron).
+        const renderConfig = (field: ConfigField) => {
+            const overridden = overriddenSet.has(field.id);
+            if (field.id === "system") {
+                const set = (node.config.system ?? "").trim().length > 0;
+                return (
+                    <label key={field.id} className={"flex min-w-0 flex-1 flex-col gap-0.5"}>
+                        <span className={"truncate text-[9px] text-gray-400"}>{field.label}</span>
+                        <button
+                            type={"button"}
+                            disabled={overridden}
+                            title={
+                                overridden
+                                    ? "set by connected edge"
+                                    : set
+                                      ? "edit the system prompt"
+                                      : "set a system prompt"
+                            }
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                                const r = e.currentTarget.getBoundingClientRect();
+                                onOpenSystem?.({ x: r.left, y: r.bottom + 4 }, node.id);
+                            }}
+                            className={`w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 text-left font-mono text-[10px] ${
+                                overridden ? "opacity-40" : "hover:border-foreground/40"
+                            }`}
+                        >
+                            {set ? "set" : "—"}
+                        </button>
+                    </label>
+                );
+            }
             return (
                 <label key={field.id} className={"flex min-w-0 flex-1 flex-col gap-0.5"}>
                     <span className={"truncate text-[9px] text-gray-400"}>{field.label}</span>
-                    <select
+                    <ConfigControl
+                        field={field}
                         value={node.config[field.id] ?? ""}
-                        disabled={locked}
-                        title={
-                            locked
-                                ? field.id === "reasoning"
-                                    ? "model has no reasoning setting — pick a reasoning-capable model"
-                                    : "output modalities unknown — set a model from the OpenRouter list"
-                                : undefined
+                        disabled={overridden}
+                        disabledTitle={overridden ? "set by connected edge" : undefined}
+                        dynStr={field.id === "reasoning" ? reasoningOptions : outputOptions}
+                        fontClass={"text-[10px]"}
+                        onChange={(value) =>
+                            dispatch({ type: "setConfig", nodeId: node.id, field: field.id, value })
                         }
-                        onPointerDown={(e) => e.stopPropagation()}
                         onFocus={onConfigFocus}
                         onBlur={onConfigBlur}
-                        onChange={(e) =>
-                            dispatch({
-                                type: "setConfig",
-                                nodeId: node.id,
-                                field: field.id,
-                                value: e.target.value,
-                            })
-                        }
-                        className={`w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 font-mono text-[10px] ${
-                            locked ? "opacity-40" : ""
-                        }`}
-                    >
-                        <option value={""} hidden />
-                        {options.map((opt) => (
-                            <option key={opt} value={opt}>
-                                {opt}
-                            </option>
-                        ))}
-                    </select>
+                    />
                 </label>
             );
         };
@@ -930,7 +950,7 @@ export default memo(function Node({
                     }}
                     className={"flex items-center gap-1.5"}
                 >
-                    {(entry.config ?? []).map(renderSelect)}
+                    {(entry.config ?? []).map(renderConfig)}
                 </div>
 
                 <div className={"flex"} style={{ height: AGENT_LABEL_H + AGENT_PORT_H }}>
@@ -1189,24 +1209,6 @@ export default memo(function Node({
                 // and lock the field so it never looks live while ignored
                 // (membership computed by the canvas; see overriddenIds)
                 const overridden = overriddenSet.has(field.id);
-                const shared = {
-                    value: node.config[field.id] ?? "",
-                    disabled: overridden,
-                    title: overridden ? "set by connected edge" : undefined,
-                    onPointerDown: (e: ReactPointerEvent) => e.stopPropagation(),
-                    onFocus: onConfigFocus,
-                    onBlur: onConfigBlur,
-                    className: `w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 font-mono text-xs ${
-                        overridden ? "opacity-40" : ""
-                    }`,
-                };
-                const onChange = (e: { target: { value: string } }) =>
-                    dispatch({
-                        type: "setConfig",
-                        nodeId: node.id,
-                        field: field.id,
-                        value: e.target.value,
-                    });
                 // the field's input port renders inline on this row's left
                 // edge (pl-0 so the -ml-1.5 marker straddles node.x exactly
                 // like a port row); geometry.ts anchors the edge at the
@@ -1225,55 +1227,19 @@ export default memo(function Node({
                     <span className={"w-14 shrink-0 truncate text-[10px] text-gray-400"}>
                         {field.label}
                     </span>
-                    {field.input === "select" ? (
-                        (() => {
-                            const dynStr =
-                                field.id === "reasoning" ? reasoningOptions : outputOptions;
-                            const options = field.dynamicOptions
-                                ? dynStr
-                                    ? dynStr.split(",")
-                                    : []
-                                : (field.options ?? []);
-                            const locked = field.dynamicOptions && options.length === 0;
-                            return (
-                                <select
-                                    {...shared}
-                                    disabled={shared.disabled || locked}
-                                    title={
-                                        locked
-                                            ? field.id === "reasoning"
-                                                ? "model has no reasoning setting — pick a reasoning-capable model"
-                                                : "output modalities unknown — set a model from the OpenRouter list"
-                                            : shared.title
-                                    }
-                                    onChange={onChange}
-                                >
-                                    <option value={""} hidden />
-                                    {options.map((opt) => (
-                                        <option key={opt} value={opt}>
-                                            {opt}
-                                        </option>
-                                    ))}
-                                </select>
-                            );
-                        })()
-                    ) : field.input === "textarea" ? (
-                        <textarea
-                            {...shared}
-                            rows={3}
-                            maxLength={4000}
-                            placeholder={field.placeholder}
-                            onChange={onChange}
-                            className={`${shared.className} h-[60px] resize-none`}
-                        />
-                    ) : (
-                        <input
-                            {...shared}
-                            type={field.input}
-                            placeholder={field.placeholder}
-                            onChange={onChange}
-                        />
-                    )}
+                    <ConfigControl
+                        field={field}
+                        value={node.config[field.id] ?? ""}
+                        disabled={overridden}
+                        disabledTitle={overridden ? "set by connected edge" : undefined}
+                        dynStr={field.id === "reasoning" ? reasoningOptions : outputOptions}
+                        fontClass={"text-xs"}
+                        onChange={(value) =>
+                            dispatch({ type: "setConfig", nodeId: node.id, field: field.id, value })
+                        }
+                        onFocus={onConfigFocus}
+                        onBlur={onConfigBlur}
+                    />
                     {field.picker === "json-path" && onOpenPicker && (
                         <button
                             type={"button"}

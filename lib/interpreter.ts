@@ -677,7 +677,8 @@ export async function runWorkflow(
                     }
                     const result = await runAgentLoop({
                         prefix: "agent",
-                        // connected system node wins; config.system is a legacy fallback
+                        // connected system node wins; config.system (the node's
+                        // system-prompt button) is the fallback when unwired
                         system: incomingValueEdge(node.id, "system")
                             ? fmt(evalInput(node, "system", ctx))
                             : (node.config.system ?? ""),

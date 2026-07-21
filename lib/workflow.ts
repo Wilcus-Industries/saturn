@@ -256,9 +256,10 @@ export const CATALOG: CatalogEntry[] = [
     // saturn — LLM agent blocks, executed by the test-run interpreter via the
     // callAgentModel server action (built-in credits, BYOK fallback). Grants
     // are edges from chip nodes into the multi "tools" (mcp server nodes)
-    // and "skills" (skill nodes) ports. config.system/config.model are legacy
-    // fallbacks honored by the interpreter when the port has no edge, but not
-    // surfaced in the designer UI.
+    // and "skills" (skill nodes) ports. config.system is a first-class field
+    // authored via the node's system-prompt popover (the "system" input port
+    // still overrides it when wired). config.model is a legacy fallback honored
+    // by the interpreter when the "model" port has no edge.
     {
         key: "agent", category: "saturn", label: "agent",
         inputs: [
@@ -275,6 +276,10 @@ export const CATALOG: CatalogEntry[] = [
         config: [
             { id: "output", label: "output", input: "select", options: ["text", "image"], dynamicOptions: true },
             { id: "reasoning", label: "reasoning", input: "select", options: ["off", "low", "medium", "high"], dynamicOptions: true },
+            // edited via the designer's system-prompt popover (a button, not an
+            // inline field); the same-id "system" input port overrides it when
+            // wired. input:"textarea" documents its shape for MCP get_catalog.
+            { id: "system", label: "system", input: "textarea", overriddenBy: "system" },
         ],
     },
 

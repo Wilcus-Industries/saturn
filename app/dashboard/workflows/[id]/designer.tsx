@@ -51,12 +51,14 @@ import type {
     OpenCronHandler,
     OpenInfoHandler,
     OpenPickerHandler,
+    OpenSystemHandler,
     OpenToolsHandler,
     OpenVariableHandler,
     PortPointerDownHandler,
 } from "./node";
 import ChipInfoPopover from "./chipInfoPopover";
 import CronPopover from "./cronPopover";
+import SystemPopover from "./systemPopover";
 import ToolPickerPopover from "./toolPickerPopover";
 import { describeCron } from "@/lib/cron";
 import { variableIdFromNodeType } from "@/lib/registry";
@@ -610,6 +612,35 @@ export default function Designer({
         setToolsEdit(null);
     };
 
+    // agent-node system-prompt popover: same before/commit undo coalescing as
+    // the cron popover — the whole editing session is one undo step. `initial`
+    // snapshots config.system when the popover opens; the textarea drives itself
+    // and each keystroke dispatches setConfig onto the graph.
+    const [systemEdit, setSystemEdit] = useState<{
+        nodeId: string;
+        anchor: { x: number; y: number };
+        initial: string;
+        before: WorkflowGraph;
+    } | null>(null);
+
+    const openSystem: OpenSystemHandler = useCallback((anchor, nodeId) => {
+        const graph = graphRef.current;
+        const node = graph.nodes.find((n) => n.id === nodeId);
+        setSystemEdit({ nodeId, anchor, initial: node?.config.system ?? "", before: graph });
+    }, []);
+
+    const handleSystemChange = useCallback((value: string) => {
+        setSystemEdit((cur) => {
+            if (cur)
+                dispatch({ type: "setConfig", nodeId: cur.nodeId, field: "system", value });
+            return cur;
+        });
+    }, []);
+    const closeSystem = () => {
+        if (systemEdit) dispatch({ type: "commitConfig", before: systemEdit.before });
+        setSystemEdit(null);
+    };
+
     // skill/memory chip info popover: read-only, so no undo coalescing — the
     // entry is resolved through byKeyRef at open time (memo-safe, like the
     // other popover openers) and snapshotted into state
@@ -793,6 +824,7 @@ export default function Designer({
                 // selection). It only reaches here when no node drag is active.
                 if (cronEdit) closeCron();
                 else if (toolsEdit) closeTools();
+                else if (systemEdit) closeSystem();
                 else if (infoView) setInfoView(null);
                 else if (picker) setPicker(null);
                 else if (pendingDrag) {
@@ -859,6 +891,7 @@ export default function Designer({
                     onOpenTools={openTools}
                     onOpenInfo={openInfo}
                     onOpenVariable={openVariable}
+                    onOpenSystem={openSystem}
                 />
             </div>
 
@@ -912,6 +945,15 @@ export default function Designer({
                     anchor={infoView.anchor}
                     entry={infoView.entry}
                     onClose={() => setInfoView(null)}
+                />
+            )}
+
+            {systemEdit && (
+                <SystemPopover
+                    anchor={systemEdit.anchor}
+                    initial={systemEdit.initial}
+                    onChange={handleSystemChange}
+                    onClose={closeSystem}
                 />
             )}
 
