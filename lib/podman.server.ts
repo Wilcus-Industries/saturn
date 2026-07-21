@@ -305,10 +305,15 @@ export async function assertContainerHardened(name: string): Promise<void> {
     if (!/^1000(:|$)/.test(user)) bad(`container user is "${user}", expected 1000`);
 
     // 3. no host bind mounts — only the named volume (/work) + tmpfs (/tmp)
-    //    are allowed. HostConfig.Binds lists host-path binds; a "bind"-type
-    //    entry in .Mounts is the same leak seen from the other side.
-    if (Array.isArray(c.HostConfig?.Binds) && c.HostConfig.Binds.length > 0) {
-        bad(`unexpected host bind mounts ${JSON.stringify(c.HostConfig.Binds)}`);
+    //    are allowed. HostConfig.Binds lists host-path binds, but some podman
+    //    versions (5.4.x) also report named volumes there as
+    //    "volumeName:/dest:opts" — only entries whose source is an absolute
+    //    host path are real binds (volume names can't start with "/"). A
+    //    "bind"-type entry in .Mounts is the same leak seen from the other
+    //    side.
+    const hostBinds = (c.HostConfig?.Binds ?? []).filter((b) => b.startsWith("/"));
+    if (hostBinds.length > 0) {
+        bad(`unexpected host bind mounts ${JSON.stringify(hostBinds)}`);
     }
     for (const m of c.Mounts ?? []) {
         if (m.Type === "bind") bad(`host bind mount present at ${m.Destination ?? "?"}`);
