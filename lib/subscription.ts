@@ -40,13 +40,16 @@ export const baseUrl = process.env.BETTER_AUTH_URL as string;
 // tiers, rolling 30-day window on free. Only an explicitly activated level
 // gets it: getCreditUsage zeroes the allowance for level=null, unlike the
 // other limits (limitsFor treats null as free).
+// sandboxes caps (count + per-container memory/cpu/disk/exec-timeout quotas) are
+// enforced in saveSandbox (dashboard) and applied at container create — sized
+// for the 4GB Pi (app MemoryMax=2G, global 2-concurrent cap in lib/sandbox.server.ts).
 export const PLAN_LIMITS = {
-    free: { workflows: 3, mcpServers: 3, memoryStores: 1, cronFloorMinutes: 60, modelCredits: 1_000 },
-    pro: { workflows: 20, mcpServers: 10, memoryStores: 5, cronFloorMinutes: 5, modelCredits: 15_000 },
-    max: { workflows: 100, mcpServers: 50, memoryStores: 20, cronFloorMinutes: 1, modelCredits: 60_000 },
+    free: { workflows: 3, mcpServers: 3, memoryStores: 1, cronFloorMinutes: 60, modelCredits: 1_000, sandboxes: 1, sandboxMemoryMb: 128, sandboxCpus: 0.25, sandboxDiskMb: 512, sandboxExecTimeoutS: 60 },
+    pro: { workflows: 20, mcpServers: 10, memoryStores: 5, cronFloorMinutes: 5, modelCredits: 15_000, sandboxes: 3, sandboxMemoryMb: 256, sandboxCpus: 0.5, sandboxDiskMb: 2_048, sandboxExecTimeoutS: 120 },
+    max: { workflows: 100, mcpServers: 50, memoryStores: 20, cronFloorMinutes: 1, modelCredits: 60_000, sandboxes: 5, sandboxMemoryMb: 512, sandboxCpus: 1, sandboxDiskMb: 4_096, sandboxExecTimeoutS: 300 },
 } as const satisfies Record<
     ActivationLevel,
-    { workflows: number; mcpServers: number; memoryStores: number; cronFloorMinutes: number; modelCredits: number }
+    { workflows: number; mcpServers: number; memoryStores: number; cronFloorMinutes: number; modelCredits: number; sandboxes: number; sandboxMemoryMb: number; sandboxCpus: number; sandboxDiskMb: number; sandboxExecTimeoutS: number }
 >;
 
 // not-yet-activated users get free limits

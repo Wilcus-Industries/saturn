@@ -39,9 +39,10 @@ const CATEGORY_HEADING: Partial<Record<NodeCategory, string>> = {
     mcp: "tools",
     skill: "skills",
     memory: "memory",
+    sandbox: "sandboxes",
 };
 const BLOCKS_CATEGORIES: NodeCategory[] = ["events", "logic", "data"];
-const AGENTS_CATEGORIES: NodeCategory[] = ["saturn", "mcp", "skill", "memory"];
+const AGENTS_CATEGORIES: NodeCategory[] = ["saturn", "mcp", "skill", "memory", "sandbox"];
 
 type CategorySection = { category: NodeCategory; heading: string; entries: CatalogEntry[] };
 
@@ -166,9 +167,18 @@ function Section({
                     connect to an agent&apos;s memory port — one store per agent
                 </p>
             )}
+            {category === "sandbox" && entries.length > 0 && (
+                <p className={"text-[10px] text-gray-400"}>
+                    connect to an agent&apos;s sandbox port — one sandbox per agent
+                </p>
+            )}
             {entries.length === 0 && (
                 <p className={"text-[10px] text-gray-400"}>
-                    {q ? "no matches" : "none yet — add in settings"}
+                    {q
+                        ? "no matches"
+                        : category === "sandbox"
+                          ? "add sandboxes in the Sandboxes tab"
+                          : "none yet — add in settings"}
                 </p>
             )}
             {category === "events" && hasEvent && (

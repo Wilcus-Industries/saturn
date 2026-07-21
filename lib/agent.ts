@@ -47,6 +47,10 @@ export const MAX_GRANTED_SKILLS = 10;
 // the persistent-memory read/write/delete surface (built server-side)
 export const MEMORY_TOOL_NAMES = ["memory_search", "memory_save", "memory_forget"] as const;
 
+// wire-format tool names exposed to an agent granted a sandbox node — the
+// persistent-sandbox exec/write/read surface (built server-side)
+export const SANDBOX_TOOL_NAMES = ["sandbox_exec", "sandbox_write_file", "sandbox_read_file"] as const;
+
 // sentinel toolName of the MCP server grant chip (node type "mcp:<uuid>:*"
 // — the only mcp node type the catalog emits). It resolves like any tool
 // ref but expands server-side to the server's every enabled + callable tool
@@ -102,4 +106,11 @@ export function skillIdFromNodeType(type: string): string | null {
 export function memoryIdFromNodeType(type: string): string | null {
     if (!type.startsWith("memory:") || type.length !== 43) return null;
     return type.slice(7);
+}
+
+// "sandbox:" is 8 chars; a valid sandbox node type is exactly the prefix + a
+// 36-char uuid remainder (total 44)
+export function sandboxIdFromNodeType(type: string): string | null {
+    if (!type.startsWith("sandbox:") || type.length !== 44) return null;
+    return type.slice(8);
 }

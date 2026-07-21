@@ -5,7 +5,7 @@
 import { ALL_TOOLS } from "@/lib/agent";
 import { type CatalogEntry, type McpToolParam, valuePort } from "@/lib/workflow";
 
-export type RegistryKind = "mcp" | "skill" | "memory" | "variable";
+export type RegistryKind = "mcp" | "skill" | "memory" | "variable" | "sandbox";
 export type McpTool = {
     name: string;
     access: "read" | "write";
@@ -123,6 +123,21 @@ function toMemoryEntry(row: RegistryEntryRow): CatalogEntry {
     };
 }
 
+// sandbox grant chip: a single "sandbox" value output wired into an agent's
+// "sandbox" port grants the sandbox (resolved statically from the node type).
+// Single-edge on the agent side — one sandbox per agent. Sandbox chips render
+// a terminal icon, not an emoji, so no emoji field is passed.
+function toSandboxEntry(row: RegistryEntryRow): CatalogEntry {
+    return {
+        key: userNodeKey(row.kind, row.id),
+        label: row.name,
+        category: "sandbox",
+        inputs: [],
+        outputs: [valuePort("sandbox")],
+        description: row.description,
+    };
+}
+
 // MCP server grant chip (key "mcp:<uuid>:*"): one non-executable chip per
 // server. Wired into an agent's "tools" port it grants every enabled +
 // callable tool — the sentinel toolName expands server-side in
@@ -170,5 +185,7 @@ export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
               ? toMemoryEntry(row)
               : row.kind === "variable"
                 ? toVariableEntry(row)
-                : toServerEntry(row),
+                : row.kind === "sandbox"
+                  ? toSandboxEntry(row)
+                  : toServerEntry(row),
     );
