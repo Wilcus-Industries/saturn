@@ -204,6 +204,7 @@ export default function Toolbox({
     userCatalog,
     variables,
     openrouterModels,
+    selfHosted,
     onSpawnStart,
     onEditVariable,
     hasEvent,
@@ -214,6 +215,8 @@ export default function Toolbox({
     variables: VariableRow[];
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
+    // single-user mode — reword the empty-models hint (server key, not BYOK)
+    selfHosted: boolean;
     onSpawnStart: SpawnStart;
     // open the secret-variable modal — "new" (the +add row) or an existing row
     // to edit. The modal itself is hosted by the designer (a variable node on
@@ -472,7 +475,9 @@ export default function Toolbox({
                     )}
                     {openrouterModels === null && (
                         <p className={"text-[10px] text-gray-400"}>
-                            upgrade or add an OpenRouter key in settings to list models
+                            {selfHosted
+                                ? "set PLATFORM_OPENROUTER_KEY on the server to list models"
+                                : "upgrade or add an OpenRouter key in settings to list models"}
                         </p>
                     )}
                     {openrouterModels !== null && openrouterModels.length === 0 && (

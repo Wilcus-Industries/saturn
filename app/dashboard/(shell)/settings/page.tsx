@@ -7,9 +7,10 @@ import ActionButton from "@/app/dashboard/actionButton";
 import ConnectAgent from "@/app/dashboard/connectAgent";
 import CreditsBar from "@/app/dashboard/creditsBar";
 import { faviconDomain } from "@/lib/registry";
-import { getCreditUsage } from "@/lib/credits.server";
+import { getCreditUsage, platformKey } from "@/lib/credits.server";
 import { hasOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import { baseUrl, getActivationDetails, getSessionCached } from "@/lib/subscription";
 import { saveOpenrouterKey } from "./actions";
 import ConnectButton from "./connectButton";
@@ -36,6 +37,8 @@ export default async function Settings({
     const registry = await getUserRegistry(session.user.id);
     const keySet = await hasOpenrouterKey(session.user.id);
     const credits = await getCreditUsage(session.user.id);
+    // self-hosted: model calls run only on the server's platform key (BYOK is dead)
+    const platformKeySet = platformKey() !== null;
     const mcpServers = registry.filter((entry) => entry.kind === "mcp");
     const skills = registry.filter((entry) => entry.kind === "skill");
 
@@ -52,6 +55,21 @@ export default async function Settings({
             <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
                 <h2 className={"font-mono text-xl"}>Account</h2>
 
+                {SELF_HOSTED ? (
+                    // single-user instance: no Google identity, no plan, no session
+                    // to end — just a mode indicator card (same card language, no glow)
+                    <div
+                        className={"flex flex-col gap-3 border border-foreground/15 bg-background p-4 md:max-w-sm"}
+                    >
+                        <div className={"flex items-center gap-3 border-b border-current pb-2"}>
+                            <h3 className={"font-mono"}>Self-hosted</h3>
+                        </div>
+                        <p className={"font-mono text-sm text-gray-400"}>
+                            single-user instance with full access. No plans, billing, or sign-in.
+                        </p>
+                    </div>
+                ) : (
+                    <>
                 <div className={"grid gap-4 md:grid-cols-2"}>
                     <div className={"flex items-center gap-4 border border-foreground/15 p-4"}>
                         {image ? (
@@ -131,11 +149,27 @@ export default async function Settings({
                         Log out
                     </button>
                 </form>
+                    </>
+                )}
             </section>
 
-            {/* built-in credits (activated tiers) + BYO OpenRouter key fallback */}
+            {/* built-in credits (activated tiers) + BYO OpenRouter key fallback.
+                self-hosted: BYOK is dead — model calls run on the server's key. */}
             <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
                 <h2 className={"font-mono text-xl"}>Models</h2>
+
+                {SELF_HOSTED ? (
+                    platformKeySet ? (
+                        <p className={"font-mono text-sm text-gray-400"}>
+                            server OpenRouter key configured. Workflows run on it.
+                        </p>
+                    ) : (
+                        <p className={"font-mono text-sm text-yellow-500"}>
+                            set PLATFORM_OPENROUTER_KEY on the server to enable model calls
+                        </p>
+                    )
+                ) : (
+                    <>
                 <p className={"font-mono text-sm text-gray-400"}>
                     {credits.allowance > 0
                         ? "workflows run on your built-in model credits; your OpenRouter key is used as fallback when credits run out"
@@ -184,6 +218,8 @@ export default async function Settings({
                         </ActionButton>
                     </div>
                 </form>
+                    </>
+                )}
             </section>
 
             {/* user registry: entries become nodes in the workflow designer */}
@@ -292,7 +328,11 @@ export default async function Settings({
                 <SkillModal />
             </section>
 
-            <ConnectAgent baseUrl={baseUrl} />
+            <ConnectAgent
+                baseUrl={baseUrl}
+                selfHosted={SELF_HOSTED}
+                mcpToken={process.env.SELF_HOSTED_MCP_TOKEN ?? ""}
+            />
         </div>
     );
 }

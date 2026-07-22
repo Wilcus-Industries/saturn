@@ -1,9 +1,11 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { platformKey } from "@/lib/credits.server";
 import { db } from "@/lib/db";
 import { hasOpenrouterKey, listOpenrouterModels } from "@/lib/openrouter.server";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import { getActivation, getSessionCached, limitsFor } from "@/lib/subscription";
 import type { WorkflowRow } from "@/lib/workflow";
 import Designer from "./designer";
@@ -51,11 +53,12 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
         }));
     // models list unlocks with built-in credits (any activated tier with an
     // allowance — level null gets none, matching getCreditUsage) or a BYOK key.
-    // null = neither (toolbox hints at settings); [] = unlocked but fetch failed
-    const openrouterModels =
-        keyed || (level !== null && limitsFor(level).modelCredits > 0)
-            ? await listOpenrouterModels()
-            : null;
+    // self-hosted: unlocks solely on the server's platform key (BYOK is dead).
+    // null = locked (toolbox hints at settings/server); [] = unlocked but fetch failed
+    const modelsUnlocked = SELF_HOSTED
+        ? platformKey() !== null
+        : keyed || (level !== null && limitsFor(level).modelCredits > 0);
+    const openrouterModels = modelsUnlocked ? await listOpenrouterModels() : null;
 
     return (
         <Designer
@@ -64,6 +67,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
             variables={variables}
             openrouterModels={openrouterModels}
             cronFloorMinutes={limitsFor(level).cronFloorMinutes}
+            selfHosted={SELF_HOSTED}
         />
     );
 }

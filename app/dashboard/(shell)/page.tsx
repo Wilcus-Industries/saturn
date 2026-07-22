@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import ConnectAgent from "@/app/dashboard/connectAgent";
 import { getCreditUsage } from "@/lib/credits.server";
 import { db } from "@/lib/db";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import { baseUrl, getSessionCached } from "@/lib/subscription";
 import GettingStarted, { type ChecklistStep } from "./gettingStarted";
 import RecentRuns, { type RecentRun } from "./recentRuns";
@@ -94,14 +95,18 @@ export default async function Dashboard() {
     const weeks = weekGrid(new Map(days.map((d) => [d.day, d.runs])), meta[0].today);
 
     const steps: ChecklistStep[] = [
-        { label: "pick a plan", href: "/activate", done: credits.level !== null },
+        // self-hosted: no plans to pick
+        ...(SELF_HOSTED
+            ? []
+            : [{ label: "pick a plan", href: "/activate", done: credits.level !== null }]),
         { label: "add an MCP server", href: "/dashboard/settings", done: meta[0].mcp_count > 0 },
         // every user gets the seeded inactive example workflow, so "create" would
         // always read done; "activate" is the real first step
         { label: "activate a workflow", href: "/dashboard/workflows", done: workflows.some((w) => w.active) },
         { label: "run a workflow", href: "/dashboard/workflows", done: recent.length > 0 },
-        // omitted when the mcp-plugin migration hasn't run (query caught → null)
-        ...(agentRes !== null
+        // omitted when the mcp-plugin migration hasn't run (query caught → null);
+        // also omitted self-hosted, where MCP auth is a static token, not oauthAccessToken
+        ...(!SELF_HOSTED && agentRes !== null
             ? [
                   {
                       label: "connect an external agent",
@@ -137,9 +142,14 @@ export default async function Dashboard() {
                 mcpCount={meta[0].mcp_count}
                 memoryCount={meta[0].memory_count}
                 sandboxCount={meta[0].sandbox_count}
+                selfHosted={SELF_HOSTED}
             />
 
-            <ConnectAgent baseUrl={baseUrl} />
+            <ConnectAgent
+                baseUrl={baseUrl}
+                selfHosted={SELF_HOSTED}
+                mcpToken={process.env.SELF_HOSTED_MCP_TOKEN ?? ""}
+            />
         </div>
     );
 }

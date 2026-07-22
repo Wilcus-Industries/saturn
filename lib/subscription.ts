@@ -1,14 +1,17 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { SELF_HOSTED } from "@/lib/selfhost";
+import { SELF_HOSTED_SANDBOX, selfHostedSession } from "@/lib/selfhost.server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
 // per-request session memo: pages and their nested helpers (requireUser,
 // getActivation…) resolve the session once per request instead of hitting
-// better-auth per call site. Always reads the live request headers.
+// better-auth per call site. Always reads the live request headers. Under
+// SELF_HOSTED there is no better-auth session — return the synthetic owner.
 export const getSessionCached = cache(async () =>
-    auth.api.getSession({ headers: await headers() }),
+    SELF_HOSTED ? selfHostedSession() : auth.api.getSession({ headers: await headers() }),
 );
 
 export type ActivationLevel = "max" | "pro" | "free";
@@ -52,8 +55,26 @@ export const PLAN_LIMITS = {
     { workflows: number; mcpServers: number; memoryStores: number; cronFloorMinutes: number; modelCredits: number; sandboxes: number; sandboxMemoryMb: number; sandboxCpus: number; sandboxDiskMb: number; sandboxExecTimeoutS: number }
 >;
 
-// not-yet-activated users get free limits
-export const limitsFor = (level: ActivationLevel | null) => PLAN_LIMITS[level ?? "free"];
+// self-hosted mode has no tiers: everything unlimited, model credits off
+// (calls run on the platform key only, never metered). Same shape as one
+// PLAN_LIMITS row so limitsFor callers read the numeric fields unchanged
+// (Infinity is a number).
+export const SELF_HOSTED_LIMITS = {
+    workflows: Infinity,
+    mcpServers: Infinity,
+    memoryStores: Infinity,
+    cronFloorMinutes: 1,
+    modelCredits: 0,
+    sandboxes: Infinity,
+    sandboxMemoryMb: SELF_HOSTED_SANDBOX.memoryMb,
+    sandboxCpus: SELF_HOSTED_SANDBOX.cpus,
+    sandboxDiskMb: SELF_HOSTED_SANDBOX.diskMb,
+    sandboxExecTimeoutS: SELF_HOSTED_SANDBOX.execTimeoutS,
+} as const;
+
+// not-yet-activated users get free limits; self-hosted gets unlimited
+export const limitsFor = (level: ActivationLevel | null) =>
+    SELF_HOSTED ? SELF_HOSTED_LIMITS : PLAN_LIMITS[level ?? "free"];
 
 const NONE: Activation = { level: null, status: null, pendingCancel: false, periodEnd: null };
 
@@ -64,6 +85,11 @@ export async function getActivationDetails(headers: Headers): Promise<Activation
     // session memo applies
     const session = await getSessionCached();
     if (!session?.user) return NONE;
+
+    // self-hosted: no Stripe, no subscription table — the owner is always max.
+    // Must short-circuit before listActiveSubscriptions (a stripe-plugin
+    // endpoint that doesn't exist under the flag).
+    if (SELF_HOSTED) return { level: "max", status: null, pendingCancel: false, periodEnd: null };
 
     const subscriptions = await auth.api.listActiveSubscriptions({ headers });
     const live = subscriptions.filter(
@@ -105,6 +131,12 @@ export async function getActivationLevels(
 ): Promise<Map<string, ActivationLevel | null>> {
     const levels = new Map<string, ActivationLevel | null>();
     if (userIds.length === 0) return levels;
+
+    // self-hosted: no subscription table to query — every id is max
+    if (SELF_HOSTED) {
+        for (const id of userIds) levels.set(id, "max");
+        return levels;
+    }
 
     const { rows } = await db.query<{
         id: string;

@@ -5,8 +5,11 @@
 // better-auth mcp plugin's OAuth 2.1 flow; withMcpAuth resolves the bearer
 // token and 401s with the resource-metadata pointer when absent.
 
+import { timingSafeEqual } from "node:crypto";
 import { withMcpAuth } from "better-auth/plugins";
 import { auth } from "@/lib/auth";
+import { SELF_HOSTED, SELF_HOSTED_USER_ID } from "@/lib/selfhost";
+import { ensureSelfHostedUser } from "@/lib/selfhost.server";
 import {
     accepted,
     INVALID_PARAMS,
@@ -30,12 +33,9 @@ const INSTRUCTIONS =
     "Typical loop: get_catalog (node types + authoring guide) → create_workflow → save_graph → run_workflow to test, " +
     "then inspect list_runs/get_run. Graphs and schedules are validated against the account's tier limits.";
 
-export const POST = withMcpAuth(auth, async (req, session) => {
-    // tokens are user-linked by the oidc provider; a client-credentials-style
-    // token without a user has nothing to edit
-    const userId = session.userId;
-    if (!userId) return rpcError(null, INVALID_REQUEST, "token is not linked to a user");
-
+// shared JSON-RPC handler: auth is resolved before this (OAuth bearer for the
+// normal path, static token for self-hosted) and passed in as userId.
+async function handleRpc(req: Request, userId: string): Promise<Response> {
     let body: unknown;
     try {
         body = await req.json();
@@ -103,7 +103,43 @@ export const POST = withMcpAuth(auth, async (req, session) => {
         default:
             return rpcError(rpc.id, METHOD_NOT_FOUND, `method "${rpc.method}" not supported`);
     }
-});
+}
+
+// timing-safe `Bearer <SELF_HOSTED_MCP_TOKEN>` check for the self-hosted path.
+// No OAuth, no user linkage — the static token grants the single owner.
+function selfHostedTokenOk(req: Request): boolean {
+    const expected = process.env.SELF_HOSTED_MCP_TOKEN;
+    if (!expected) return false; // unset token = no access, never an open server
+    const header = req.headers.get("authorization") ?? "";
+    const prefix = "Bearer ";
+    if (!header.startsWith(prefix)) return false;
+    const provided = header.slice(prefix.length);
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// normal path: better-auth mcp-plugin OAuth bearer → userId. Under SELF_HOSTED
+// the OAuth server doesn't exist, so authenticate the static bearer token and
+// dispatch as the synthetic owner instead.
+export const POST = SELF_HOSTED
+    ? async (req: Request): Promise<Response> => {
+          if (!selfHostedTokenOk(req)) {
+              return Response.json(
+                  { error: "invalid or missing bearer token" },
+                  { status: 401 },
+              );
+          }
+          await ensureSelfHostedUser();
+          return handleRpc(req, SELF_HOSTED_USER_ID);
+      }
+    : withMcpAuth(auth, async (req, session) => {
+          // tokens are user-linked by the oidc provider; a client-credentials-
+          // style token without a user has nothing to edit
+          const userId = session.userId;
+          if (!userId) return rpcError(null, INVALID_REQUEST, "token is not linked to a user");
+          return handleRpc(req, userId);
+      });
 
 export const GET = methodNotAllowed;
 export const DELETE = methodNotAllowed;

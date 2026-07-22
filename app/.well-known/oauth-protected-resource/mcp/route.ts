@@ -1,6 +1,10 @@
 import { oAuthProtectedResourceMetadata } from "better-auth/plugins";
 import { auth } from "@/lib/auth";
+import { SELF_HOSTED } from "@/lib/selfhost";
 
 // RFC 9728 path-suffixed form (/.well-known/oauth-protected-resource/mcp) —
-// what spec-following clients try first for the resource at /mcp.
-export const GET = oAuthProtectedResourceMetadata(auth);
+// what spec-following clients try first for the resource at /mcp. Under
+// SELF_HOSTED the /mcp server uses a static bearer token, not OAuth — 404.
+export const GET = SELF_HOSTED
+    ? async () => new Response(null, { status: 404 })
+    : oAuthProtectedResourceMetadata(auth);

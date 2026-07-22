@@ -5,8 +5,7 @@ import { stripe } from "@better-auth/stripe";
 import Stripe from "stripe";
 import { db } from "@/lib/db";
 import { seedExampleWorkflow } from "@/lib/exampleWorkflow.server";
-
-const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+import { SELF_HOSTED } from "@/lib/selfhost";
 
 export const auth = betterAuth({
     database: db,
@@ -45,17 +44,24 @@ export const auth = betterAuth({
     plugins: [
         jwt(),
         bearer(),
-        stripe({
-            stripeClient,
-            stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET as string,
-            subscription: {
-                enabled: true,
-                plans: [
-                    { name: "pro", priceId: process.env.STRIPE_PRICE_PRO },
-                    { name: "max", priceId: process.env.STRIPE_PRICE_MAX },
-                ],
-            },
-        }),
+        // no Stripe under SELF_HOSTED: the plugin (and its subscription table +
+        // auth.api endpoints) is skipped entirely, so nothing may query or call
+        // it (see lib/subscription.ts short-circuits).
+        ...(SELF_HOSTED
+            ? []
+            : [
+                  stripe({
+                      stripeClient: new Stripe(process.env.STRIPE_SECRET_KEY as string),
+                      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET as string,
+                      subscription: {
+                          enabled: true,
+                          plans: [
+                              { name: "pro", priceId: process.env.STRIPE_PRICE_PRO },
+                              { name: "max", priceId: process.env.STRIPE_PRICE_MAX },
+                          ],
+                      },
+                  }),
+              ]),
         // OAuth 2.1 authorization server for the hosted workflow-editor MCP
         // server at /mcp (dynamic client registration + PKCE); unauthenticated
         // authorize requests bounce through /onboard and resume after Google
