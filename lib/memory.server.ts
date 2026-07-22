@@ -13,6 +13,7 @@ import { getCreditUsage, platformKey, recordUsage } from "@/lib/credits.server";
 import { db } from "@/lib/db";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import type { McpToolParam } from "@/lib/workflow";
 
 export const MEMORY_EMBED_MODEL = "openai/text-embedding-3-small"; // 1536 dims
@@ -216,21 +217,32 @@ async function embed(
     source: "designer" | "cron" | "manual" | "event",
     texts: string[],
 ): Promise<number[][]> {
-    const credits = await getCreditUsage(userId);
     let apiKey: string | null = null;
     let platformBilled = false;
-    if (credits.allowance > 0 && credits.used < credits.allowance && platformKey()) {
+    if (SELF_HOSTED) {
+        // single owner, no credits/BYOK: the server-wide platform key funds
+        // embeddings and nothing is metered (recordUsage also no-ops).
         apiKey = platformKey();
-        platformBilled = true;
+        if (!apiKey) {
+            throw new Error(
+                "model calls need an OpenRouter key: set PLATFORM_OPENROUTER_KEY on the server",
+            );
+        }
     } else {
-        apiKey = await getOpenrouterKey(userId);
-    }
-    if (!apiKey) {
-        throw new Error(
-            credits.allowance > 0
-                ? "out of built-in model credits for now — add an OpenRouter key in settings to keep running"
-                : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
-        );
+        const credits = await getCreditUsage(userId);
+        if (credits.allowance > 0 && credits.used < credits.allowance && platformKey()) {
+            apiKey = platformKey();
+            platformBilled = true;
+        } else {
+            apiKey = await getOpenrouterKey(userId);
+        }
+        if (!apiKey) {
+            throw new Error(
+                credits.allowance > 0
+                    ? "out of built-in model credits for now — add an OpenRouter key in settings to keep running"
+                    : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
+            );
+        }
     }
 
     const res = await fetch(EMBED_URL, {

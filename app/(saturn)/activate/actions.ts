@@ -3,11 +3,14 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import { baseUrl, getActivation, isPaidPlan, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
 
 export async function activateFree() {
+    // self-hosted: no plan column, no Stripe — the owner already has full access
+    if (SELF_HOSTED) redirect("/dashboard");
     const { session } = await requireUser();
 
     await db.query(`update "user" set plan = 'free' where id = $1`, [session.user.id]);
@@ -15,6 +18,8 @@ export async function activateFree() {
 }
 
 export async function activatePlan(plan: string) {
+    // self-hosted: no Stripe — the owner already has full access
+    if (SELF_HOSTED) redirect("/dashboard");
     if (!isPaidPlan(plan)) throw new Error("Unknown plan");
     const { requestHeaders } = await requireUser();
 

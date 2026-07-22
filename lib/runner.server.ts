@@ -26,6 +26,7 @@ import { executeIntegration } from "@/lib/integrations.server";
 import { executeMemoryTool, memoryToolSpecs } from "@/lib/memory.server";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import { buildUserCatalog, canCallTool } from "@/lib/registry";
 import { freshMcpToken, getMcpSecrets, getUserRegistry } from "@/lib/registry.server";
 import { executeSandboxTool, sandboxToolSpecs } from "@/lib/sandbox.server";
@@ -195,22 +196,33 @@ export async function executeAgentTurn(
     // key selection: platform key while credits remain, else BYOK fallback.
     // The check-then-call-then-record sequence can overshoot the allowance by
     // ~one in-flight turn (bounded by max_tokens) — see lib/credits.server.ts.
-    const credits = await getCreditUsage(userId);
     let apiKey: string | null = null;
     let platformBilled = false;
-    if (credits.allowance > 0 && credits.used < credits.allowance && platformKey()) {
+    if (SELF_HOSTED) {
+        // single owner, no credits/BYOK: the server-wide platform key funds
+        // every call and nothing is metered (recordUsage also no-ops).
         apiKey = platformKey();
-        platformBilled = true;
+        if (!apiKey) {
+            return {
+                error: "model calls need an OpenRouter key: set PLATFORM_OPENROUTER_KEY on the server",
+            };
+        }
     } else {
-        apiKey = await getOpenrouterKey(userId);
-    }
-    if (!apiKey) {
-        return {
-            error:
-                credits.allowance > 0
-                    ? "out of built-in model credits for now — add an OpenRouter key in settings to keep running"
-                    : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
-        };
+        const credits = await getCreditUsage(userId);
+        if (credits.allowance > 0 && credits.used < credits.allowance && platformKey()) {
+            apiKey = platformKey();
+            platformBilled = true;
+        } else {
+            apiKey = await getOpenrouterKey(userId);
+        }
+        if (!apiKey) {
+            return {
+                error:
+                    credits.allowance > 0
+                        ? "out of built-in model credits for now — add an OpenRouter key in settings to keep running"
+                        : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
+            };
+        }
     }
 
     // allowlist the reasoning mode; drop it for image output (single-turn,

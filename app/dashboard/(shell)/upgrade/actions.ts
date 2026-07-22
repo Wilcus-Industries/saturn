@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import {
     baseUrl,
     getActivation,
@@ -14,6 +15,8 @@ import {
 // actions are public POST endpoints — every one re-checks the session itself
 
 export async function changePlan(plan: string) {
+    // self-hosted: no Stripe plans
+    if (SELF_HOSTED) redirect("/dashboard");
     if (!isPaidPlan(plan)) throw new Error("Unknown plan");
     const { requestHeaders } = await requireUser();
     const level = await getActivation(requestHeaders);
@@ -40,6 +43,8 @@ export async function changePlan(plan: string) {
 // undo a pending cancellation: clears Stripe's cancel_at / cancel_at_period_end
 // directly (no portal round-trip) and the subscription keeps renewing
 export async function continueSubscription() {
+    // self-hosted: no Stripe subscription
+    if (SELF_HOSTED) redirect("/dashboard");
     const { requestHeaders } = await requireUser();
 
     const { pendingCancel } = await getActivationDetails(requestHeaders);
@@ -52,6 +57,8 @@ export async function continueSubscription() {
 }
 
 export async function downgradeToFree() {
+    // self-hosted: no Stripe subscription to cancel
+    if (SELF_HOSTED) redirect("/dashboard");
     const { requestHeaders, session } = await requireUser();
 
     const { level, pendingCancel } = await getActivationDetails(requestHeaders);

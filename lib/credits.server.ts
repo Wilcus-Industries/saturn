@@ -14,6 +14,7 @@
 // next turn hard-stops.
 import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import { isPaidPlan, limitsFor, type ActivationLevel } from "@/lib/subscription";
 
 // per-user usage cache — recordUsage increments the cached entry in place so
@@ -39,6 +40,12 @@ export type CreditUsage = {
 // identically; the tier branch mirrors getActivationLevels in
 // lib/subscription.ts.
 export async function getCreditUsage(userId: string): Promise<CreditUsage> {
+    // self-hosted: no credit system — report max with a zero allowance so the
+    // key-selection paths skip platform-credit billing and use the platform key
+    // directly. No SQL, no cache.
+    if (SELF_HOSTED) {
+        return { level: "max", allowance: 0, used: 0, periodStart: null, periodEnd: null };
+    }
     return usageCache.getOrLoad(userId, () => loadCreditUsage(userId));
 }
 
@@ -98,6 +105,8 @@ export async function recordUsage(
         source: "designer" | "cron" | "manual" | "event";
     },
 ): Promise<void> {
+    // self-hosted: nothing is metered — the platform key funds every call
+    if (SELF_HOSTED) return;
     const credits = Math.ceil(Math.max(0, u.costUsd) * 1000);
     try {
         await db.query(

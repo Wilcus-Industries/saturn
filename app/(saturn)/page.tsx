@@ -6,6 +6,8 @@ import DemoWindow from "./demoWindow";
 import FeatureGrid from "./featureNode";
 import Reveal from "./reveal";
 import { GITHUB_URL, ORG_NAME, SITE_DESCRIPTION, SITE_NAME, siteUrl } from "@/lib/seo";
+import { SELF_HOSTED } from "@/lib/selfhost";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
     alternates: { canonical: "/" },
@@ -63,6 +65,8 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 }
 
 export default function Home() {
+    // self-hosted instances have no marketing page — the dashboard is the app
+    if (SELF_HOSTED) redirect("/dashboard");
     return (
         <PageTransition>
             <script
@@ -150,7 +154,9 @@ export default function Home() {
                                                 transition-colors duration-200 cursor-pointer`}>
                                 <span>Sign In</span>
                             </GetStartedLink>
-                            <span className={"font-mono text-xs text-gray-400"}>free tier · no card</span>
+                            <span className={"font-mono text-xs text-gray-400"}>
+                                free tier · no card
+                            </span>
                         </div>
                         <div className={"flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-gray-400"}>
                             <a href={"https://github.com/Wilcus-Industries/saturn"}

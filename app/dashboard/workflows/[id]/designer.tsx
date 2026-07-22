@@ -107,6 +107,7 @@ export default function Designer({
     variables,
     openrouterModels,
     cronFloorMinutes,
+    selfHosted,
 }: {
     workflow: WorkflowRow;
     userCatalog: CatalogEntry[];
@@ -116,6 +117,8 @@ export default function Designer({
     openrouterModels: OpenrouterModel[] | null;
     // tightest schedule interval the owner's tier allows — caps the cron picker
     cronFloorMinutes: number;
+    // single-user mode — flips the empty-models hint to the server-key message
+    selfHosted: boolean;
 }) {
     const [history, dispatch] = useReducer(graphReducer, workflow.graph, initHistory);
     const present = history.present;
@@ -935,6 +938,7 @@ export default function Designer({
                     userCatalog={userCatalog}
                     variables={variables}
                     openrouterModels={openrouterModels}
+                    selfHosted={selfHosted}
                     hasEvent={events.length > 0}
                     onSpawnStart={(key, x, y, preset) =>
                         setSpawn({ key, x, y, config: preset?.config, label: preset?.label })

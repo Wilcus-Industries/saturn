@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { SELF_HOSTED } from "@/lib/selfhost";
 import { getActivationDetails, getSessionCached, LEVEL_RANK } from "@/lib/subscription";
 import TierCard, { TIER_BUTTON, type Tier } from "@/app/(saturn)/activate/tierCard";
 import { changePlan, continueSubscription, downgradeToFree } from "./actions";
@@ -8,6 +9,8 @@ import ActionButton from "../../actionButton";
 const TIER_ORDER = ["free", "pro", "max"] as const satisfies readonly Tier[];
 
 export default async function Upgrade() {
+    // self-hosted: no plans to upgrade between
+    if (SELF_HOSTED) redirect("/dashboard");
     const requestHeaders = await headers();
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
