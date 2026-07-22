@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "saturn-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "saturn-dev-full",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:full"],
+      "port": 3000
+    }
+  ]
+}

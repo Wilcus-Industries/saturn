@@ -10,6 +10,13 @@ description: How to run and verify Saturn changes end-to-end (dev server, auth, 
 - The user usually already has `npm run dev` on http://localhost:3000 (starting a second instance errors with "Another next dev server is already running" and falls back to :3002 — check `curl -s -o /dev/null -w "%{http_code}" localhost:3000` first and reuse it; it hot-reloads your edits).
 - Server log: `.next/dev/logs/next-development.log` (JSON lines; Browser + Server entries). Check timestamps — errors may predate your change.
 
+## Database + background work
+
+- Local dev runs against the **Neon dev branch** (`.env.local` DATABASE_URL) — fully separate from prod; write freely. `scripts/dev-db.sh reset` re-copies prod state and deactivates every workflow (branch reset keeps the same endpoint host, so the `.env.local` URL stays valid).
+- Plain `npm run dev` never starts background loops (scheduler, Discord gateway, Telegram poller, sandbox reaper). To verify scheduled/event workflows use `npm run dev:full` (sets `SATURN_DEV_BACKGROUND=1`).
+- Copied workflows carry real bot tokens: reactivate only the workflow under test, and swap in a dev bot token first (same-token Telegram polling 409s against prod; Discord double-delivers).
+- Sandboxes stay Pi-only (`SANDBOX_PODMAN_SOCKET` unset locally → tools return "sandbox runtime not configured").
+
 ## Auth
 
 - Google OAuth only — no headless login path. Drive with claude-in-chrome against the user's Chrome; their localhost session is usually already signed in. If not signed in, ask the user to sign in rather than automating OAuth.

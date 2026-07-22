@@ -52,7 +52,9 @@ From the **dev checkout** (needs `ssh` to the box + `psql` locally with
 
 What it does, in order:
 1. **Applies `db/setup.sql`** to the app database (idempotent; skip with
-   `SKIP_DB_MIGRATE=1`; `DATABASE_URL` from your env or `.env.local`).
+   `SKIP_DB_MIGRATE=1`; `DATABASE_URL` from your env, else ssh-read from the
+   Pi's `/etc/saturn/saturn.env` — never from `.env.local`, which is dev-only
+   and points at the Neon dev branch, see `scripts/dev-db.sh`).
 2. rsyncs the source to `saturn.local:/srv/saturn/app` (excludes `.git`,
    `node_modules`, `.next`, `.env*`).
 3. On the box: `npm ci` → `next build` (with `/etc/saturn/saturn.env` loaded),

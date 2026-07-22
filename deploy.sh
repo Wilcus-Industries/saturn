@@ -17,12 +17,14 @@ cd "$(dirname "$0")"
 # re-declarations), so running it every deploy means a fresh machine or a
 # schema-changing release never boots against an un-migrated DB — the manual step
 # is gone. Skip with SKIP_DB_MIGRATE=1. DATABASE_URL comes from the environment,
-# or is read from .env.local when unset (quote-stripped by hand — the Neon URL
-# contains '&', which breaks `source`). Neon is reachable from anywhere, so this
-# runs from the dev box, not the Pi.
+# or is ssh-read from the Pi's /etc/saturn/saturn.env when unset (quote-stripped
+# by hand — the Neon URL contains '&', which breaks `source`). Never read from
+# .env.local: that file is dev-only (Neon dev branch — see scripts/dev-db.sh),
+# so parsing it here would migrate the wrong database. Neon is reachable from
+# anywhere, so the migration runs from the dev box, not the Pi.
 if [[ "${SKIP_DB_MIGRATE:-0}" != "1" ]]; then
-  if [[ -z "${DATABASE_URL:-}" && -f .env.local ]]; then
-    DATABASE_URL="$(sed -nE 's/^DATABASE_URL=//p' .env.local | head -1 | sed -E 's/^"//; s/"$//')"
+  if [[ -z "${DATABASE_URL:-}" ]]; then
+    DATABASE_URL="$(ssh "$PI" "sed -nE 's/^DATABASE_URL=//p' /etc/saturn/saturn.env" | head -1 | sed -E 's/^"//; s/"$//')"
   fi
   if [[ -n "${DATABASE_URL:-}" ]] && command -v psql >/dev/null 2>&1; then
     echo ">> applying db/setup.sql (idempotent) to the app database"
