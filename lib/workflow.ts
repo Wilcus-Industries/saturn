@@ -103,6 +103,9 @@ export type CatalogEntry = {
     // the category this entry borrows its color from, overriding its own
     // (integration node: INTEGRATION_SECTIONS). See entryStyles().
     section?: NodeCategory;
+    // variable entries only: false = regular (sky), true/undefined = secret
+    // (violet). entryStyles reads it to split the two variable modes by color.
+    secret?: boolean;
     legacy?: boolean; // resolvable for saved graphs but hidden from the toolbox
     toolName?: string; // mcp server node: the ALL_TOOLS "*" sentinel
     // mcp server node: the enabled + callable tools it can grant — exactly
@@ -478,13 +481,29 @@ export const MISSING_STYLES = {
     edge: "#9ca3af",
 } as const satisfies CategoryStyle;
 
-// an entry's colors: gray for a "(deleted)" placeholder, else its own category
-// unless it declares a `section` to borrow from (integration nodes mirror their
-// Blocks section — a discord webhook in "data" paints teal like the print
-// node). Prefer this over indexing CATEGORY_STYLES by entry.category directly,
-// or integrations lose their color and missing nodes lose their gray.
+// regular (non-secret) variables paint sky, distinct from the violet
+// CATEGORY_STYLES.variable that secrets keep — a value box's color tells the two
+// modes apart at a glance. Not a NodeCategory: entryStyles selects it directly.
+export const VARIABLE_REGULAR_STYLES = {
+    borderL: "border-l-sky-500",
+    border: "border-sky-500/60",
+    headerBg: "bg-sky-500/10",
+    text: "text-sky-600 dark:text-sky-400",
+    edge: "#0ea5e9",
+} as const satisfies CategoryStyle;
+
+// an entry's colors: gray for a "(deleted)" placeholder, then a regular variable
+// (sky, split from secret violet), else its own category unless it declares a
+// `section` to borrow from (integration nodes mirror their Blocks section — a
+// discord webhook in "data" paints teal like the print node). Prefer this over
+// indexing CATEGORY_STYLES by entry.category directly, or integrations lose
+// their color and missing nodes lose their gray.
 export const entryStyles = (entry: CatalogEntry): CategoryStyle =>
-    entry.missing ? MISSING_STYLES : CATEGORY_STYLES[entry.section ?? entry.category];
+    entry.missing
+        ? MISSING_STYLES
+        : entry.category === "variable" && entry.secret === false
+          ? VARIABLE_REGULAR_STYLES
+          : CATEGORY_STYLES[entry.section ?? entry.category];
 
 type PortRef = { nodeId: string; portId: string };
 

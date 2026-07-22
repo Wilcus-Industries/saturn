@@ -61,7 +61,7 @@ import CronPopover from "./cronPopover";
 import SystemPopover from "./systemPopover";
 import ToolPickerPopover from "./toolPickerPopover";
 import { describeCron } from "@/lib/cron";
-import { variableIdFromNodeType } from "@/lib/registry";
+import { variableIdFromNodeType, variableSentinel } from "@/lib/registry";
 import PathPicker, { type PickerSample } from "./pathPicker";
 import Toolbox from "./toolbox";
 import Topbar from "./topbar";
@@ -359,13 +359,82 @@ export default function Designer({
     } | null>(null);
     const spawnEntry = spawn ? byKey[spawn.key] : null;
 
+    // a variable drag (toolbox chip or on-canvas box) lights up the config slots
+    // it can snap into; the slot under the pointer highlights strongest. kind
+    // splits the accent (violet secret / sky regular); hoverKey = "nodeId:fieldId"
+    // under the pointer ("" when none). null when no variable is dragging.
+    const [varDrag, setVarDrag] = useState<{ kind: "secret" | "regular"; hoverKey: string } | null>(
+        null,
+    );
+    // the config drop slot under a client point, skipping the dragged box itself
+    // (elementsFromPoint sees through it); "" when the point is over no slot
+    const varHoverKeyAt = useCallback(
+        (clientX: number, clientY: number, sourceNodeId?: string) => {
+            for (const el of document.elementsFromPoint(clientX, clientY)) {
+                const drop = (el as HTMLElement).closest?.("[data-config-drop]") as HTMLElement | null;
+                if (
+                    drop?.dataset.nodeId &&
+                    drop.dataset.nodeId !== sourceNodeId &&
+                    drop.dataset.fieldId
+                )
+                    return `${drop.dataset.nodeId}:${drop.dataset.fieldId}`;
+            }
+            return "";
+        },
+        [],
+    );
+    // an on-canvas variable box reports its live drag here (Node → this), so the
+    // same slot highlighting drives box drags too; null clears it
+    const handleVarBoxDrag = useCallback(
+        (p: { sourceNodeId: string; clientX: number; clientY: number; secret: boolean } | null) => {
+            if (!p) {
+                setVarDrag(null);
+                return;
+            }
+            setVarDrag({
+                kind: p.secret ? "secret" : "regular",
+                hoverKey: varHoverKeyAt(p.clientX, p.clientY, p.sourceNodeId),
+            });
+        },
+        [varHoverKeyAt],
+    );
+
     const spawnKey = spawn?.key ?? null;
     useWindowDrag(spawnKey !== null, {
-        onMove: (e) => setSpawn((s) => (s ? { ...s, x: e.clientX, y: e.clientY } : s)),
+        onMove: (e) => {
+            setSpawn((s) => (s ? { ...s, x: e.clientX, y: e.clientY } : s));
+            // a variable chip dragging over the canvas highlights snap slots
+            if (spawnKey && variableIdFromNodeType(spawnKey))
+                setVarDrag({
+                    kind: byKey[spawnKey]?.secret === false ? "regular" : "secret",
+                    hoverKey: varHoverKeyAt(e.clientX, e.clientY),
+                });
+        },
         onUp: (e) => {
             const preset = spawn?.config;
             setSpawn(null);
+            setVarDrag(null);
             if (!spawnKey) return; // no active spawn (unreachable — guarded above)
+            // a variable dropped onto an app/event config box snaps in as its
+            // {{var:<uuid>}} sentinel — no edge, no standalone box. Resolve the
+            // drop zone geometrically (the ghost is pointer-events-none).
+            const varId = variableIdFromNodeType(spawnKey);
+            if (varId) {
+                const drop = document
+                    .elementFromPoint(e.clientX, e.clientY)
+                    ?.closest<HTMLElement>("[data-config-drop]");
+                if (drop?.dataset.nodeId && drop.dataset.fieldId) {
+                    dispatch({
+                        type: "assignConfig",
+                        nodeId: drop.dataset.nodeId,
+                        field: drop.dataset.fieldId,
+                        value: variableSentinel(varId),
+                        dropPortEdges: true,
+                    });
+                    notify(`set ${byKey[spawnKey]?.label ?? "variable"}`);
+                    return;
+                }
+            }
             const point = canvasRef.current?.clientToWorld(e.clientX, e.clientY);
             // clientToWorld returns null when the pointer is outside the canvas
             // bounds — the drop missed its target, so say so instead of no-oping
@@ -407,7 +476,10 @@ export default function Designer({
                 },
             });
         },
-        onCancel: () => setSpawn(null),
+        onCancel: () => {
+            setSpawn(null);
+            setVarDrag(null);
+        },
     });
 
     // port drag → edge creation. The port button holds pointer capture, so
@@ -886,6 +958,7 @@ export default function Designer({
                     modelModalities={modelModalities}
                     modelReasoning={modelReasoning}
                     issuesByNode={issuesByNode}
+                    varDrag={varDrag}
                     onPortPointerDown={startEdgeDrag}
                     onOpenPicker={openPicker}
                     onOpenCron={openCron}
@@ -893,6 +966,7 @@ export default function Designer({
                     onOpenInfo={openInfo}
                     onOpenVariable={openVariable}
                     onOpenSystem={openSystem}
+                    onVarDrag={handleVarBoxDrag}
                 />
             </div>
 

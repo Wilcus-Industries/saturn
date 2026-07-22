@@ -54,6 +54,13 @@ export function variableIdFromNodeType(type: string): string | null {
     return UUID_RE.test(id) ? id : null;
 }
 export const variableSentinel = (id: string) => `{{var:${id}}}`;
+// reverse of variableSentinel: a config field holding exactly a variable
+// sentinel resolves to its uuid (else null). Lets a value snap directly into
+// an app/event config box — no edge, no standalone box.
+export function variableIdFromSentinel(value: string): string | null {
+    const m = value.match(/^\{\{var:(.+)\}\}$/i);
+    return m && UUID_RE.test(m[1]) ? m[1] : null;
+}
 
 // favicon lookup wants the brand's apex domain, not the MCP host —
 // agent.robinhood.com's favicon is a blank, robinhood.com's is the logo
@@ -174,6 +181,7 @@ function toVariableEntry(row: RegistryEntryRow): CatalogEntry {
         key: userNodeKey(row.kind, row.id),
         label: row.name,
         category: "variable",
+        secret: row.secret, // splits the value box color: violet secret / sky regular
         inputs: [],
         outputs: [valuePort("value")],
     };

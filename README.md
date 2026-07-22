@@ -6,8 +6,24 @@
   </picture>
 </p>
 
-Agentic automations, anywhere and anytime.
+## Saturn
+
+No-code workflows for everything.
+
+Create:
+
+- Agentic automations
+- Discord/Telegram bots
+- Content creation workflows
+- So much more
+
+With:
+
+- Persistent Linux sandboxes
+- Persistent `pgvector`-based agent memory 
+- No-code node based coding
+- And more
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE.md) — free to use, modify, and share for any noncommercial purpose.
+[PolyForm Noncommercial 1.0.0](LICENSE.md) - free to use, modify, and share for any noncommercial purpose.

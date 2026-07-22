@@ -33,6 +33,7 @@ import {
 } from "./geometry";
 import type { GraphAction } from "./graphReducer";
 import Node, {
+    type OnVarDragHandler,
     type OpenCronHandler,
     type OpenInfoHandler,
     type OpenPickerHandler,
@@ -57,6 +58,11 @@ export type PendingDrag = {
     kind: PortKind;
     dir: "in" | "out";
 };
+
+// an in-flight variable drag (toolbox chip or on-canvas box). kind splits the
+// highlight accent (violet secret / sky regular); hoverKey = "nodeId:fieldId"
+// of the config slot under the pointer ("" = none). null when no variable drags.
+export type VarDrag = { kind: "secret" | "regular"; hoverKey: string };
 
 type View = { x: number; y: number; zoom: number };
 
@@ -152,6 +158,7 @@ export default function Canvas({
     modelModalities,
     modelReasoning,
     issuesByNode,
+    varDrag,
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
@@ -159,6 +166,7 @@ export default function Canvas({
     onOpenInfo,
     onOpenVariable,
     onOpenSystem,
+    onVarDrag,
     ref,
 }: {
     graph: WorkflowGraph;
@@ -190,6 +198,9 @@ export default function Canvas({
     // in the map has no issue. Derived per node into a comparable-string
     // `issueLevel` prop so Node's memo survives.
     issuesByNode: Map<string, "error" | "warning">;
+    // in-flight variable drag (null when none) — drives the config-slot
+    // highlighting, mirroring `drag` for ports
+    varDrag: VarDrag | null;
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
@@ -197,6 +208,7 @@ export default function Canvas({
     onOpenInfo?: OpenInfoHandler;
     onOpenVariable?: OpenVariableHandler;
     onOpenSystem?: OpenSystemHandler;
+    onVarDrag?: OnVarDragHandler;
     ref?: Ref<CanvasHandle>;
 }) {
     const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
@@ -447,6 +459,16 @@ export default function Canvas({
         }
     };
 
+    // variable-drop highlighting: split the hovered slot key once, then hand
+    // each node a comparable "kind|hoveredFieldId" string (blank field when the
+    // hover is elsewhere) so only the entering/leaving node re-renders per move
+    const varHoverNodeId = varDrag?.hoverKey
+        ? varDrag.hoverKey.slice(0, varDrag.hoverKey.indexOf(":"))
+        : "";
+    const varHoverFieldId = varDrag?.hoverKey
+        ? varDrag.hoverKey.slice(varDrag.hoverKey.indexOf(":") + 1)
+        : "";
+
     // connected value inputs, for the per-node overridden-config lookup
     const valueTargets = new Set(
         graph.edges
@@ -582,6 +604,13 @@ export default function Canvas({
                             connectable={
                                 connectableByNode ? (connectableByNode.get(node.id) ?? "-") : ""
                             }
+                            varHint={
+                                varDrag
+                                    ? `${varDrag.kind}|${
+                                          node.id === varHoverNodeId ? varHoverFieldId : ""
+                                      }`
+                                    : ""
+                            }
                             issueLevel={issuesByNode.get(node.id) ?? ""}
                             onPortPointerDown={onPortPointerDown}
                             onOpenPicker={onOpenPicker}
@@ -590,6 +619,7 @@ export default function Canvas({
                             onOpenInfo={onOpenInfo}
                             onOpenVariable={onOpenVariable}
                             onOpenSystem={onOpenSystem}
+                            onVarDrag={onVarDrag}
                         />
                     );
                 })}

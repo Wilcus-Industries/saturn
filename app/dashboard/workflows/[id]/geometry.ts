@@ -76,6 +76,15 @@ export const LIT_PAD_Y = 12; // py-1.5 top+bottom
 export const LIT_CHAR_W = 7.2; // Geist Mono advance at text-xs (12px)
 export const NUM_W = 80;
 
+// generic rectangular nodes (integration actions, extension-event nodes) size
+// to their own contents — header label, port labels, and config rows (label
+// column + placeholder-sized input) — so nothing truncates. Same deterministic
+// mono-advance approach as literalMetrics; see rectWidth below.
+export const CFG_LABEL_CW = 6; // ≈ LIT_CHAR_W × 10/12 — the text-[10px] label column / port labels
+export const RECT_MAX_W = 380; // width cap (long text past this still ellipsizes)
+export const RECT_INPUT_MIN_CH = 10; // input column floor (short/unknown select+number content)
+export const RECT_INPUT_PAD = 12; // input px-1 + border + advance slack so placeholders don't clip
+
 // secret variable nodes: a read-only literal-shaped box showing only the
 // variable's name behind a key glyph, sized from the name (single line)
 export const VAR_ICON_W = 16; // key glyph + gap before the name
@@ -170,6 +179,53 @@ function literalMetrics(value: string): { width: number; height: number } {
     return { width, height: lines.length * LIT_LINE_H + LIT_PAD_Y };
 }
 
+// width demanded by a generic rectangular node's own contents so nothing
+// truncates: the widest of its header band, its port-label rows, and its config
+// rows (fixed label column + placeholder-sized input). Deterministic from the
+// entry (mono advance, no DOM measure) like literalMetrics/variableWidth, and
+// clamped to [NODE_W, RECT_MAX_W]. node.tsx renders width from this and edge
+// anchors read it — keep the layout constants in sync with the generic-rect
+// branch of node.tsx. "in"/"out" port labels are hidden (see isGenericLabel in
+// node.tsx), so they add nothing here.
+const PORT_MARKER_W = 12; // port button + its -ml/-mr inset
+export function rectWidth(entry: CatalogEntry): number {
+    // header: icon (16) + gap-1 (4) + label + px-2 (16)
+    let w = 16 + 4 + entry.label.length * LIT_CHAR_W + 16;
+
+    // port rows: an unpaired input on the left, an output on the right, pushed
+    // apart by justify-between + gap-2 (8)
+    const generic = (l: string) => l === "in" || l === "out";
+    const side = (label: string) =>
+        PORT_MARKER_W + (generic(label) ? 0 : 4 + label.length * CFG_LABEL_CW);
+    const rowInputs = unpairedInputs(entry);
+    const rowCount = Math.max(rowInputs.length, entry.outputs.length);
+    for (let i = 0; i < rowCount; i++) {
+        const inW = rowInputs[i] ? side(rowInputs[i].label) : 0;
+        const outW = entry.outputs[i] ? side(entry.outputs[i].label) : 0;
+        w = Math.max(w, inW + 8 + outW);
+    }
+
+    // config rows: left space — a paired field renders an inline port marker +
+    // its gap-1.5 before the label, an unpaired field just pads pl-2 (8) — then
+    // label column + gap-1.5 (6) + input + pr-2 (8) + json-path picker (~24)
+    for (const f of entry.config ?? []) {
+        const leftSpace = f.overriddenBy ? PORT_MARKER_W + 6 : 8;
+        const inputCh = Math.max(f.placeholder?.length ?? 0, RECT_INPUT_MIN_CH);
+        const picker = f.picker === "json-path" ? 24 : 0;
+        const rowW =
+            leftSpace +
+            f.label.length * CFG_LABEL_CW +
+            6 +
+            inputCh * LIT_CHAR_W +
+            RECT_INPUT_PAD +
+            8 +
+            picker;
+        w = Math.max(w, rowW);
+    }
+
+    return Math.min(RECT_MAX_W, Math.max(NODE_W, Math.ceil(w)));
+}
+
 export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number => {
     if (isModelEntry(entry)) return MODEL_D;
     if (isEventEntry(entry)) return EVENT_W;
@@ -180,7 +236,7 @@ export const nodeWidth = (entry: CatalogEntry, node?: WorkflowNode): number => {
     if (isLiteralEntry(entry))
         return entry.key === "number" ? NUM_W : literalMetrics(node?.config.value ?? "").width;
     if (isVariableEntry(entry)) return variableWidth(entry);
-    return NODE_W;
+    return rectWidth(entry);
 };
 
 export const configRowHeight = (field: ConfigField): number =>
@@ -462,7 +518,7 @@ export function portGeometry(
     if (inputRow !== -1) return { x: node.x, y: rowY(inputRow), nx: -1, ny: 0 };
 
     const outputRow = entry.outputs.findIndex((p) => p.id === portId);
-    return { x: node.x + NODE_W, y: rowY(Math.max(outputRow, 0)), nx: 1, ny: 0 };
+    return { x: node.x + rectWidth(entry), y: rowY(Math.max(outputRow, 0)), nx: 1, ny: 0 };
 }
 
 // position-only view of portGeometry — used where the normal is irrelevant

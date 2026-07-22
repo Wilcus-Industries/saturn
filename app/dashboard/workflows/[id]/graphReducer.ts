@@ -23,6 +23,18 @@ export type GraphAction =
     | { type: "deleteEdge"; id: string }
     | { type: "deleteNodes"; ids: string[] }
     | { type: "setConfig"; nodeId: string; field: string; value: string }
+    // committed config write in one undo step (used to snap a variable into an
+    // app/event config box): set config[field], optionally drop edges feeding
+    // that field's port, optionally remove a source node (the dragged variable
+    // box) and its edges
+    | {
+          type: "assignConfig";
+          nodeId: string;
+          field: string;
+          value: string;
+          dropPortEdges?: boolean;
+          removeNodeId?: string;
+      }
     | { type: "commitConfig"; before: WorkflowGraph }
     | { type: "undo" }
     | { type: "redo" };
@@ -118,6 +130,29 @@ export function graphReducer(history: History, action: GraphAction): History {
                     ),
                 },
             };
+
+        case "assignConfig": {
+            const dropEdge = (e: WorkflowEdge) =>
+                !(
+                    action.removeNodeId &&
+                    (e.from.nodeId === action.removeNodeId || e.to.nodeId === action.removeNodeId)
+                ) &&
+                !(
+                    action.dropPortEdges &&
+                    e.to.nodeId === action.nodeId &&
+                    e.to.portId === action.field
+                );
+            return step(history, {
+                nodes: g.nodes
+                    .filter((n) => n.id !== action.removeNodeId)
+                    .map((n) =>
+                        n.id === action.nodeId
+                            ? { ...n, config: { ...n.config, [action.field]: action.value } }
+                            : n,
+                    ),
+                edges: g.edges.filter(dropEdge),
+            });
+        }
 
         case "undo": {
             const previous = history.past.at(-1);

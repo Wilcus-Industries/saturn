@@ -535,7 +535,7 @@ export default function Toolbox({
                                 <Chip
                                     entry={entry}
                                     enabled
-                                    borderL={CATEGORY_STYLES.variable.borderL}
+                                    borderL={entryStyles(entry).borderL}
                                     onSpawnStart={onSpawnStart}
                                 />
                             </div>

@@ -20,6 +20,7 @@ import {
     type WorkflowNode,
 } from "@/lib/workflow";
 import { describeCron } from "@/lib/cron";
+import { variableIdFromNodeType, variableIdFromSentinel, variableSentinel } from "@/lib/registry";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import ConfigControl from "./configControl";
 import EntryBadge from "./entryBadge";
@@ -114,6 +115,17 @@ export type OpenInfoHandler = (
 // drag); the modal is centered, so it takes just the node id (no anchor)
 export type OpenVariableHandler = (nodeId: string) => void;
 
+// an on-canvas variable box reports its live drag so the designer can light up
+// the config slots it can snap into; null clears the hover state
+export type OnVarDragHandler = (
+    state: {
+        sourceNodeId: string;
+        clientX: number;
+        clientY: number;
+        secret: boolean;
+    } | null,
+) => void;
+
 // an agent node's "system" button opens the system-prompt popover when clicked;
 // the anchor is the button's client-space bottom-left corner, like the cron
 // popover opener
@@ -122,7 +134,8 @@ export type OpenSystemHandler = (
     nodeId: string,
 ) => void;
 
-// renders to the geometry.ts metrics exactly: w-44 = NODE_W 176, the header
+// renders to the geometry.ts metrics exactly: the generic rect's width comes
+// from nodeWidth() (content-sized rectWidth, floored at NODE_W 176), the header
 // band's height comes straight from HEADER_H, h-6 port rows = PORT_ROW_H 24,
 // h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
@@ -164,6 +177,7 @@ export default memo(function Node({
     reasoningOptions,
     outAnchor,
     connectable,
+    varHint,
     issueLevel,
     onPortPointerDown,
     onOpenPicker,
@@ -172,6 +186,7 @@ export default memo(function Node({
     onOpenInfo,
     onOpenVariable,
     onOpenSystem,
+    onVarDrag,
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
@@ -208,6 +223,16 @@ export default memo(function Node({
     //   "a,b,…" — the comma-joined ids of the ports that ARE legal drop targets:
     //         those scale+glow, the rest of this node's ports dim
     connectable: string;
+    // variable-drop affordance during a variable drag (comparable string so
+    // Node's memo survives; computed by the canvas from the designer's drag
+    // state):
+    //   ""            — no variable drag: config slots render normally
+    //   "secret|"     — a secret (violet) variable is dragging, none of THIS
+    //                   node's slots is under the pointer: tint its snap slots
+    //   "regular|id"  — a regular (sky) variable is dragging and field `id` on
+    //                   THIS node is the hovered drop target: highlight it strong
+    // (kind before "|" = accent color; text after = hovered field id, or blank)
+    varHint: string;
     // live validation state for THIS node, as a comparable string so the memo
     // survives: "" none / "warning" / "error". Drives the top-right IssueDot on
     // every shape branch (paint-only — never an outline, which means selection).
@@ -219,6 +244,7 @@ export default memo(function Node({
     onOpenInfo?: OpenInfoHandler;
     onOpenVariable?: OpenVariableHandler;
     onOpenSystem?: OpenSystemHandler;
+    onVarDrag?: OnVarDragHandler;
 }) {
     const styles = entryStyles(entry);
     // honest highlighting: a drag is active whenever `connectable` is non-empty;
@@ -228,6 +254,11 @@ export default memo(function Node({
     const dragActive = connectable !== "";
     const connectableSet =
         connectable && connectable !== "-" ? new Set(connectable.split(",")) : null;
+    // variable-drop affordance: split "kind|hoveredFieldId". varDragActive lights
+    // up every snap slot on this node; varHoverField (may be "") is the one
+    // under the pointer, highlighted stronger. varDragColor picks the accent.
+    const varDragActive = varHint !== "";
+    const [varDragColor, varHoverField] = varHint ? varHint.split("|") : ["", ""];
     // local (x,y) offset of a rotated chip/model output marker; null → the
     // branch's right-edge default
     const parsedOutAnchor: [number, number] | null = outAnchor
@@ -284,6 +315,7 @@ export default memo(function Node({
             if (drag?.active) ev.stopPropagation();
             dragRef.current = null;
             removeDragEscape();
+            onVarDrag?.(null); // clear any variable-drop highlight (no-op otherwise)
             if (drag?.active) dispatch({ type: "cancelDrag", before: drag.before });
         };
         dragEscapeRef.current = onEscape;
@@ -804,10 +836,10 @@ export default memo(function Node({
         );
     }
 
-    // secret variable nodes: a read-only literal-shaped box showing only the
-    // variable's name behind a key glyph (the value never reaches the client —
-    // the node evaluates to an opaque {{var:<uuid>}} sentinel). Violet category
-    // frame via entryStyles. Clicking opens the variable's edit modal.
+    // variable nodes: a read-only literal-shaped box showing only the variable's
+    // name behind a key glyph (the value on the node is always an opaque
+    // {{var:<uuid>}} sentinel). Frame + glyph color via entryStyles — violet for
+    // secrets, sky for regular. Clicking opens the variable's edit modal.
     if (isVariableEntry(entry)) {
         const output = entry.outputs[0];
         const width = nodeWidth(entry, node);
@@ -815,9 +847,54 @@ export default memo(function Node({
 
         // a press that stayed under the drag threshold is a click → open the
         // variable's edit modal (the toolbox's VariableModal, lifted to the
-        // designer, which resolves the row by uuid from the node type)
-        const variableEndDrag = () => {
-            const wasClick = !!dragRef.current && !dragRef.current.active;
+        // designer, which resolves the row by uuid from the node type). A real
+        // drag that ends over an app/event config box snaps the variable in and
+        // removes the box (one undo step) — the dragged box sits under the
+        // cursor, so scan every element at the point and take the first config
+        // drop zone on another node.
+        // report each move to the designer so the config slots light up as the
+        // box drags (skips its own node via sourceNodeId in elementsFromPoint)
+        const variableMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+            onPointerMove(e);
+            if (dragRef.current?.active)
+                onVarDrag?.({
+                    sourceNodeId: node.id,
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    secret: entry.secret !== false,
+                });
+        };
+        const variableEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+            onVarDrag?.(null);
+            const drag = dragRef.current;
+            if (drag?.active) {
+                const varId = variableIdFromNodeType(node.type);
+                let target: HTMLElement | null = null;
+                for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+                    const drop = (el as HTMLElement).closest<HTMLElement>("[data-config-drop]");
+                    if (drop && drop.dataset.nodeId !== node.id) {
+                        target = drop;
+                        break;
+                    }
+                }
+                if (varId && target?.dataset.nodeId && target.dataset.fieldId) {
+                    removeDragEscape();
+                    dragRef.current = null;
+                    // restore the pre-drag graph (no history entry), then snap
+                    // the variable in + remove this box as one undo step
+                    dispatch({ type: "cancelDrag", before: drag.before });
+                    dispatch({
+                        type: "assignConfig",
+                        nodeId: target.dataset.nodeId,
+                        field: target.dataset.fieldId,
+                        value: variableSentinel(varId),
+                        dropPortEdges: true,
+                        removeNodeId: node.id,
+                    });
+                    return;
+                }
+            }
+            const wasClick = !!drag && !drag.active;
             endDrag();
             if (wasClick) onOpenVariable?.(node.id);
         };
@@ -831,9 +908,12 @@ export default memo(function Node({
                     selected ? "outline outline-1 outline-foreground" : ""
                 }`}
                 onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
+                onPointerMove={variableMove}
                 onPointerUp={variableEndDrag}
-                onPointerCancel={endDrag}
+                onPointerCancel={() => {
+                    onVarDrag?.(null);
+                    endDrag();
+                }}
             >
                 <IssueDot level={issueLevel} />
                 <div
@@ -841,7 +921,7 @@ export default memo(function Node({
                     className={`relative flex cursor-pointer items-center gap-1.5 overflow-hidden rounded border ${styles.border} bg-background px-2 py-1.5 hover:brightness-110`}
                     title={entry.label}
                 >
-                    <span aria-hidden className={"leading-[18px] text-violet-600 dark:text-violet-400"}>
+                    <span aria-hidden className={`leading-[18px] ${styles.text}`}>
                         ⚿
                     </span>
                     <span className={"truncate leading-[18px]"}>{entry.label}</span>
@@ -1161,8 +1241,8 @@ export default memo(function Node({
     return (
         <div
             data-node-id={node.id}
-            style={{ left: node.x, top: node.y }}
-            className={`absolute w-44 bg-background pb-1 font-mono text-xs ${
+            style={{ left: node.x, top: node.y, width: nodeWidth(entry, node) }}
+            className={`absolute bg-background pb-1 font-mono text-xs ${
                 selected ? "outline outline-1 outline-foreground" : ""
             } ${entry.missing ? "opacity-50" : ""}`}
             onPointerDown={onPointerDown}
@@ -1217,56 +1297,130 @@ export default memo(function Node({
             ))}
 
             {entry.config?.map((field) => {
+                // a config field with a paired value port can hold a variable
+                // directly: dropping a variable stores its {{var:<uuid>}}
+                // sentinel here, the box shows a token, and the ○ port is
+                // hidden (the field holds the value — no edge). Selects don't snap.
+                const canSnap = !!field.overriddenBy && field.input !== "select";
+                const snappedId = canSnap
+                    ? variableIdFromSentinel(node.config[field.id] ?? "")
+                    : null;
                 // a connected port takes precedence over the literal — dim
                 // and lock the field so it never looks live while ignored
                 // (membership computed by the canvas; see overriddenIds)
                 const overridden = overriddenSet.has(field.id);
                 // the field's input port renders inline on this row's left
                 // edge (pl-0 so the -ml-1.5 marker straddles node.x exactly
-                // like a port row); geometry.ts anchors the edge at the
-                // row's vertical center
-                const pairedPort = field.overriddenBy
-                    ? entry.inputs.find((p) => p.id === field.overriddenBy)
-                    : undefined;
+                // like a port row); geometry.ts anchors the edge at the row's
+                // vertical center. A snapped variable hides the port (the box
+                // holds the value directly).
+                const pairedPort =
+                    field.overriddenBy && !snappedId
+                        ? entry.inputs.find((p) => p.id === field.overriddenBy)
+                        : undefined;
+                const varEntry = snappedId ? byKey[`variable:${snappedId}`] : undefined;
+                const varStyles = varEntry ? entryStyles(varEntry) : null;
+                // variable-drag affordance: while a variable drags, every snap
+                // slot tints in its accent (violet secret / sky regular); the
+                // slot under the pointer highlights stronger ("drop here")
+                const varTarget = varDragActive && canSnap;
+                const varHovered = varTarget && varHoverField === field.id;
+                const varHighlight = !varTarget
+                    ? ""
+                    : varHovered
+                      ? varDragColor === "regular"
+                          ? "bg-sky-400/20 ring-2 ring-sky-400"
+                          : "bg-violet-400/20 ring-2 ring-violet-400"
+                      : varDragColor === "regular"
+                        ? "bg-sky-400/5 ring-1 ring-sky-400/40"
+                        : "bg-violet-400/5 ring-1 ring-violet-400/40";
                 return (
                 <label
                     key={field.id}
-                    className={`flex items-center gap-1.5 pr-2 ${
+                    // snappable fields are drop zones — the designer resolves a
+                    // variable drop to [data-config-drop] via elementFromPoint
+                    data-config-drop={canSnap ? "true" : undefined}
+                    data-node-id={canSnap ? node.id : undefined}
+                    data-field-id={canSnap ? field.id : undefined}
+                    className={`flex items-center gap-1.5 rounded pr-2 transition-[background-color,box-shadow] ${
                         pairedPort ? "pl-0" : "pl-2"
-                    } ${field.input === "textarea" ? "h-[72px]" : "h-9"}`}
+                    } ${field.input === "textarea" ? "h-[72px]" : "h-9"} ${varHighlight}`}
                 >
                     {pairedPort && port(pairedPort, "in")}
-                    <span className={"w-14 shrink-0 truncate text-[10px] text-gray-400"}>
+                    <span className={"shrink-0 whitespace-nowrap text-[10px] text-gray-400"}>
                         {field.label}
                     </span>
-                    <ConfigControl
-                        field={field}
-                        value={node.config[field.id] ?? ""}
-                        disabled={overridden}
-                        disabledTitle={overridden ? "set by connected edge" : undefined}
-                        dynStr={field.id === "reasoning" ? reasoningOptions : outputOptions}
-                        fontClass={"text-xs"}
-                        onChange={(value) =>
-                            dispatch({ type: "setConfig", nodeId: node.id, field: field.id, value })
-                        }
-                        onFocus={onConfigFocus}
-                        onBlur={onConfigBlur}
-                    />
-                    {field.picker === "json-path" && onOpenPicker && (
-                        <button
-                            type={"button"}
-                            aria-label={"pick from sample"}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                                const r = e.currentTarget.getBoundingClientRect();
-                                onOpenPicker({ x: r.left, y: r.bottom + 4 }, node.id, field.id);
-                            }}
-                            className={
-                                "shrink-0 border border-foreground/15 px-1 py-0.5 text-[10px] text-gray-400 hover:text-foreground"
-                            }
+                    {snappedId ? (
+                        <span
+                            className={`flex min-w-0 flex-1 items-center gap-1 rounded border px-1 py-0.5 text-[10px] ${
+                                varStyles
+                                    ? `${varStyles.border} ${varStyles.text}`
+                                    : "border-foreground/25 text-gray-400"
+                            }`}
+                            title={varEntry?.label ?? "deleted variable"}
                         >
-                            {"{}"}
-                        </button>
+                            <span aria-hidden>{"⚿"}</span>
+                            <span className={"truncate"}>{varEntry?.label ?? "(deleted)"}</span>
+                            <button
+                                type={"button"}
+                                aria-label={"clear variable"}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={() =>
+                                    dispatch({
+                                        type: "assignConfig",
+                                        nodeId: node.id,
+                                        field: field.id,
+                                        value: "",
+                                    })
+                                }
+                                className={
+                                    "ml-auto shrink-0 px-0.5 text-gray-400 hover:text-foreground"
+                                }
+                            >
+                                {"×"}
+                            </button>
+                        </span>
+                    ) : (
+                        <>
+                            <ConfigControl
+                                field={field}
+                                value={node.config[field.id] ?? ""}
+                                disabled={overridden}
+                                disabledTitle={overridden ? "set by connected edge" : undefined}
+                                dynStr={field.id === "reasoning" ? reasoningOptions : outputOptions}
+                                fontClass={"text-xs"}
+                                onChange={(value) =>
+                                    dispatch({
+                                        type: "setConfig",
+                                        nodeId: node.id,
+                                        field: field.id,
+                                        value,
+                                    })
+                                }
+                                onFocus={onConfigFocus}
+                                onBlur={onConfigBlur}
+                            />
+                            {field.picker === "json-path" && onOpenPicker && (
+                                <button
+                                    type={"button"}
+                                    aria-label={"pick from sample"}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                        const r = e.currentTarget.getBoundingClientRect();
+                                        onOpenPicker(
+                                            { x: r.left, y: r.bottom + 4 },
+                                            node.id,
+                                            field.id,
+                                        );
+                                    }}
+                                    className={
+                                        "shrink-0 border border-foreground/15 px-1 py-0.5 text-[10px] text-gray-400 hover:text-foreground"
+                                    }
+                                >
+                                    {"{}"}
+                                </button>
+                            )}
+                        </>
                     )}
                 </label>
                 );
