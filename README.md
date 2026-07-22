@@ -21,7 +21,7 @@ With:
 
 - Persistent Linux sandboxes
 - Persistent `pgvector`-based agent memory 
-- No-code node based coding
+- No-code node based workflows
 - And more
 
 ## License

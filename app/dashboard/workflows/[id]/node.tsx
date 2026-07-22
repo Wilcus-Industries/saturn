@@ -1342,9 +1342,9 @@ export default memo(function Node({
                     data-config-drop={canSnap ? "true" : undefined}
                     data-node-id={canSnap ? node.id : undefined}
                     data-field-id={canSnap ? field.id : undefined}
-                    className={`flex items-center gap-1.5 rounded pr-2 transition-[background-color,box-shadow] ${
+                    className={`flex items-center gap-1.5 pr-2 ${
                         pairedPort ? "pl-0" : "pl-2"
-                    } ${field.input === "textarea" ? "h-[72px]" : "h-9"} ${varHighlight}`}
+                    } ${field.input === "textarea" ? "h-[72px]" : "h-9"}`}
                 >
                     {pairedPort && port(pairedPort, "in")}
                     <span className={"shrink-0 whitespace-nowrap text-[10px] text-gray-400"}>
@@ -1352,11 +1352,11 @@ export default memo(function Node({
                     </span>
                     {snappedId ? (
                         <span
-                            className={`flex min-w-0 flex-1 items-center gap-1 rounded border px-1 py-0.5 text-[10px] ${
+                            className={`flex min-w-0 flex-1 items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-[background-color,box-shadow] ${
                                 varStyles
                                     ? `${varStyles.border} ${varStyles.text}`
                                     : "border-foreground/25 text-gray-400"
-                            }`}
+                            } ${varHighlight}`}
                             title={varEntry?.label ?? "deleted variable"}
                         >
                             <span aria-hidden>{"⚿"}</span>
@@ -1389,6 +1389,7 @@ export default memo(function Node({
                                 disabledTitle={overridden ? "set by connected edge" : undefined}
                                 dynStr={field.id === "reasoning" ? reasoningOptions : outputOptions}
                                 fontClass={"text-xs"}
+                                highlight={varHighlight}
                                 onChange={(value) =>
                                     dispatch({
                                         type: "setConfig",

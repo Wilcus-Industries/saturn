@@ -24,6 +24,7 @@ export default function ConfigControl({
     disabledTitle,
     dynStr,
     fontClass,
+    highlight,
     onChange,
     onFocus,
     onBlur,
@@ -38,13 +39,18 @@ export default function ConfigControl({
     // the control's font size — "text-xs" (generic rows) or "text-[10px]"
     // (agent dropdown row); the only visual difference between the two callers
     fontClass: string;
+    // variable-drag drop affordance (bg tint + ring classes) painted on the
+    // control box itself; replaces bg-background so the tint reads cleanly
+    highlight?: string;
     onChange: (value: string) => void;
     onFocus: () => void;
     onBlur: () => void;
 }) {
     // stopPropagation keeps a press on the control from starting a node drag
     const stop = (e: ReactPointerEvent) => e.stopPropagation();
-    const base = `w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 font-mono ${fontClass}`;
+    const base = `w-full min-w-0 border border-foreground/15 px-1 py-0.5 font-mono transition-[background-color,box-shadow] ${
+        highlight || "bg-background"
+    } ${fontClass}`;
 
     if (field.input === "select") {
         const options = field.dynamicOptions
