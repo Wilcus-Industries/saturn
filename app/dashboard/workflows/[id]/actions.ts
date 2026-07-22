@@ -49,10 +49,11 @@ export async function saveWorkflow(id: string, graph: unknown) {
     subscriptionsChanged();
 }
 
-// --- secret variables (toolbox-managed registry_entry rows, kind 'variable';
-// value lives in the write-only auth_token column and never reaches the
-// client — variable nodes evaluate to a {{var:<uuid>}} sentinel that only
-// executeIntegration substitutes server-side) ---
+// --- variables (toolbox-managed registry_entry rows, kind 'variable'; value
+// lives in the auth_token column). secret=true rows are write-only and never
+// reach the client; secret=false rows are viewable/editable plaintext. Either
+// way a variable node evaluates to a {{var:<uuid>}} sentinel that only
+// executeIntegration substitutes server-side. Mode is fixed at creation. ---
 
 const MAX_VARIABLE_NAME = 60;
 const MAX_VARIABLE_VALUE = 4096;
@@ -74,14 +75,30 @@ export async function saveVariable(formData: FormData): Promise<ActionResult> {
         const value = String(formData.get("value") ?? "").trim();
         if (value.length > MAX_VARIABLE_VALUE) throw new Error("Value too long");
         const clearValue = formData.get("clearValue") === "on";
+        const secret = formData.get("secret") === "on";
 
         if (id) {
-            // blank value keeps the stored one; clearValue erases; filled overwrites
+            // mode is fixed at creation and the edit checkbox is disabled (so it
+            // never submits) — read the stored mode, never trust the form
+            const { rows } = await db.query<{ secret: boolean }>(
+                `select secret from registry_entry
+                 where id = $1 and user_id = $2 and kind = 'variable'`,
+                [id, session.user.id],
+            );
+            if (!rows[0]) throw new Error("Not found");
             const params: unknown[] = [name];
-            let valueSql = "auth_token";
-            if (clearValue) {
-                valueSql = "''";
-            } else if (value) {
+            let valueSql: string;
+            if (rows[0].secret) {
+                // write-only: blank keeps the stored value, clearValue erases, filled overwrites
+                valueSql = "auth_token";
+                if (clearValue) {
+                    valueSql = "''";
+                } else if (value) {
+                    params.push(value);
+                    valueSql = `$${params.length}`;
+                }
+            } else {
+                // regular: the submitted plaintext is authoritative (blank = empty)
                 params.push(value);
                 valueSql = `$${params.length}`;
             }
@@ -103,9 +120,9 @@ export async function saveVariable(formData: FormData): Promise<ActionResult> {
                 throw new Error(`Limit of ${MAX_ENTRIES_PER_KIND} variables reached`);
             }
             await db.query(
-                `insert into registry_entry (user_id, kind, name, auth_token)
-                 values ($1, 'variable', $2, $3)`,
-                [session.user.id, name, value],
+                `insert into registry_entry (user_id, kind, name, auth_token, secret)
+                 values ($1, 'variable', $2, $3, $4)`,
+                [session.user.id, name, value, secret],
             );
         }
     } catch (err) {

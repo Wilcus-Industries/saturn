@@ -5,17 +5,27 @@ import { useRouter } from "next/navigation";
 import ActionButton from "@/app/dashboard/actionButton";
 import { deleteVariable, saveVariable } from "./actions";
 
-// one secret variable the toolbox lists — hasValue mirrors the registry's
-// derived has_token boolean (the value itself never reaches the client)
-export type VariableRow = { id: string; name: string; hasValue: boolean };
+// one variable the toolbox lists. secret = the write-only mode (value never
+// reaches the client; hasValue mirrors the registry's derived has_token). For a
+// regular (non-secret) variable the value IS viewable/editable, so value carries
+// the plaintext; for secrets it is ''.
+export type VariableRow = {
+    id: string;
+    name: string;
+    secret: boolean;
+    hasValue: boolean;
+    value: string;
+};
 
-// add/edit modal for one secret variable, opened from the toolbox's variables
-// split. Controlled by the toolbox (target = existing row, or "new"). Follows
-// the settings skillModal conventions: controlled inputs (React resets
-// uncontrolled fields after a form action, which would wipe input on an error
-// return), inline error from the action's { error } result, write-only value
-// field (blank keeps, checkbox clears). Success closes + router.refresh() so
-// the server page re-reads the invalidated registry.
+// add/edit modal for one variable, opened from the toolbox's variables split.
+// Controlled by the toolbox (target = existing row, or "new"). Follows the
+// settings skillModal conventions: controlled inputs (React resets uncontrolled
+// fields after a form action, which would wipe input on an error return), inline
+// error from the action's { error } result. A secret checkbox picks the mode at
+// creation only (locked on edit — flipping could reveal a write-only secret):
+// secret = write-only value field (blank keeps, checkbox clears); regular = a
+// plaintext value field, prefilled + editable. Success closes + router.refresh()
+// so the server page re-reads the invalidated registry.
 export default function VariableModal({
     target,
     onClose,
@@ -25,9 +35,14 @@ export default function VariableModal({
 }) {
     const router = useRouter();
     const editing = target === "new" ? null : target;
+    // mode fixed at creation: new variables default to regular (unchecked); an
+    // existing row keeps its stored mode and the checkbox is disabled below.
+    const [secret, setSecret] = useState(editing?.secret ?? false);
     const [error, setError] = useState<string | null>(null);
     const [name, setName] = useState(editing?.name ?? "");
-    const [value, setValue] = useState("");
+    // regular variables are viewable — prefill from the stored plaintext; secrets
+    // stay write-only so their field always starts blank
+    const [value, setValue] = useState(editing && !editing.secret ? editing.value : "");
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [deleting, setDeleting] = useState(false);
 
@@ -87,8 +102,9 @@ export default function VariableModal({
                         {editing ? "edit variable" : "new variable"}
                     </h2>
                     <p className={"font-mono text-xs text-gray-400"}>
-                        the value is stored server-side and never shown again — nodes carry
-                        only an opaque placeholder, resolved inside app actions at run time
+                        {secret
+                            ? "the value is stored server-side and never shown again — nodes carry only an opaque placeholder, resolved inside app actions at run time"
+                            : "a plain variable — viewable and editable here; nodes still carry an opaque placeholder, resolved inside app actions at run time"}
                     </p>
 
                     {editing && <input type={"hidden"} name={"id"} value={editing.id} />}
@@ -106,23 +122,41 @@ export default function VariableModal({
                         />
                     </label>
 
+                    {/* mode picked once at creation; locked on edit (see comment above) */}
+                    <label
+                        className={`flex items-center gap-2 font-mono text-xs ${
+                            editing ? "text-gray-500" : "text-gray-400"
+                        }`}
+                    >
+                        <input
+                            type={"checkbox"}
+                            name={"secret"}
+                            checked={secret}
+                            disabled={!!editing}
+                            onChange={(e) => setSecret(e.target.checked)}
+                        />
+                        secret (write-only, never revealed)
+                    </label>
+
                     <label className={"flex flex-col gap-1"}>
                         <span className={"font-mono text-xs text-gray-400"}>value</span>
                         <input
                             name={"value"}
-                            type={"password"}
+                            type={secret ? "password" : "text"}
                             required={!editing}
                             autoComplete={"off"}
                             value={value}
                             onChange={(e) => setValue(e.target.value)}
                             placeholder={
-                                editing?.hasValue ? "•••• value set — leave blank to keep" : ""
+                                secret && editing?.hasValue
+                                    ? "•••• value set — leave blank to keep"
+                                    : ""
                             }
                             className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
                         />
                     </label>
 
-                    {editing?.hasValue && (
+                    {secret && editing?.hasValue && (
                         <label className={"flex items-center gap-2 font-mono text-xs text-gray-400"}>
                             <input type={"checkbox"} name={"clearValue"} />
                             clear stored value

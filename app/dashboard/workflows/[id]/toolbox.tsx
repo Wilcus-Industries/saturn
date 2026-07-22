@@ -491,8 +491,8 @@ export default function Toolbox({
             </div>
 
             {/* variables split: pinned below the tabbed sections, outside the
-                group filter — secret values managed here (VariableModal), each
-                row drag-spawning its read-only variable:<uuid> value box */}
+                group filter — secrets and regular variables managed here
+                (VariableModal), each row drag-spawning its variable:<uuid> box */}
             <div
                 className={
                     "flex max-h-[45%] shrink-0 flex-col gap-1.5 overflow-y-auto border-t border-foreground/15 p-3"
@@ -503,7 +503,7 @@ export default function Toolbox({
                         variables
                     </h2>
                     {/* +add stays visible even when the query filters every row
-                        out, so a secret is always addable */}
+                        out, so a variable is always addable */}
                     <button
                         type={"button"}
                         onClick={() => onEditVariable("new")}
@@ -516,14 +516,14 @@ export default function Toolbox({
                 </div>
                 {variables.length > 0 && (
                     <p className={"text-[10px] text-gray-400"}>
-                        secret values — resolved only inside app action nodes
+                        secrets &amp; variables — resolved only inside app action nodes
                     </p>
                 )}
                 {varQ.length === 0 && (
                     <p className={"text-[10px] text-gray-400"}>
                         {q && variables.length > 0
                             ? `no variables match "${q}"`
-                            : "none yet — secrets like bot tokens live here"}
+                            : "none yet — secrets and reusable values live here"}
                     </p>
                 )}
                 {varQ.map((v) => {

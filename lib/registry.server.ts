@@ -16,11 +16,16 @@ export function invalidateUserRegistry(userId: string) {
 
 export async function getUserRegistry(userId: string): Promise<RegistryEntryRow[]> {
     return registryCache.getOrLoad(userId, async () => {
-        // auth_token / oauth are write-only: never select them, only whether set
+        // auth_token / oauth are write-only: never select them, only whether set.
+        // Sole exception: a regular (non-secret) variable's value IS viewable, so
+        // the case guard exposes auth_token only for kind='variable' and not secret
+        // — mcp tokens and secret variables always project '' here.
         const { rows } = await db.query(
             `select id, kind, name, emoji, description, server_url, tools,
                     (auth_token <> '') as has_token,
-                    (coalesce(oauth->>'accessToken', '') <> '') as connected
+                    (coalesce(oauth->>'accessToken', '') <> '') as connected,
+                    secret,
+                    case when kind = 'variable' and not secret then auth_token else '' end as value
              from registry_entry where user_id = $1 order by created_at`,
             [userId],
         );

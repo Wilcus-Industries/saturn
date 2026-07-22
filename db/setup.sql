@@ -54,7 +54,8 @@ create table if not exists registry_entry (
     emoji       text not null default '',        -- skill only
     description text not null default '',        -- skill only
     server_url  text not null default '',        -- mcp only
-    auth_token  text not null default '',        -- mcp secret / variable value; write-only, never sent to client
+    auth_token  text not null default '',        -- mcp secret / variable value; write-only when secret, never sent to client
+    secret      boolean not null default true,   -- variable only; true = write-only/never revealed, false = viewable/editable
     tools       jsonb not null default '[]',     -- mcp allowlist: [{name, access: "read"|"write", enabled}]
     oauth       jsonb not null default '{}',     -- mcp only; oauth client + tokens, server-only
     created_at  timestamptz not null default now(),
@@ -63,8 +64,11 @@ create table if not exists registry_entry (
 create index if not exists registry_entry_user_id_idx on registry_entry (user_id);
 -- added after initial rollout; keeps existing tables in sync with the create above
 alter table registry_entry add column if not exists oauth jsonb not null default '{}';
+-- default true keeps existing variable rows (all secrets) write-only after rollout
+alter table registry_entry add column if not exists secret boolean not null default true;
 -- ('memory' = a persistent agent-memory store; its items live in memory_item)
--- ('variable' = a named user secret; value lives in auth_token, write-only)
+-- ('variable' = a named user variable; value lives in auth_token. secret=true →
+--  write-only/never revealed; secret=false → viewable/editable plaintext)
 -- ('sandbox' = a persistent per-user linux sandbox; its runtime state lives in
 --  podman as a container/volume named from the entry uuid — no child table)
 alter table registry_entry drop constraint if exists registry_entry_kind_check;

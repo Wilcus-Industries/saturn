@@ -33,6 +33,8 @@ export type RegistryEntryRow = {
     tools: McpTool[];
     has_token: boolean; // derived — auth_token itself is never selected
     connected: boolean; // derived — oauth tokens themselves are never selected
+    secret: boolean; // variable only — true = write-only, false = viewable/editable
+    value: string; // plaintext for regular (non-secret) variables only; '' otherwise
 };
 
 export const MAX_ENTRIES_PER_KIND = 50;

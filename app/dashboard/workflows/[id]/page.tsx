@@ -37,11 +37,18 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
         getActivation(requestHeaders),
     ]);
     const userCatalog = buildUserCatalog(registry);
-    // secret variables for the toolbox split — name + whether a value is set,
-    // never the value itself (has_token is the derived boolean)
+    // variables for the toolbox split — name + secret flag + whether a value is
+    // set. For secrets the value never reaches the client (value is '' from the
+    // guarded projection); regular variables carry their viewable plaintext.
     const variables = registry
         .filter((r) => r.kind === "variable")
-        .map((r) => ({ id: r.id, name: r.name, hasValue: r.has_token }));
+        .map((r) => ({
+            id: r.id,
+            name: r.name,
+            secret: r.secret,
+            hasValue: r.has_token,
+            value: r.value,
+        }));
     // models list unlocks with built-in credits (any activated tier with an
     // allowance — level null gets none, matching getCreditUsage) or a BYOK key.
     // null = neither (toolbox hints at settings); [] = unlocked but fetch failed
