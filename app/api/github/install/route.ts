@@ -5,10 +5,9 @@
 // back to /api/github/callback where it's checked against the cookie — binding
 // the install to the session that started it. Env unset → back to settings with
 // an error (feature not configured).
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { baseUrl } from "@/lib/subscription";
+import { baseUrl, getSessionCached } from "@/lib/subscription";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +17,10 @@ export const GITHUB_STATE_COOKIE = "github_install_state";
 export async function GET() {
     const settingsUrl = `${baseUrl}/dashboard/settings`;
 
-    const session = await auth.api.getSession({ headers: await headers() });
+    // getSessionCached, not auth.api.getSession: under SELF_HOSTED there is no
+    // better-auth session — the helper short-circuits to the synthetic owner so
+    // self-hosters can bind their own GitHub App installations too
+    const session = await getSessionCached();
     if (!session?.user) return NextResponse.redirect(`${baseUrl}/onboard`);
 
     const slug = process.env.GITHUB_APP_SLUG;

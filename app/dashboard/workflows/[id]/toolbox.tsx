@@ -106,6 +106,9 @@ function Chip({
 }) {
     return (
         <div
+            // a chip only ever disables under the one-event rule — the hover
+            // title explains the grey-out in place of a section hint line
+            title={enabled ? undefined : "one event per workflow — remove the existing one first"}
             className={`flex touch-none items-center gap-2 border border-foreground/15 border-l-2 px-2 py-1.5 transition-colors duration-200 ${borderL} ${
                 enabled
                     ? "cursor-grab hover:bg-foreground/5"
@@ -132,7 +135,8 @@ function Chip({
 }
 
 // standard section render, shared by the blocks and agents groups: an optional
-// heading, category-specific wiring hints, an empty/no-match line, and the chips
+// heading, an empty/no-match line, and the chips (wiring guidance lives on the
+// placed node's info popover, not here)
 function Section({
     section,
     hasEvent,
@@ -151,27 +155,6 @@ function Section({
             {heading && (
                 <h2 className={"text-[10px] uppercase tracking-wider text-gray-400"}>{heading}</h2>
             )}
-            {category === "skill" && entries.length > 0 && (
-                <p className={"text-[10px] text-gray-400"}>
-                    connect to an agent&apos;s skills port to grant
-                </p>
-            )}
-            {category === "mcp" && entries.length > 0 && (
-                <p className={"text-[10px] text-gray-400"}>
-                    connect to an agent&apos;s tools port to grant — click the placed node to
-                    pick tools
-                </p>
-            )}
-            {category === "memory" && entries.length > 0 && (
-                <p className={"text-[10px] text-gray-400"}>
-                    connect to an agent&apos;s memory port — one store per agent
-                </p>
-            )}
-            {category === "sandbox" && entries.length > 0 && (
-                <p className={"text-[10px] text-gray-400"}>
-                    connect to an agent&apos;s sandbox port — one sandbox per agent
-                </p>
-            )}
             {entries.length === 0 && (
                 <p className={"text-[10px] text-gray-400"}>
                     {q
@@ -179,11 +162,6 @@ function Section({
                         : category === "sandbox"
                           ? "add sandboxes in the Sandboxes tab"
                           : "none yet — add in settings"}
-                </p>
-            )}
-            {category === "events" && hasEvent && (
-                <p className={"text-[10px] text-gray-400"}>
-                    one event per workflow — remove it to add another
                 </p>
             )}
             {entries.map((entry) => (
@@ -428,14 +406,6 @@ export default function Toolbox({
 
             {active.id === "apps" && (
                 <>
-                    {/* legend: event (trigger) chips paint amber, action chips
-                        borrow their Blocks-section color */}
-                    <p className={"text-[10px] text-gray-400"}>amber = trigger · colored = action</p>
-                    {hasEvent && (
-                        <p className={"text-[10px] text-gray-400"}>
-                            one event per workflow — remove it to add another
-                        </p>
-                    )}
                     {appsSections.length === 0 && (
                         <p className={"text-[10px] text-gray-400"}>{q ? "no matches" : "none yet"}</p>
                     )}
@@ -519,11 +489,6 @@ export default function Toolbox({
                         + add
                     </button>
                 </div>
-                {variables.length > 0 && (
-                    <p className={"text-[10px] text-gray-400"}>
-                        secrets &amp; variables — resolved only inside app action nodes
-                    </p>
-                )}
                 {varQ.length === 0 && (
                     <p className={"text-[10px] text-gray-400"}>
                         {q && variables.length > 0
