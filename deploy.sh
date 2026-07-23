@@ -28,7 +28,9 @@ if [[ "${SKIP_DB_MIGRATE:-0}" != "1" ]]; then
   fi
   if [[ -n "${DATABASE_URL:-}" ]] && command -v psql >/dev/null 2>&1; then
     echo ">> applying db/setup.sql (idempotent) to the app database"
-    psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -q -f db/setup.sql
+    # URLs carry sslmode=verify-full without sslrootcert; default to the system
+    # trust store (libpq 16+) so verification works without ~/.postgresql/root.crt.
+    PGSSLROOTCERT="${PGSSLROOTCERT:-system}" psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -q -f db/setup.sql
   else
     echo "!! skipping DB migration — no psql or DATABASE_URL. Run manually:" >&2
     echo "   psql \"\$DATABASE_URL\" -f db/setup.sql" >&2
