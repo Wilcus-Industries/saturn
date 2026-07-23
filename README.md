@@ -24,6 +24,35 @@ With:
 - No-code node based workflows
 - And more
 
+## Setup
+
+Either use the official [Wilcus Industries deployment](https://saturn.wilcus.com)
+or self-host Saturn on your own machine (macOS or Linux):
+
+```shell
+curl -fsSL https://raw.githubusercontent.com/Wilcus-Industries/saturn/main/install.sh | bash
+```
+
+Postgres missing? Install it first:
+
+```shell
+# macOS
+brew install postgresql@17 pgvector && brew services start postgresql@17
+# Debian/Ubuntu
+sudo apt install -y postgresql postgresql-17-pgvector
+```
+
+The dashboard has no authentication in self-hosted mode, so keep it on
+localhost. For remote access use [Tailscale](https://tailscale.com) or a
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+with Access in front.
+
+> [!WARNING]
+> Linux sandboxes are not yet supported on self-hosted installs — support is
+> coming soon. Everything else works; sandbox tools just report
+> "sandbox runtime not configured".
+
+
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE.md) - free to use, modify, and share for any noncommercial purpose.
