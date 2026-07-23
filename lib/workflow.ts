@@ -15,6 +15,11 @@ import {
     integrationProviderId,
 } from "@/lib/integrations";
 
+// github event node types (event:github-push, …). The central GitHub App
+// webhook is the only delivery path, so these fire only once the owner has a
+// linked installation — validateGraphStrict warns on them otherwise.
+export const isGithubEventKey = (type: string): boolean => type.startsWith("event:github-");
+
 export type PortKind = "flow" | "value";
 export type NodeCategory =
     | "events"
@@ -668,6 +673,10 @@ export type ValidationIssue = {
 export function validateGraphStrict(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
+    // githubLinked false = warn on github event nodes (owner has no linked
+    // installation, so the webhook path drops every delivery). Absent leaves
+    // github nodes unwarned, so every existing caller is unchanged.
+    opts?: { githubLinked?: boolean },
 ): { errors: string[]; warnings: string[]; issues: ValidationIssue[] } {
     const issues: ValidationIssue[] = [];
     const err = (message: string, ref?: { nodeId?: string; edgeId?: string }) =>
@@ -868,6 +877,19 @@ export function validateGraphStrict(
                     nodeId: node.id,
                 });
             }
+        }
+    }
+
+    // github events fire only through the central GitHub App webhook, which
+    // drops every delivery until the owner links an installation in settings
+    if (opts?.githubLinked === false) {
+        for (const node of graph.nodes) {
+            if (!isGithubEventKey(node.type)) continue;
+            const label = EXTENSION_EVENTS_BY_KEY[node.type]?.label ?? node.type;
+            warn(
+                `${label} "${node.id}" has no linked GitHub App installation — it will never fire; link one in settings`,
+                { nodeId: node.id },
+            );
         }
     }
 

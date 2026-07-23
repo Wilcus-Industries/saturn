@@ -52,6 +52,14 @@ with Access in front.
 > coming soon. Everything else works; sandbox tools just report
 > "sandbox runtime not configured".
 
+> [!NOTE]
+> GitHub event nodes require the GitHub App (instant webhook delivery). The
+> official [Wilcus Industries deployment](https://saturn.wilcus.com) has it
+> built in. Self-hosters must register their own GitHub App and point it at
+> their instance — see the runbook in [`deploy/README.md`](deploy/README.md).
+> This needs a publicly reachable webhook URL (e.g. a Cloudflare Tunnel);
+> without one, GitHub event nodes are disabled in the designer.
+
 
 ## License
 

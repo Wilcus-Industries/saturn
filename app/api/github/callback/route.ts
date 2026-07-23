@@ -19,7 +19,7 @@ import { GITHUB_STATE_COOKIE } from "../install/route";
 
 export const dynamic = "force-dynamic";
 
-// matches lib/github.server.ts USER_AGENT (GitHub rejects requests without one)
+// GitHub rejects requests without a User-Agent
 const USER_AGENT = "Saturn-Workflows (https://saturn.wilcus.com)";
 
 const settingsUrl = `${baseUrl}/dashboard/settings`;

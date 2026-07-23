@@ -14,9 +14,14 @@ import {
     MODEL_PRESET,
     type NodeCategory,
 } from "@/lib/workflow";
+import type { GithubLink } from "./designer";
 import EntryIcon from "./entryIcon";
 import ModelLogo from "./modelLogo";
 import type { VariableRow } from "./variableModal";
+
+// github event chips (category "events", app group "github") stay non-spawnable
+// until the owner links the central GitHub App installation
+const isGithubEvent = (e: CatalogEntry) => e.category === "events" && e.group === "github";
 
 // the 9 catalog categories collapse into 4 selectable toolbox groups, each a
 // tab icon at the top; only the active group renders below. `blocks`/`agents`
@@ -205,6 +210,7 @@ export default function Toolbox({
     variables,
     openrouterModels,
     selfHosted,
+    githubLink,
     onSpawnStart,
     onEditVariable,
     hasEvent,
@@ -217,6 +223,9 @@ export default function Toolbox({
     openrouterModels: OpenrouterModel[] | null;
     // single-user mode — reword the empty-models hint (server key, not BYOK)
     selfHosted: boolean;
+    // github event availability — "linked" enables the github chips; the other
+    // states blank them out and show a hint under the github app heading
+    githubLink: GithubLink;
     onSpawnStart: SpawnStart;
     // open the secret-variable modal — "new" (the +add row) or an existing row
     // to edit. The modal itself is hosted by the designer (a variable node on
@@ -444,13 +453,24 @@ export default function Toolbox({
                             <h2 className={"text-[10px] uppercase tracking-wider text-gray-400"}>
                                 {app}
                             </h2>
+                            {app === "github" && githubLink !== "linked" && (
+                                <p className={"text-[10px] text-gray-400"}>
+                                    {githubLink === "unlinked"
+                                        ? "github events need the GitHub App — link it in settings"
+                                        : "github events need a GitHub App on this server — see deploy/README.md"}
+                                </p>
+                            )}
                             {entries.map((entry) => (
                                 <Chip
                                     key={entry.key}
                                     entry={entry}
-                                    // event chips obey the one-event rule; action
-                                    // chips are always spawnable
-                                    enabled={entry.category !== "events" || !hasEvent}
+                                    // event chips obey the one-event rule; github
+                                    // events also need a linked installation;
+                                    // action chips are always spawnable
+                                    enabled={
+                                        (entry.category !== "events" || !hasEvent) &&
+                                        (githubLink === "linked" || !isGithubEvent(entry))
+                                    }
                                     // section color, not the integration category's
                                     // — mirrors Blocks (events chips paint amber)
                                     borderL={entryStyles(entry).borderL}
