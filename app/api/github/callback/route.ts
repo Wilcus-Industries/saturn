@@ -10,11 +10,10 @@
 //   5. upsert the github_installation row (owner + display login).
 // The token is used in-memory only, never stored or logged. Any failure →
 // settings with a short ?github_error, rendered inline on the card.
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { upsertInstallation } from "@/lib/githubApp.server";
-import { baseUrl } from "@/lib/subscription";
+import { baseUrl, getSessionCached } from "@/lib/subscription";
 import { GITHUB_STATE_COOKIE } from "../install/route";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +28,9 @@ function errorRedirect(message: string) {
 }
 
 export async function GET(request: Request) {
-    const session = await auth.api.getSession({ headers: await headers() });
+    // getSessionCached, not auth.api.getSession — self-hosted synthetic owner
+    // must be able to complete the binding (see install route)
+    const session = await getSessionCached();
     if (!session?.user) return NextResponse.redirect(`${baseUrl}/onboard`);
 
     const clientId = process.env.GITHUB_APP_CLIENT_ID;
