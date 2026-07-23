@@ -3,12 +3,11 @@
 // directly instead of lib/subscription's baseUrl so the metadata route
 // bundles never pull in auth/db/Stripe.
 export const SITE_NAME = "Saturn";
-export const SITE_TAGLINE = "Agentic automations, anywhere and anytime.";
-export const SITE_TITLE = "Saturn: Agentic automations, anywhere and anytime";
+export const SITE_TAGLINE = "No-code workflows for everything.";
+export const SITE_TITLE = "Saturn: No-code workflows for everything";
 export const SITE_DESCRIPTION =
-    "Saturn is an open-source, node-based designer for agentic automations. " +
-    "Drag agents, MCP tools, skills, and cron triggers onto a canvas, wire them " +
-    "together, and run them on a schedule with 300+ models on built-in credits or your own keys.";
+    "Saturn is an open-source, no-code workflow builder. Wire agents, MCP tools, " +
+    "Discord and Telegram bots, sandboxes, and memory on one canvas with 300+ models.";
 export const GITHUB_URL = "https://github.com/Wilcus-Industries/saturn";
 export const ORG_NAME = "Wilcus Industries";
 
