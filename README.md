@@ -59,6 +59,31 @@ clone step.
 > who can reach the port is the owner. Keep it bound to localhost, or put
 > reverse-proxy auth in front before exposing it.
 
+### Remote access
+
+Two good paths, in order of preference:
+
+- **[Tailscale](https://tailscale.com)** — don't expose the port at all; reach
+  `http://<machine>:3000` from your own devices over the tailnet. The network is
+  the auth, so there is nothing else to configure (`tailscale serve` adds HTTPS
+  if you want it). Tailscale is what I personally use.
+- **[Caddy](https://caddyserver.com)** — if you want a public URL. Auto-HTTPS
+  plus built-in basic auth (`caddy hash-password` generates the hash):
+
+  ```
+  saturn.example.com {
+      basic_auth {
+          you $2a$14$...hash...
+      }
+      reverse_proxy localhost:3000
+  }
+  ```
+
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+with Access in front also works well (no open inbound port, email/SSO gate) —
+it is what the official deployment runs behind — but takes more setup than
+either option above.
+
 
 ## License
 
