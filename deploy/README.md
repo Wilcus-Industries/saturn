@@ -93,6 +93,46 @@ Deep-dive, security invariants, and troubleshooting: **[`sandboxes.md`](./sandbo
 
 ---
 
+## 3. (Optional) Register the central GitHub App
+
+Only if you want **instant** GitHub event delivery (push / issue / PR / release /
+star) instead of the 60-300s Events-API poller. One GitHub App, registered once by
+the operator; users then install it on their repos via the settings card. Skip this
+entirely and Saturn stays poll-only — the four env vars unset means the webhook
+endpoint 404s and the settings card is hidden.
+
+1. **Register** at `github.com/settings/apps` → *New GitHub App* (or under an org's
+   settings for an org-owned app):
+   - **Name** `Saturn`, **Homepage URL** `https://saturn.wilcus.com`.
+2. **Webhook**:
+   - **Active** ✔, **Webhook URL** `https://saturn.wilcus.com/api/github/webhook`,
+     **Content type** `application/json`.
+   - **Secret**: generate `openssl rand -hex 32`, paste it here **and** set it as
+     `GITHUB_WEBHOOK_SECRET` in `/etc/saturn/saturn.env` (they must match — Saturn
+     verifies every delivery's `x-hub-signature-256` against it).
+3. **Request user authorization (OAuth) during installation**: **ON** (this drives
+   the install→user binding used to gate private-repo deliveries).
+   - **Callback URL** `https://saturn.wilcus.com/api/github/callback`.
+   - Generate a **client secret**; set `GITHUB_APP_CLIENT_ID` +
+     `GITHUB_APP_CLIENT_SECRET` in `saturn.env`.
+4. **Repository permissions** (read-only, minimal):
+   - **Metadata**: Read (forced) · **Contents**: Read (push + release events) ·
+     **Issues**: Read · **Pull requests**: Read.
+5. **Subscribe to events**: Push, Issues, Pull request, Release, Star.
+6. **Where can this be installed?** Any account.
+7. **Private key**: **not needed** — v1 makes zero API-as-app calls (no JWT). Don't
+   generate one, or generate and discard it.
+8. Set `GITHUB_APP_SLUG` in `saturn.env` (the `<slug>` in the app's public URL
+   `github.com/apps/<slug>`), then restart the service:
+   ```sh
+   sudo systemctl restart saturn
+   ```
+
+The `github_installation` table this uses is created by `deploy.sh` (`db/setup.sql`)
+— no manual migration. Users link installs from `/dashboard/settings`.
+
+---
+
 ## Redeploy
 
 Just ship code again:

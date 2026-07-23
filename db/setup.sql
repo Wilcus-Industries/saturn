@@ -121,3 +121,17 @@ create index if not exists model_usage_user_created_idx
 alter table model_usage drop constraint if exists model_usage_source_check;
 alter table model_usage add constraint model_usage_source_check
     check (source in ('designer', 'cron', 'manual', 'event'));
+
+-- central GitHub App installation → Saturn user mapping. One row per GitHub App
+-- installation the user links via the OAuth-verified setup flow; the webhook
+-- path (lib/githubApp.server.ts) looks it up by installation_id to gate
+-- private-repo deliveries to the installing user. Uninstall webhook deletes the
+-- row. account_login is the installation account (org/user) shown in settings.
+create table if not exists github_installation (
+    installation_id bigint primary key,
+    user_id         text not null references "user"(id) on delete cascade,
+    account_login   text not null default '',
+    created_at      timestamptz not null default now(),
+    updated_at      timestamptz not null default now()
+);
+create index if not exists github_installation_user_id_idx on github_installation (user_id);

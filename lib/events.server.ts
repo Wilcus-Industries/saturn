@@ -19,6 +19,7 @@ export const MAX_EVENT_PAYLOAD = 16_384; // JSON payload string cap
 export type EventSubscription = {
     workflowId: string;
     nodeId: string;
+    userId: string; // workflow owner; used by the webhook path's private-repo owner filter
     provider: string; // owning platform id: "discord" | "telegram" | "github"
     event: string; // ExtensionEvent id, e.g. "discord-mentioned"
     botToken: string; // connection-grouping key
@@ -116,6 +117,7 @@ export async function getEventSubscriptions(): Promise<EventSubscription[]> {
             subscriptions.push({
                 workflowId: wf.id,
                 nodeId: node.id,
+                userId: wf.user_id,
                 provider: event.platform,
                 event: event.id,
                 botToken: (resolved.botToken ?? "").trim(),

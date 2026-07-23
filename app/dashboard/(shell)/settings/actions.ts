@@ -22,6 +22,7 @@ import {
     mergeTools,
     type RegistryKind,
 } from "@/lib/registry";
+import { deleteInstallationOwned } from "@/lib/githubApp.server";
 import { freshMcpToken, getMcpSecrets, invalidateUserRegistry } from "@/lib/registry.server";
 import { baseUrl, getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
@@ -356,6 +357,24 @@ export async function saveOpenrouterKey(formData: FormData) {
             [session.user.id, key],
         );
     }
+
+    revalidatePath("/dashboard/settings");
+}
+
+// unlink a GitHub App installation from the settings card. Ownership-scoped
+// delete (row must belong to this user); the installing user can re-link later
+// from the same card. Uninstalling on GitHub also clears the row via the
+// `installation` `deleted` webhook (lib/githubApp.server.ts).
+export async function unlinkGithubInstallation(formData: FormData): Promise<ActionResult> {
+    const { session } = await requireUser();
+
+    const installationId = Number(formData.get("installationId"));
+    if (!Number.isInteger(installationId) || installationId <= 0) {
+        return { error: "Invalid installation" };
+    }
+
+    const removed = await deleteInstallationOwned(installationId, session.user.id);
+    if (!removed) return { error: "Not found" };
 
     revalidatePath("/dashboard/settings");
 }
