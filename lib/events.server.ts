@@ -19,7 +19,7 @@ export const MAX_EVENT_PAYLOAD = 16_384; // JSON payload string cap
 export type EventSubscription = {
     workflowId: string;
     nodeId: string;
-    provider: string; // owning platform id: "discord" | "telegram"
+    provider: string; // owning platform id: "discord" | "telegram" | "github"
     event: string; // ExtensionEvent id, e.g. "discord-mentioned"
     botToken: string; // connection-grouping key
     config: Record<string, string>; // non-blank trimmed config minus botToken

@@ -256,6 +256,160 @@ export const EXTENSIONS: PlatformExtension[] = [
             },
         ],
     },
+    {
+        id: "github",
+        app: "github",
+        logoDomain: "github.com",
+        // first events-only platform — no outbound actions yet
+        actions: [],
+        events: [
+            {
+                id: "github-push",
+                label: "code pushed",
+                emoji: "⬆️",
+                config: [
+                    {
+                        id: "repo", label: "repository", input: "text",
+                        placeholder: "owner/repo",
+                    },
+                    {
+                        id: "branch", label: "branch (optional)", input: "text",
+                        placeholder: "filter to one branch",
+                    },
+                    {
+                        id: "botToken", label: "access token (optional)", input: "text",
+                        placeholder: "github token — private repos / higher limits",
+                    },
+                ],
+                requiredConfig: ["repo"],
+                samplePayload: {
+                    repo: "octocat/hello-world",
+                    ref: "refs/heads/main",
+                    branch: "main",
+                    pusher: "ada",
+                    commitCount: "3",
+                    headSha: "0f7a2c9e5c8d4b1a9e3f6d2c8b7a5e4d3c2b1a09",
+                    beforeSha: "9b1d3f7e6a5c4d3b2a1f0e9d8c7b6a5f4e3d2c1b",
+                    messages: [
+                        "fix: handle empty input",
+                        "docs: update readme",
+                        "feat: add retry",
+                    ],
+                    compareUrl:
+                        "https://github.com/octocat/hello-world/compare/9b1d3f7e6a5c...0f7a2c9e5c8d",
+                    timestamp: "2026-07-18T12:34:56Z",
+                },
+                payloadDoc:
+                    "{repo, ref, branch, pusher, commitCount, headSha, beforeSha, messages, compareUrl, timestamp}",
+            },
+            {
+                id: "github-issue",
+                label: "issue opened",
+                emoji: "🐛",
+                config: [
+                    {
+                        id: "repo", label: "repository", input: "text",
+                        placeholder: "owner/repo",
+                    },
+                    {
+                        id: "botToken", label: "access token (optional)", input: "text",
+                        placeholder: "github token — private repos / higher limits",
+                    },
+                ],
+                requiredConfig: ["repo"],
+                samplePayload: {
+                    repo: "octocat/hello-world",
+                    number: "17",
+                    title: "Crash when input is empty",
+                    body: "Steps to reproduce: run with no arguments…",
+                    author: "ada",
+                    labels: ["bug"],
+                    url: "https://github.com/octocat/hello-world/issues/17",
+                    timestamp: "2026-07-18T12:34:56Z",
+                },
+                payloadDoc: "{repo, number, title, body, author, labels, url, timestamp}",
+            },
+            {
+                id: "github-pr",
+                label: "pull request opened",
+                emoji: "🔀",
+                config: [
+                    {
+                        id: "repo", label: "repository", input: "text",
+                        placeholder: "owner/repo",
+                    },
+                    {
+                        id: "botToken", label: "access token (optional)", input: "text",
+                        placeholder: "github token — private repos / higher limits",
+                    },
+                ],
+                requiredConfig: ["repo"],
+                samplePayload: {
+                    repo: "octocat/hello-world",
+                    number: "42",
+                    title: "Add retry logic to the fetcher",
+                    body: "Retries transient failures up to 3 times.",
+                    author: "ada",
+                    sourceBranch: "feature/retries",
+                    targetBranch: "main",
+                    draft: "false",
+                    url: "https://github.com/octocat/hello-world/pull/42",
+                    timestamp: "2026-07-18T12:34:56Z",
+                },
+                payloadDoc:
+                    "{repo, number, title, body, author, sourceBranch, targetBranch, draft, url, timestamp}",
+            },
+            {
+                id: "github-release",
+                label: "release published",
+                emoji: "🏷️",
+                config: [
+                    {
+                        id: "repo", label: "repository", input: "text",
+                        placeholder: "owner/repo",
+                    },
+                    {
+                        id: "botToken", label: "access token (optional)", input: "text",
+                        placeholder: "github token — private repos / higher limits",
+                    },
+                ],
+                requiredConfig: ["repo"],
+                samplePayload: {
+                    repo: "octocat/hello-world",
+                    tag: "v1.2.0",
+                    name: "1.2.0",
+                    body: "Highlights: retry logic, faster startup.",
+                    author: "ada",
+                    prerelease: "false",
+                    url: "https://github.com/octocat/hello-world/releases/tag/v1.2.0",
+                    timestamp: "2026-07-18T12:34:56Z",
+                },
+                payloadDoc: "{repo, tag, name, body, author, prerelease, url, timestamp}",
+            },
+            {
+                id: "github-star",
+                label: "got a star",
+                emoji: "⭐",
+                config: [
+                    {
+                        id: "repo", label: "repository", input: "text",
+                        placeholder: "owner/repo",
+                    },
+                    {
+                        id: "botToken", label: "access token (optional)", input: "text",
+                        placeholder: "github token — private repos / higher limits",
+                    },
+                ],
+                requiredConfig: ["repo"],
+                samplePayload: {
+                    repo: "octocat/hello-world",
+                    user: "ada",
+                    timestamp: "2026-07-18T12:34:56Z",
+                },
+                payloadDoc: "{repo, user, timestamp}",
+            },
+        ],
+    },
 ];
 
 export const integrationKey = (id: string) => `${INTEGRATION_PREFIX}${id}`;
