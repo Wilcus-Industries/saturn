@@ -34,6 +34,7 @@
 // beyond the token) are NOT dead — they are fixable outside Saturn, so the
 // poller retries every 15 min with a hint. 403/429 rate limits sleep to the
 // reset; 5xx/network/parse failures exponentially back off.
+import { createTtlCache } from "@/lib/cache.server";
 import {
     type EventSubscription,
     getEventSubscriptions,
@@ -54,8 +55,8 @@ const RATE_LIMIT_MAX_SLEEP_MS = 3_600_000;
 const NOT_FOUND_RETRY_MS = 900_000; // 404/451 retry cadence (repo fixable outside Saturn)
 const SKIP_OLDER_THAN_S = 900; // created_at backstop against replay
 const MAX_BODY_CHARS = 4_000; // issue/pr/release body truncation
-const MAX_COMMIT_MESSAGES = 5;
-const MAX_COMMIT_MESSAGE_CHARS = 200;
+export const MAX_COMMIT_MESSAGES = 5;
+export const MAX_COMMIT_MESSAGE_CHARS = 200;
 const ENRICH_TIMEOUT_MS = 10_000; // push compare-call enrichment
 const GUARD_BODY_CHARS = 1_000; // final re-slice when JSON exceeds MAX_EVENT_PAYLOAD
 
@@ -85,13 +86,21 @@ type GithubEvent = {
 /** Never log a full token — identify pollers by their tail. */
 const fp = (token: string) => `…${token.slice(-4)}`;
 
-// untrusted-payload accessors: the API response is never assumed well-shaped
-const asObj = (v: unknown): Record<string, unknown> =>
+// untrusted-payload accessors: the API response is never assumed well-shaped.
+// Exported for lib/githubApp.server.ts, which parses webhook bodies of the
+// same shape.
+export const asObj = (v: unknown): Record<string, unknown> =>
     typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
-const asStr = (v: unknown): string => (typeof v === "string" ? v : "");
-const asArr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+export const asStr = (v: unknown): string => (typeof v === "string" ? v : "");
+export const asArr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const numStr = (v: unknown): string =>
     typeof v === "number" ? String(v) : typeof v === "string" ? v : "";
+
+// refs/heads/<branch> → <branch>; tags (refs/tags/*) and anything else → "".
+// A tag push therefore carries branch "" and never matches a set branch filter.
+export function branchFromRef(ref: string): string {
+    return ref.startsWith(HEADS_PREFIX) ? ref.slice(HEADS_PREFIX.length) : "";
+}
 
 // repo must be exactly owner/repo with no traversal segment
 function validRepo(repo: string): boolean {
@@ -112,6 +121,92 @@ function parseEventId(id: unknown): bigint | null {
 
 const clampRateSleep = (ms: number) =>
     Math.min(Math.max(ms, RATE_LIMIT_MIN_SLEEP_MS), RATE_LIMIT_MAX_SLEEP_MS);
+
+// ---------------------------------------------------------------------------
+// Shared delivery seams — reused verbatim by lib/githubApp.server.ts (the
+// GitHub App webhook path), which imports subWantsEvent/dispatchGithubEvent and
+// the ledger so the two delivery paths match subscriptions and dedupe events
+// identically. Poller behavior is unchanged when the ledger is empty.
+// ---------------------------------------------------------------------------
+
+// which subs want a built event: event equality plus the optional push branch
+// filter (a tag push carries branch "" and so never matches a set filter)
+export function subWantsEvent(
+    sub: EventSubscription,
+    event: string,
+    payload: Record<string, unknown>,
+): boolean {
+    if (sub.event !== event) return false;
+    return !(event === "github-push" && sub.config.branch && sub.config.branch !== payload.branch);
+}
+
+// stringify + never trip the ingest shape cap (re-slice the only unbounded
+// field — issue/pr/release body), then ingest and log
+export async function dispatchGithubEvent(
+    sub: EventSubscription,
+    payloadObj: Record<string, unknown>,
+    logTag: string,
+) {
+    let payload = JSON.stringify(payloadObj);
+    if (payload.length > MAX_EVENT_PAYLOAD) {
+        if (typeof payloadObj.body === "string")
+            payloadObj.body = payloadObj.body.slice(0, GUARD_BODY_CHARS);
+        payload = JSON.stringify(payloadObj);
+    }
+    const result = await ingestEvent({
+        workflowId: sub.workflowId,
+        nodeId: sub.nodeId,
+        payload,
+    });
+    console.log(
+        `[github ${logTag}] delivered to workflow ${sub.workflowId}: ${JSON.stringify(result).slice(0, 200)}`,
+    );
+}
+
+// Content fingerprint dedupes one event across the two delivery paths (this
+// poller and the webhook). Push includes the ref so the same commit pushed to
+// two branches doesn't collapse; repo is lowercased.
+export function githubFingerprint(event: string, payload: Record<string, unknown>): string {
+    const repo = asStr(payload.repo).toLowerCase();
+    switch (event) {
+        case "github-push":
+            return `push:${repo}:${asStr(payload.ref)}:${asStr(payload.headSha)}`;
+        case "github-issue":
+            return `issue:${repo}:${asStr(payload.number)}`;
+        case "github-pr":
+            return `pr:${repo}:${asStr(payload.number)}`;
+        case "github-release":
+            return `release:${repo}:${asStr(payload.tag)}`;
+        case "github-star":
+            return `star:${repo}:${asStr(payload.user)}`;
+        default:
+            return `${event}:${repo}`;
+    }
+}
+
+// Source-tagged delivery ledger. 15 min covers the Events-API lag plus the
+// poller's 900s created_at backstop; 5000 entries bounds memory.
+const deliveryLedger = createTtlCache<"webhook" | "poller">(15 * 60_000, 5_000);
+
+// webhook path claims first: any existing entry (either source) means the event
+// is already handled → skip; otherwise tag it "webhook" and proceed.
+export function claimWebhookDelivery(fingerprint: string): boolean {
+    if (deliveryLedger.get(fingerprint) !== undefined) return false;
+    deliveryLedger.set(fingerprint, "webhook");
+    return true;
+}
+
+// poller skips ONLY when the webhook already delivered this fingerprint. A
+// "poller" entry never suppresses another poller — two pollers can watch one
+// repo under different tokens serving disjoint subs, and a global claim would
+// starve the second — so only a "webhook" tag returns true; a first-seen
+// fingerprint is tagged "poller" (never overwriting an existing entry).
+export function pollerShouldSkip(fingerprint: string): boolean {
+    const seen = deliveryLedger.get(fingerprint);
+    if (seen === "webhook") return true;
+    if (seen === undefined) deliveryLedger.set(fingerprint, "poller");
+    return false;
+}
 
 const pollers = new Map<string, GithubRepoPoller>();
 let pollTimer: NodeJS.Timeout | null = null;
@@ -311,16 +406,17 @@ class GithubRepoPoller {
     async route(ev: GithubEvent) {
         const built = build(ev, this.repo);
         if (!built) return;
-        const interested = this.subs.filter((sub) => {
-            if (sub.event !== built.event) return false;
-            // push branch filter (optional): match refs/heads/<branch> exactly.
-            // A tag push carries branch "" and so never matches a set filter.
-            return !(
-                built.event === "github-push" &&
-                sub.config.branch &&
-                sub.config.branch !== built.payload.branch
+        // shared ledger: if the GitHub App webhook already delivered this event,
+        // skip it here (a "poller" entry never suppresses another poller)
+        if (pollerShouldSkip(githubFingerprint(built.event, built.payload))) {
+            console.log(
+                `[github ${this.tag()}] ${built.event} on ${this.repo} delivered via webhook — skipping`,
             );
-        });
+            return;
+        }
+        const interested = this.subs.filter((sub) =>
+            subWantsEvent(sub, built.event, built.payload),
+        );
         if (!interested.length) return;
         // the Events API PushEvent payload carries only ref/head/before (no
         // commits/size) — fill commitCount/messages from one compare call,
@@ -374,23 +470,8 @@ class GithubRepoPoller {
         }
     }
 
-    async dispatch(sub: EventSubscription, payloadObj: Record<string, unknown>) {
-        let payload = JSON.stringify(payloadObj);
-        if (payload.length > MAX_EVENT_PAYLOAD) {
-            // never trip the ingest shape cap — re-slice the only unbounded
-            // field (issue/pr/release body) and re-stringify
-            if (typeof payloadObj.body === "string")
-                payloadObj.body = payloadObj.body.slice(0, GUARD_BODY_CHARS);
-            payload = JSON.stringify(payloadObj);
-        }
-        const result = await ingestEvent({
-            workflowId: sub.workflowId,
-            nodeId: sub.nodeId,
-            payload,
-        });
-        console.log(
-            `[github ${this.tag()}] delivered to workflow ${sub.workflowId}: ${JSON.stringify(result).slice(0, 200)}`,
-        );
+    dispatch(sub: EventSubscription, payloadObj: Record<string, unknown>) {
+        return dispatchGithubEvent(sub, payloadObj, this.tag());
     }
 
     // abortable sleep — destroy() resolves it early so the loop exits promptly
@@ -470,7 +551,7 @@ function buildPush(
 ): Record<string, unknown> {
     const ref = asStr(p.ref);
     // branch filter targets refs/heads/*; tag pushes (refs/tags/*) get branch ""
-    const branch = ref.startsWith(HEADS_PREFIX) ? ref.slice(HEADS_PREFIX.length) : "";
+    const branch = branchFromRef(ref);
     const commits = asArr(p.commits);
     const head = asStr(p.head);
     const before = asStr(p.before);
@@ -495,7 +576,7 @@ function buildPush(
     };
 }
 
-function buildIssue(
+export function buildIssue(
     repo: string,
     timestamp: string,
     p: Record<string, unknown>,
@@ -515,7 +596,7 @@ function buildIssue(
     };
 }
 
-function buildPr(
+export function buildPr(
     repo: string,
     timestamp: string,
     p: Record<string, unknown>,
@@ -535,7 +616,7 @@ function buildPr(
     };
 }
 
-function buildRelease(
+export function buildRelease(
     repo: string,
     timestamp: string,
     p: Record<string, unknown>,

@@ -8,6 +8,7 @@ import ConnectAgent from "@/app/dashboard/connectAgent";
 import CreditsBar from "@/app/dashboard/creditsBar";
 import { faviconDomain } from "@/lib/registry";
 import { getCreditUsage, platformKey } from "@/lib/credits.server";
+import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
 import { hasOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
 import { SELF_HOSTED } from "@/lib/selfhost";
@@ -17,18 +18,37 @@ import ConnectButton from "./connectButton";
 import DeleteEntryButton from "./deleteEntryButton";
 import McpEntryModal from "./mcpEntryModal";
 import SkillModal from "./skillModal";
+import UnlinkInstallationButton from "./unlinkInstallationButton";
 
 export default async function Settings({
     searchParams,
 }: {
-    searchParams: Promise<{ entry?: string; mcp_error?: string }>;
+    searchParams: Promise<{
+        entry?: string;
+        mcp_error?: string;
+        github?: string;
+        github_error?: string;
+    }>;
 }) {
     const requestHeaders = await headers();
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
     // connect failures redirect back here with the message in the URL
-    const { entry: errorEntryId, mcp_error: mcpError } = await searchParams;
+    const {
+        entry: errorEntryId,
+        mcp_error: mcpError,
+        github: githubStatus,
+        github_error: githubError,
+    } = await searchParams;
+
+    // GitHub App card only exists when the operator has registered an app
+    // (webhook secret + OAuth client). Unset → self-hosters / poller-only see
+    // nothing, and no DB round trip for the installation list.
+    const githubConfigured = githubAppConfigured();
+    const installations = githubConfigured
+        ? await listInstallations(session.user.id)
+        : [];
 
     // independent reads — one Promise.all so the page pays the DB round trip once
     const [{ level, status, pendingCancel, periodEnd }, registry, keySet, credits] =
@@ -329,6 +349,70 @@ export default async function Settings({
 
                 <SkillModal />
             </section>
+
+            {/* central GitHub App: instant webhook delivery for github event
+                nodes. Only rendered when the operator has registered the app. */}
+            {githubConfigured && (
+                <section
+                    className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
+                >
+                    <h2 className={"font-mono text-xl"}>GitHub App</h2>
+
+                    <p className={"font-mono text-sm text-gray-400"}>
+                        install on your repos — GitHub events arrive instantly instead of
+                        polling. Private repos deliver only to the account that installs.
+                    </p>
+
+                    {githubStatus === "connected" && (
+                        <p className={"font-mono text-sm text-green-500"}>
+                            ● installation linked
+                        </p>
+                    )}
+                    {githubError && (
+                        <p className={"font-mono text-sm text-red-400"}>
+                            {/* reflected from the URL — collapse whitespace + hard-cap so
+                                it can't be shaped into fake multi-line UI */}
+                            {githubError.replace(/\s+/g, " ").trim().slice(0, 200)}
+                        </p>
+                    )}
+
+                    {installations.length === 0 && (
+                        <p className={"font-mono text-sm text-gray-400"}>
+                            no repositories linked yet
+                        </p>
+                    )}
+
+                    {installations.map((inst) => (
+                        <div
+                            key={inst.installationId}
+                            className={"flex items-center gap-3 border border-foreground/15 p-3"}
+                        >
+                            <div className={"flex min-w-0 flex-col"}>
+                                <span className={"truncate font-mono text-sm"}>
+                                    {inst.accountLogin || `installation ${inst.installationId}`}
+                                </span>
+                                <span className={"truncate font-mono text-xs text-gray-400"}>
+                                    installation {inst.installationId}
+                                </span>
+                            </div>
+                            <div className={"ml-auto shrink-0"}>
+                                <UnlinkInstallationButton
+                                    installationId={inst.installationId}
+                                />
+                            </div>
+                        </div>
+                    ))}
+
+                    <a
+                        href={"/api/github/install"}
+                        className={`self-start rounded-full border border-foreground px-4 py-2
+                            font-mono text-sm transition-colors duration-200
+                            hover:bg-foreground hover:text-background`}
+                    >
+                        Install on GitHub →
+                    </a>
+                </section>
+            )}
 
             <ConnectAgent
                 baseUrl={baseUrl}
