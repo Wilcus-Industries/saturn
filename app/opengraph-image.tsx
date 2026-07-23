@@ -33,7 +33,7 @@ export default async function Image() {
             >
                 <div style={{ fontSize: 96 }}>Saturn</div>
                 <div style={{ fontSize: 34, color: "#a1a1aa", marginTop: 24 }}>
-                    Agentic automations, anywhere and anytime.
+                    {SITE_TAGLINE}
                 </div>
                 <div style={{ fontSize: 24, color: "rgba(161, 161, 170, 0.4)", marginTop: 48 }}>
                     {/* the landing divider's ≡/≣ glyphs are missing from

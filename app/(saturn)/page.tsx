@@ -41,6 +41,7 @@ const jsonLd = {
             applicationCategory: "DeveloperApplication",
             operatingSystem: "Web",
             softwareHelp: GITHUB_URL,
+            license: `${GITHUB_URL}/blob/main/LICENSE.md`,
             offers: [
                 { "@type": "Offer", name: "Saturn Free", price: "0", priceCurrency: "USD" },
                 { "@type": "Offer", name: "Saturn Pro", price: "19", priceCurrency: "USD" },
@@ -76,10 +77,11 @@ export default function Home() {
             <div className={"absolute top-5 left-5 right-5 z-10 pl-3 flex flex-col gap-3"}>
                 <h1 className={"text-5xl font-mono"}>Saturn</h1>
                 <p className={"w-full max-w-100 font-sans"}>
-                    Agentic automations, anywhere and anytime.
+                    No-code workflows for everything.
                 </p>
                 <p className={"w-full max-w-100 font-sans"}>
-                    Orchestrate automations using the Saturn node designer.
+                    Build agents, Discord and Telegram bots, and content workflows
+                    in the Saturn node designer.
                 </p>
                 <p className={"w-full max-w-100 font-sans"}>
                     Fully open-source on <a href={"https://github.com/Wilcus-Industries/saturn"}
@@ -128,14 +130,31 @@ export default function Home() {
                         <Eyebrow>:: features</Eyebrow>
                         <h2 className={"text-3xl sm:text-4xl font-mono"}>Every piece is a node.</h2>
                         <p className={"max-w-xl font-sans text-foreground/70"}>
-                            Agents, tools, and schedules: drop them on a canvas, wire them
-                            together, and Saturn runs the graph on your schedule.
+                            Agents, tools, sandboxes, and schedules: drop them on a canvas,
+                            wire them together, and Saturn runs the graph on your schedule.
                         </p>
                     </div>
 
                     <Reveal className={"grid items-center gap-8 lg:grid-cols-2"}>
                         <FeatureGrid />
                         <DemoWindow />
+                    </Reveal>
+
+                    <Reveal className={"flex flex-col gap-3"}>
+                        <div className={"landing-reveal-item flex flex-col gap-3"}>
+                            <Eyebrow>:: self_host</Eyebrow>
+                            <h2 className={"text-3xl sm:text-4xl font-mono"}>Run it on your own machine.</h2>
+                            <p className={"max-w-xl font-sans text-foreground/70"}>
+                                Use the hosted platform at saturn.wilcus.com, or install the
+                                whole thing on macOS or Linux with one command:
+                            </p>
+                            <pre className={"max-w-xl overflow-x-auto border border-foreground bg-background p-3 font-mono text-xs"}>
+                                <code>{"curl -fsSL https://raw.githubusercontent.com/Wilcus-Industries/saturn/main/install.sh | bash"}</code>
+                            </pre>
+                            <p className={"font-mono text-xs text-gray-400"}>
+                                single-owner mode · sandboxes are hosted-only for now · PolyForm Noncommercial 1.0.0
+                            </p>
+                        </div>
                     </Reveal>
 
                     <div className={"flex flex-col gap-6"}>
