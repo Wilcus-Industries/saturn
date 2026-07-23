@@ -56,6 +56,7 @@ const SKIP_OLDER_THAN_S = 900; // created_at backstop against replay
 const MAX_BODY_CHARS = 4_000; // issue/pr/release body truncation
 const MAX_COMMIT_MESSAGES = 5;
 const MAX_COMMIT_MESSAGE_CHARS = 200;
+const ENRICH_TIMEOUT_MS = 10_000; // push compare-call enrichment
 const GUARD_BODY_CHARS = 1_000; // final re-slice when JSON exceeds MAX_EVENT_PAYLOAD
 
 // GitHub rejects requests without a User-Agent; the api-version + accept
@@ -70,6 +71,7 @@ const HEADS_PREFIX = "refs/heads/";
 // are rejected below), token rides the Authorization header only.
 const REPO_RE = /^[A-Za-z0-9_.-]{1,60}\/[A-Za-z0-9_.-]{1,120}$/;
 const TOKEN_RE = /^[A-Za-z0-9_]{20,255}$/;
+const SHA_RE = /^[0-9a-f]{7,40}$/; // compare-URL endpoints (from the API payload)
 
 type GithubEvent = {
     id?: string;
@@ -298,25 +300,33 @@ class GithubRepoPoller {
             const created = Date.parse(asStr(ev.created_at));
             if (Number.isFinite(created) && Date.now() - created > SKIP_OLDER_THAN_S * 1_000)
                 continue;
-            this.route(ev);
+            this.route(ev).catch((err) => {
+                console.error(`[github ${this.tag()}] event routing failed: ${err.message}`);
+            });
         }
     }
 
     // map one event to its descriptor + payload once, then fan out over the
     // subs that want it (N workflows/event types on one repo → N dispatches)
-    route(ev: GithubEvent) {
+    async route(ev: GithubEvent) {
         const built = build(ev, this.repo);
         if (!built) return;
-        for (const sub of this.subs) {
-            if (sub.event !== built.event) continue;
+        const interested = this.subs.filter((sub) => {
+            if (sub.event !== built.event) return false;
             // push branch filter (optional): match refs/heads/<branch> exactly.
             // A tag push carries branch "" and so never matches a set filter.
-            if (
+            return !(
                 built.event === "github-push" &&
                 sub.config.branch &&
                 sub.config.branch !== built.payload.branch
-            )
-                continue;
+            );
+        });
+        if (!interested.length) return;
+        // the Events API PushEvent payload carries only ref/head/before (no
+        // commits/size) — fill commitCount/messages from one compare call,
+        // once per event, only when someone actually wants it
+        if (built.event === "github-push") await this.enrichPush(built.payload);
+        for (const sub of interested) {
             // fire-and-forget: the run executes inline (up to RUN_TIMEOUT_MS)
             // — never block the poll loop on it
             this.dispatch(sub, built.payload).catch((err) => {
@@ -324,6 +334,43 @@ class GithubRepoPoller {
                     `[github ${this.tag()}] event dispatch failed for workflow ${sub.workflowId}: ${err.message}`,
                 );
             });
+        }
+    }
+
+    // best-effort: failures keep commitCount "0" / messages [] — a delivery
+    // must never be dropped because the enrichment call failed
+    async enrichPush(payload: Record<string, unknown>) {
+        const before = asStr(payload.beforeSha);
+        const head = asStr(payload.headSha);
+        // shas come from the API payload, but keep the URL-shaping discipline
+        if (!SHA_RE.test(before) || !SHA_RE.test(head)) return;
+        try {
+            const abort = new AbortController();
+            const timeout = setTimeout(() => abort.abort(), ENRICH_TIMEOUT_MS);
+            let res: Response;
+            try {
+                const headers: Record<string, string> = {
+                    "user-agent": USER_AGENT,
+                    accept: GITHUB_ACCEPT,
+                    "x-github-api-version": GITHUB_API_VERSION,
+                };
+                if (this.token) headers.authorization = `Bearer ${this.token}`;
+                res = await fetch(
+                    `https://api.github.com/repos/${this.repo}/compare/${before}...${head}`,
+                    { headers, signal: abort.signal },
+                );
+            } finally {
+                clearTimeout(timeout);
+            }
+            if (!res.ok) return; // e.g. 404 after a force push — keep defaults
+            const cmp = asObj(JSON.parse(await res.text()));
+            if (typeof cmp.total_commits === "number")
+                payload.commitCount = String(cmp.total_commits);
+            payload.messages = asArr(cmp.commits)
+                .slice(0, MAX_COMMIT_MESSAGES)
+                .map((c) => asStr(asObj(asObj(c).commit).message).slice(0, MAX_COMMIT_MESSAGE_CHARS));
+        } catch {
+            // network/parse failure — deliver the un-enriched payload
         }
     }
 
@@ -432,6 +479,8 @@ function buildPush(
         ref,
         branch,
         pusher,
+        // the Events API push payload usually omits size/commits — these are
+        // initial guesses that enrichPush overwrites via the compare API;
         // zero-commit/force pushes report "0"
         commitCount: String(typeof p.size === "number" ? p.size : commits.length),
         headSha: head,
