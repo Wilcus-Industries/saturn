@@ -47,6 +47,11 @@ localhost. For remote access use [Tailscale](https://tailscale.com) or a
 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
 with Access in front.
 
+> [!WARNING]
+> Linux sandboxes are not yet supported on self-hosted installs — support is
+> coming soon. Everything else works; sandbox tools just report
+> "sandbox runtime not configured".
+
 
 ## License
 
