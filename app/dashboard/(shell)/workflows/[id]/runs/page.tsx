@@ -58,20 +58,24 @@ export default async function WorkflowRuns({
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
-    // ownership check — runs are only reachable through the user's workflow
-    const { rows: workflows } = await db.query<{ name: string; emoji: string }>(
-        "select name, emoji from workflow where id = $1 and user_id = $2",
-        [id, session.user.id],
-    );
+    // ownership check — runs are only reachable through the user's workflow;
+    // the runs query joins on ownership itself so both can run in parallel
+    const [{ rows: workflows }, { rows: runs }] = await Promise.all([
+        db.query<{ name: string; emoji: string }>(
+            "select name, emoji from workflow where id = $1 and user_id = $2",
+            [id, session.user.id],
+        ),
+        db.query<RunRow>(
+            `select r.id, r.trigger, r.status, r.error, r.log, r.started_at, r.finished_at
+             from workflow_run r
+             join workflow w on w.id = r.workflow_id
+             where w.id = $1 and w.user_id = $2
+             order by r.started_at desc limit 50`,
+            [id, session.user.id],
+        ),
+    ]);
     if (!workflows[0]) notFound();
     const workflow = workflows[0];
-
-    const { rows: runs } = await db.query<RunRow>(
-        `select id, trigger, status, error, log, started_at, finished_at
-         from workflow_run where workflow_id = $1
-         order by started_at desc limit 50`,
-        [id],
-    );
 
     return (
         <div className={"flex flex-col gap-6"}>

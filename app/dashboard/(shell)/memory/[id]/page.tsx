@@ -20,18 +20,20 @@ export default async function MemoryStore({
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
-    // ownership: the store must exist, be a memory kind, and belong to the user
-    const registry = await getUserRegistry(session.user.id);
-    const store = registry.find((entry) => entry.id === id && entry.kind === "memory");
-    if (!store) notFound();
-
     const { q } = await searchParams;
     const query = typeof q === "string" ? q : "";
 
-    const [items, counts] = await Promise.all([
+    // item reads are userId-scoped, so they can run alongside the ownership
+    // lookup — a foreign id just returns empty rows and the gate below fires
+    const [registry, items, counts] = await Promise.all([
+        getUserRegistry(session.user.id),
         listMemoryItems(id, session.user.id, query),
         countMemoryItems(session.user.id),
     ]);
+
+    // ownership: the store must exist, be a memory kind, and belong to the user
+    const store = registry.find((entry) => entry.id === id && entry.kind === "memory");
+    if (!store) notFound();
     const total = counts.get(id) ?? 0;
 
     return (

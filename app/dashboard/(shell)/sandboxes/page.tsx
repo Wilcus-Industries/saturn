@@ -18,10 +18,15 @@ export default async function Sandboxes() {
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
-    const registry = await getUserRegistry(session.user.id);
+    // registry + activation are independent DB reads; statuses genuinely depend
+    // on the registry rows (and hit the local podman socket, not the DB)
+    const [registry, level] = await Promise.all([
+        getUserRegistry(session.user.id),
+        getActivation(requestHeaders),
+    ]);
     const sandboxes = registry.filter((entry) => entry.kind === "sandbox");
     const statuses = await getSandboxStatuses(sandboxes.map((s) => s.id));
-    const diskCap = limitsFor(await getActivation(requestHeaders)).sandboxDiskMb;
+    const diskCap = limitsFor(level).sandboxDiskMb;
 
     // if the runtime isn't configured, every status reports configured:false
     const unconfigured = sandboxes.some((s) => statuses.get(s.id)?.configured === false);

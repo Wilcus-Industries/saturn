@@ -24,20 +24,20 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
-    const { rows } = await db.query(
-        "select id, name, emoji, description, cron, graph from workflow where id = $1 and user_id = $2",
-        [id, session.user.id],
-    );
-    if (!rows[0]) notFound();
-    // pg parses jsonb, so row.graph arrives as a WorkflowGraph object
-    const row = rows[0] as WorkflowRow;
-
-    // user-registered mcp servers/skills join the static catalog as nodes
-    const [registry, keyed, level] = await Promise.all([
+    // user-registered mcp servers/skills join the static catalog as nodes; the
+    // workflow row rides the same Promise.all so the page pays one round trip
+    const [{ rows }, registry, keyed, level] = await Promise.all([
+        db.query(
+            "select id, name, emoji, description, cron, graph from workflow where id = $1 and user_id = $2",
+            [id, session.user.id],
+        ),
         getUserRegistry(session.user.id),
         hasOpenrouterKey(session.user.id),
         getActivation(requestHeaders),
     ]);
+    if (!rows[0]) notFound();
+    // pg parses jsonb, so row.graph arrives as a WorkflowGraph object
+    const row = rows[0] as WorkflowRow;
     const userCatalog = buildUserCatalog(registry);
     // variables for the toolbox split — name + secret flag + whether a value is
     // set. For secrets the value never reaches the client (value is '' from the

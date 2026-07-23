@@ -30,13 +30,15 @@ export default async function Settings({
     // connect failures redirect back here with the message in the URL
     const { entry: errorEntryId, mcp_error: mcpError } = await searchParams;
 
-    const { level, status, pendingCancel, periodEnd } =
-        await getActivationDetails(requestHeaders);
+    // independent reads — one Promise.all so the page pays the DB round trip once
+    const [{ level, status, pendingCancel, periodEnd }, registry, keySet, credits] =
+        await Promise.all([
+            getActivationDetails(requestHeaders),
+            getUserRegistry(session.user.id),
+            hasOpenrouterKey(session.user.id),
+            getCreditUsage(session.user.id),
+        ]);
     const { name, email, image, createdAt } = session.user;
-
-    const registry = await getUserRegistry(session.user.id);
-    const keySet = await hasOpenrouterKey(session.user.id);
-    const credits = await getCreditUsage(session.user.id);
     // self-hosted: model calls run only on the server's platform key (BYOK is dead)
     const platformKeySet = platformKey() !== null;
     const mcpServers = registry.filter((entry) => entry.kind === "mcp");

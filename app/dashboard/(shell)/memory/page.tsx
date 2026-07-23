@@ -11,9 +11,11 @@ export default async function Memory() {
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
-    const registry = await getUserRegistry(session.user.id);
+    const [registry, counts] = await Promise.all([
+        getUserRegistry(session.user.id),
+        countMemoryItems(session.user.id),
+    ]);
     const stores = registry.filter((entry) => entry.kind === "memory");
-    const counts = await countMemoryItems(session.user.id);
 
     return (
         <div className={"flex flex-col gap-6"}>
