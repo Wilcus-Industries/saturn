@@ -34,4 +34,7 @@ echo ">> deactivating all workflows on the dev branch (bot-token safety)"
 psql "$DEV_URL" -v ON_ERROR_STOP=1 -q -c "update workflow set active=false;"
 
 echo ">> dev branch ready. DATABASE_URL for .env.local:"
-echo "$DEV_URL"
+# neonctl emits sslmode=require; node-postgres v8.16+ warns on it (v9 will weaken its
+# semantics) — print the verify-full form, which is what pg does today anyway.
+# psql above keeps 'require': libpq's verify-full needs a root-cert setup pg doesn't.
+echo "${DEV_URL/sslmode=require/sslmode=verify-full}"
