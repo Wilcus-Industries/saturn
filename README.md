@@ -52,6 +52,13 @@ with Access in front.
 > coming soon. Everything else works; sandbox tools just report
 > "sandbox runtime not configured".
 
+> [!NOTE]
+> GitHub event nodes poll by default (up to a few minutes of delay). For
+> instant delivery, register your own GitHub App and point it at your
+> instance — see the runbook in
+> [`deploy/README.md`](deploy/README.md). Requires a publicly reachable
+> webhook URL (e.g. a Cloudflare Tunnel).
+
 
 ## License
 
