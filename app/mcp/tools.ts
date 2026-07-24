@@ -7,6 +7,7 @@
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
 import { db } from "@/lib/db";
 import { subscriptionsChanged } from "@/lib/events.server";
+import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
 import { EXTENSION_EVENTS, eventNodeKey } from "@/lib/integrations";
 import type { ConsoleLine } from "@/lib/interpreter";
 import { buildUserCatalog } from "@/lib/registry";
@@ -17,6 +18,7 @@ import {
     CATALOG_BY_KEY,
     type CatalogEntry,
     graphShapeError,
+    isGithubEventKey,
     isWorkflowGraph,
     MAX_EDGES,
     MAX_GRAPH_JSON,
@@ -265,11 +267,13 @@ async function buildByKey(userId: string): Promise<Record<string, CatalogEntry>>
 }
 
 // isWorkflowGraph + size caps + strict structural validation, shared by
-// validate_graph and save_graph
-function checkGraph(
+// validate_graph and save_graph. The github-linkage lookup is lazy: only a
+// graph carrying a github event node pays the installation query.
+async function checkGraph(
+    userId: string,
     graph: unknown,
     byKey: Record<string, CatalogEntry>,
-): { graph: WorkflowGraph; errors: string[]; warnings: string[] } | { reject: string } {
+): Promise<{ graph: WorkflowGraph; errors: string[]; warnings: string[] } | { reject: string }> {
     if (!isWorkflowGraph(graph)) {
         return { reject: `invalid graph shape — ${graphShapeError(graph)}` };
     }
@@ -278,7 +282,19 @@ function checkGraph(
     if (JSON.stringify(graph).length > MAX_GRAPH_JSON) {
         return { reject: `graph JSON too large (max ${MAX_GRAPH_JSON} bytes)` };
     }
-    return { graph, ...validateGraphStrict(graph, byKey) };
+    // undefined = no github nodes → no lookup, no github warning (matches every
+    // other validateGraphStrict caller that omits the opts arg)
+    const githubLinked = graph.nodes.some((n) => isGithubEventKey(n.type))
+        ? githubAppConfigured() && (await listInstallations(userId)).length > 0
+        : undefined;
+    return {
+        graph,
+        ...validateGraphStrict(
+            graph,
+            byKey,
+            githubLinked === undefined ? undefined : { githubLinked },
+        ),
+    };
 }
 
 async function tierFor(userId: string) {
@@ -468,7 +484,7 @@ export async function dispatchTool(
             return { content: [{ type: "text", text: GRAPH_DOCS }] };
 
         case "validate_graph": {
-            const checked = checkGraph(args.graph, await buildByKey(userId));
+            const checked = await checkGraph(userId, args.graph, await buildByKey(userId));
             if ("reject" in checked) return fail(checked.reject);
             return ok({
                 valid: checked.errors.length === 0,
@@ -480,7 +496,7 @@ export async function dispatchTool(
         case "save_graph": {
             const id = asId(args.id);
             if (!id) return fail("invalid workflow id");
-            const checked = checkGraph(args.graph, await buildByKey(userId));
+            const checked = await checkGraph(userId, args.graph, await buildByKey(userId));
             if ("reject" in checked) return fail(checked.reject);
             if (checked.errors.length > 0) {
                 return fail(`graph has structural errors:\n${checked.errors.join("\n")}`);

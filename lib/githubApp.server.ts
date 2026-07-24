@@ -1,16 +1,13 @@
-// Central GitHub App webhook path: instant, HMAC-verified event delivery that
-// fans into the same ingestEvent pipeline as the Events-API poller
-// (lib/github.server.ts). One operator-registered app → one webhook URL + one
-// secret in server env (GITHUB_WEBHOOK_SECRET); users click "install on repo"
-// on GitHub and Saturn receives signed deliveries here. Env unset → the HTTP
-// route 404s and this whole path is dormant (poller-only, graceful degrade).
+// Central GitHub App webhook path: instant, HMAC-verified event delivery — the
+// ONLY GitHub event delivery path. One operator-registered app → one webhook
+// URL + one secret in server env (GITHUB_WEBHOOK_SECRET); users click "install
+// on repo" on GitHub and Saturn receives signed deliveries here. Env unset →
+// the HTTP route 404s and github event nodes are disabled in the designer.
 //
-// This module owns webhook-body → Saturn-payload translation (byte-matching the
-// poller builders and lib/integrations.ts samplePayloads), the installation→user
-// mapping table helpers (github_installation, private-repo owner binding), and
-// the delivery orchestration. It reuses the poller's shared seams — subWantsEvent
-// / dispatchGithubEvent / the source-tagged dedupe ledger — so both delivery
-// paths match subscriptions and dedupe identically. No boot wiring: HTTP routes
+// This module owns webhook-body → Saturn-payload translation (the payload
+// builders byte-match each descriptor's samplePayload in lib/integrations.ts),
+// the installation→user mapping table helpers (github_installation, private-repo
+// owner binding), and the delivery orchestration. No boot wiring: HTTP routes
 // need no startBackground(). No app private key anywhere — zero JWT/API-as-app
 // calls.
 import "server-only";
@@ -20,23 +17,10 @@ import { db } from "@/lib/db";
 import {
     type EventSubscription,
     getEventSubscriptions,
+    ingestEvent,
+    MAX_EVENT_PAYLOAD,
     onSubscriptionsChanged,
 } from "@/lib/events.server";
-import {
-    asArr,
-    asObj,
-    asStr,
-    branchFromRef,
-    buildIssue,
-    buildPr,
-    buildRelease,
-    claimWebhookDelivery,
-    dispatchGithubEvent,
-    githubFingerprint,
-    MAX_COMMIT_MESSAGE_CHARS,
-    MAX_COMMIT_MESSAGES,
-    subWantsEvent,
-} from "@/lib/github.server";
 
 // lazy read (call time, not module load): env can be set after this module is
 // first evaluated, and the HTTP route gates every request on this.
@@ -47,7 +31,7 @@ export function githubWebhookConfigured(): boolean {
 // The full app is "configured" only when every piece of the OAuth-verified
 // install flow exists too (slug + client credentials) alongside the webhook
 // secret. Gates the settings card and the install/callback routes — unset any
-// one and self-hosters / unconfigured operators see nothing (poller-only).
+// one and self-hosters / unconfigured operators see nothing.
 export function githubAppConfigured(): boolean {
     return (
         !!process.env.GITHUB_WEBHOOK_SECRET &&
@@ -70,7 +54,7 @@ export type InstallationRow = { userId: string; accountLogin: string };
 // bound. Every upsert/delete invalidates the key so writes are visible at once.
 const installCache = createTtlCache<InstallationRow | null>(60_000);
 
-export async function getInstallation(installationId: number): Promise<InstallationRow | null> {
+async function getInstallation(installationId: number): Promise<InstallationRow | null> {
     return installCache.getOrLoad(String(installationId), async () => {
         const { rows } = await db.query<{ user_id: string; account_login: string }>(
             "select user_id, account_login from github_installation where installation_id = $1",
@@ -100,6 +84,20 @@ export async function upsertInstallation(
 
 export async function deleteInstallation(installationId: number): Promise<void> {
     await db.query("delete from github_installation where installation_id = $1", [installationId]);
+    installCache.delete(String(installationId));
+}
+
+// account rename (installation_target `renamed`): keep the stored login fresh so
+// the settings card doesn't show a stale org/user name. No-op on an unknown
+// installation id (no row updated).
+async function renameInstallationAccount(
+    installationId: number,
+    accountLogin: string,
+): Promise<void> {
+    await db.query(
+        "update github_installation set account_login = $2, updated_at = now() where installation_id = $1",
+        [installationId, accountLogin],
+    );
     installCache.delete(String(installationId));
 }
 
@@ -135,15 +133,98 @@ export async function listInstallations(
 }
 
 // ---------------------------------------------------------------------------
-// Webhook-body → Saturn-payload translation. Every payload byte-matches the
-// matching poller builder / lib/integrations.ts samplePayload (all scalars are
-// strings) — drift would break users' extract paths. Webhook bodies nest the
-// issue/pull_request/release objects identically to the Events API payloads, so
-// buildIssue/buildPr/buildRelease are reused verbatim; the webhook body carries
-// full commit data, so the push path needs no compare-API enrichment.
+// Untrusted-payload accessors + payload builders. Every built payload
+// byte-matches the matching samplePayload in lib/integrations.ts (all scalars
+// are strings) — drift would break users' extract paths.
 // ---------------------------------------------------------------------------
 
-export function mapWebhookEvent(
+const MAX_BODY_CHARS = 4_000; // issue/pr/release body truncation
+const MAX_COMMIT_MESSAGES = 5;
+const MAX_COMMIT_MESSAGE_CHARS = 200;
+const GUARD_BODY_CHARS = 1_000; // final re-slice when JSON exceeds MAX_EVENT_PAYLOAD
+const HEADS_PREFIX = "refs/heads/";
+
+// untrusted-payload accessors: the webhook body is never assumed well-shaped.
+const asObj = (v: unknown): Record<string, unknown> =>
+    typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+const asStr = (v: unknown): string => (typeof v === "string" ? v : "");
+const asArr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const numStr = (v: unknown): string =>
+    typeof v === "number" ? String(v) : typeof v === "string" ? v : "";
+
+// refs/heads/<branch> → <branch>; tags (refs/tags/*) and anything else → "".
+// A tag push therefore carries branch "" and never matches a set branch filter.
+function branchFromRef(ref: string): string {
+    return ref.startsWith(HEADS_PREFIX) ? ref.slice(HEADS_PREFIX.length) : "";
+}
+
+function buildIssue(
+    repo: string,
+    timestamp: string,
+    p: Record<string, unknown>,
+): Record<string, unknown> {
+    const issue = asObj(p.issue);
+    return {
+        repo,
+        number: numStr(issue.number),
+        title: asStr(issue.title),
+        body: asStr(issue.body).slice(0, MAX_BODY_CHARS),
+        author: asStr(asObj(issue.user).login),
+        labels: asArr(issue.labels)
+            .map((l) => asStr(asObj(l).name))
+            .filter((n) => n),
+        url: asStr(issue.html_url),
+        timestamp,
+    };
+}
+
+function buildPr(
+    repo: string,
+    timestamp: string,
+    p: Record<string, unknown>,
+): Record<string, unknown> {
+    const pr = asObj(p.pull_request);
+    return {
+        repo,
+        number: numStr(pr.number),
+        title: asStr(pr.title),
+        body: asStr(pr.body).slice(0, MAX_BODY_CHARS),
+        author: asStr(asObj(pr.user).login),
+        sourceBranch: asStr(asObj(pr.head).ref),
+        targetBranch: asStr(asObj(pr.base).ref),
+        draft: pr.draft ? "true" : "false",
+        url: asStr(pr.html_url),
+        timestamp,
+    };
+}
+
+function buildRelease(
+    repo: string,
+    timestamp: string,
+    p: Record<string, unknown>,
+): Record<string, unknown> {
+    const rel = asObj(p.release);
+    return {
+        repo,
+        tag: asStr(rel.tag_name),
+        name: asStr(rel.name),
+        body: asStr(rel.body).slice(0, MAX_BODY_CHARS),
+        author: asStr(asObj(rel.author).login),
+        prerelease: rel.prerelease ? "true" : "false",
+        url: asStr(rel.html_url),
+        timestamp,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Webhook-body → Saturn-payload translation. Each payload is produced by the
+// payload builders (shapes byte-match each descriptor's samplePayload in
+// lib/integrations.ts) — drift would break users' extract paths. The webhook
+// body carries full commit data, so the push path needs no compare-API
+// enrichment.
+// ---------------------------------------------------------------------------
+
+function mapWebhookEvent(
     eventName: string,
     body: Record<string, unknown>,
 ): { event: string; payload: Record<string, unknown> } | null {
@@ -153,8 +234,7 @@ export function mapWebhookEvent(
 
     switch (eventName) {
         case "push": {
-            // a branch/tag delete carries deleted:true and no commits — the
-            // poller ignores DeleteEvent, so we skip here for parity
+            // a branch/tag delete carries deleted:true and no commits — skipped
             if (body.deleted === true) return null;
             const ref = asStr(body.ref);
             const commits = asArr(body.commits);
@@ -248,6 +328,36 @@ function githubSubscriptions(): Promise<EventSubscription[]> {
     );
 }
 
+// which subs want a built event: event equality plus the optional push branch
+// filter (a tag push carries branch "" and so never matches a set filter)
+function subWantsEvent(
+    sub: EventSubscription,
+    event: string,
+    payload: Record<string, unknown>,
+): boolean {
+    if (sub.event !== event) return false;
+    return !(event === "github-push" && sub.config.branch && sub.config.branch !== payload.branch);
+}
+
+// stringify + never trip the ingest shape cap (re-slice the only unbounded
+// field — issue/pr/release body), then ingest and log
+async function dispatchGithubEvent(sub: EventSubscription, payloadObj: Record<string, unknown>) {
+    let payload = JSON.stringify(payloadObj);
+    if (payload.length > MAX_EVENT_PAYLOAD) {
+        if (typeof payloadObj.body === "string")
+            payloadObj.body = payloadObj.body.slice(0, GUARD_BODY_CHARS);
+        payload = JSON.stringify(payloadObj);
+    }
+    const result = await ingestEvent({
+        workflowId: sub.workflowId,
+        nodeId: sub.nodeId,
+        payload,
+    });
+    console.log(
+        `[github app] delivered to workflow ${sub.workflowId}: ${JSON.stringify(result).slice(0, 200)}`,
+    );
+}
+
 const ok = (msg: string) => new Response(msg, { status: 200 });
 
 // Handle one verified webhook delivery. The HTTP route (app/api/github/webhook)
@@ -281,13 +391,28 @@ export async function handleGithubDelivery(
     const installation = asObj(body.installation);
     const installationId = typeof installation.id === "number" ? installation.id : 0;
 
-    // 3. installation lifecycle — sync uninstall, no-op other admin actions
+    // 3. installation lifecycle. Repo deletion / repo-list changes (repository
+    // `deleted`, installation_repositories added/removed) need no DB work — no
+    // per-repo rows exist in the schema — so they fall through to "event ignored".
     if (eventName === "installation") {
-        if (asStr(body.action) === "deleted" && installationId) {
+        const action = asStr(body.action);
+        if (action === "deleted" && installationId) {
             await deleteInstallation(installationId);
             console.log(`[github app] installation ${installationId} uninstalled — row deleted`);
         }
+        // suspend/unsuspend: GitHub stops/resumes deliveries itself — the row
+        // stays so unsuspend needs no re-link.
         return ok("installation event handled");
+    }
+
+    // account rename: keep the stored account_login fresh for the settings card.
+    if (eventName === "installation_target") {
+        const accountLogin = asStr(asObj(body.account).login);
+        if (asStr(body.action) === "renamed" && installationId && accountLogin) {
+            await renameInstallationAccount(installationId, accountLogin);
+            console.log(`[github app] installation ${installationId} account renamed to ${accountLogin}`);
+        }
+        return ok("installation_target event handled");
     }
 
     // 4. translate to a Saturn event
@@ -295,9 +420,9 @@ export async function handleGithubDelivery(
     if (!mapped) return ok("event ignored");
     const { event, payload } = mapped;
 
-    // 5. matching subscriptions. botToken is deliberately ignored on this path:
-    // a sub whose optional token is malformed (which the poller would skip)
-    // still gets instant webhook delivery — a strict improvement.
+    // 5. matching subscriptions. botToken is deliberately ignored on this path —
+    // the config field is kept only for a separate future plan (repo dropdown)
+    // and is now fully inert.
     let subs: EventSubscription[];
     try {
         subs = await githubSubscriptions();
@@ -312,29 +437,26 @@ export async function handleGithubDelivery(
             subWantsEvent(sub, event, payload),
     );
 
-    // 6. privacy filter: private (or `internal`, or a missing flag) repos deliver
-    // only to the installing user. No linked installation row → leave it to the
-    // poller: return WITHOUT claiming the fingerprint so the poller still fires.
-    const isPrivate = repository.private !== false;
-    if (isPrivate && matching.length) {
+    // 6. owner-only delivery: events dispatch only to subscriptions owned by the
+    // Saturn user who linked this installation — for ALL repos, public included.
+    // No installation id / no linked row → drop (200 so GitHub doesn't retry).
+    if (matching.length) {
+        if (!installationId) return ok("no installation id");
         const row = await getInstallation(installationId);
         if (!row) {
             console.log(
-                `[github app] ${event} on ${repoFullName} (delivery ${deliveryId}) — private repo, no linked installation — leaving to poller`,
+                `[github app] ${event} on ${repoFullName} (delivery ${deliveryId}) — no linked installation — dropped`,
             );
-            return ok("private repo without linked installation");
+            return ok("no linked installation");
         }
         matching = matching.filter((sub) => sub.userId === row.userId);
     }
 
     if (!matching.length) return ok("no matching subscriptions");
 
-    // 7. claim the content fingerprint — loses to a poller that already delivered
-    if (!claimWebhookDelivery(githubFingerprint(event, payload))) return ok("already delivered");
-
-    // 8. fire-and-forget per sub — never await runs (GitHub 10s delivery timeout)
+    // 7. fire-and-forget per sub — never await runs (GitHub 10s delivery timeout)
     for (const sub of matching)
-        void dispatchGithubEvent(sub, payload, "github-app").catch((err) =>
+        void dispatchGithubEvent(sub, payload).catch((err) =>
             console.error(
                 `[github app] dispatch failed for workflow ${sub.workflowId}: ${(err as Error).message}`,
             ),

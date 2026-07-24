@@ -93,13 +93,14 @@ Deep-dive, security invariants, and troubleshooting: **[`sandboxes.md`](./sandbo
 
 ---
 
-## 3. (Optional) Register the central GitHub App
+## 3. Register the central GitHub App (required for GitHub events)
 
-Only if you want **instant** GitHub event delivery (push / issue / PR / release /
-star) instead of the 60-300s Events-API poller. One GitHub App, registered once by
-the operator; users then install it on their repos via the settings card. Skip this
-entirely and Saturn stays poll-only — the four env vars unset means the webhook
-endpoint 404s and the settings card is hidden.
+Optional for running Saturn itself, but **required to use GitHub event nodes** —
+they are the only delivery path for GitHub events (push / issue / PR / release /
+star), via instant webhook. One GitHub App, registered once by the operator; users
+then install it on their repos via the settings card. Skip this and the four env
+vars stay unset — the webhook endpoint 404s, the settings card is hidden, and
+github event nodes are disabled in the designer.
 
 1. **Register** at `github.com/settings/apps` → *New GitHub App* (or under an org's
    settings for an org-owned app):
@@ -118,7 +119,10 @@ endpoint 404s and the settings card is hidden.
 4. **Repository permissions** (read-only, minimal):
    - **Metadata**: Read (forced) · **Contents**: Read (push + release events) ·
      **Issues**: Read · **Pull requests**: Read.
-5. **Subscribe to events**: Push, Issues, Pull request, Release, Star.
+5. **Subscribe to events**: Push, Issues, Pull request, Release, Star. (The
+   `installation`, `installation_repositories`, and `installation_target` meta-events
+   are delivered to App webhooks automatically — nothing to add to this list; Saturn
+   uses them to keep installation rows in sync.)
 6. **Where can this be installed?** Any account.
 7. **Private key**: **not needed** — v1 makes zero API-as-app calls (no JWT). Don't
    generate one, or generate and discard it.
@@ -129,7 +133,9 @@ endpoint 404s and the settings card is hidden.
    ```
 
 The `github_installation` table this uses is created by `deploy.sh` (`db/setup.sql`)
-— no manual migration. Users link installs from `/dashboard/settings`.
+— no manual migration. Users link installs from `/dashboard/settings`. An uninstall
+that happens while Saturn is down leaves a stale (but inert — GitHub sends nothing
+for a dead installation) row; users clear it by unlinking on the settings card.
 
 ---
 

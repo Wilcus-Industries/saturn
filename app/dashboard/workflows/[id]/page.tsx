@@ -2,13 +2,14 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { platformKey } from "@/lib/credits.server";
 import { db } from "@/lib/db";
+import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
 import { hasOpenrouterKey, listOpenrouterModels } from "@/lib/openrouter.server";
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import { SELF_HOSTED } from "@/lib/selfhost";
 import { getActivation, getSessionCached, limitsFor } from "@/lib/subscription";
 import type { WorkflowRow } from "@/lib/workflow";
-import Designer from "./designer";
+import Designer, { type GithubLink } from "./designer";
 
 // lives outside the (shell) route group on purpose — the designer takes over
 // the full screen without the dashboard sidebar. session check lives here,
@@ -24,9 +25,12 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
+    // github event nodes only fire once the owner links the central GitHub App;
+    // skip the installation query entirely when the app isn't configured
+    const githubConfigured = githubAppConfigured();
     // user-registered mcp servers/skills join the static catalog as nodes; the
     // workflow row rides the same Promise.all so the page pays one round trip
-    const [{ rows }, registry, keyed, level] = await Promise.all([
+    const [{ rows }, registry, keyed, level, installations] = await Promise.all([
         db.query(
             "select id, name, emoji, description, cron, graph from workflow where id = $1 and user_id = $2",
             [id, session.user.id],
@@ -34,6 +38,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
         getUserRegistry(session.user.id),
         hasOpenrouterKey(session.user.id),
         getActivation(requestHeaders),
+        githubConfigured ? listInstallations(session.user.id) : Promise.resolve([]),
     ]);
     if (!rows[0]) notFound();
     // pg parses jsonb, so row.graph arrives as a WorkflowGraph object
@@ -60,6 +65,15 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
         : keyed || (level !== null && limitsFor(level).modelCredits > 0);
     const openrouterModels = modelsUnlocked ? await listOpenrouterModels() : null;
 
+    // github event nodes blank out unless the owner has a linked installation:
+    // "unconfigured" = no app on this server, "unlinked" = app but no install,
+    // "linked" = ready. Drives the toolbox chip enable/hint + validation warn.
+    const githubLink: GithubLink = !githubConfigured
+        ? "unconfigured"
+        : installations.length
+          ? "linked"
+          : "unlinked";
+
     return (
         <Designer
             workflow={row}
@@ -68,6 +82,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
             openrouterModels={openrouterModels}
             cronFloorMinutes={limitsFor(level).cronFloorMinutes}
             selfHosted={SELF_HOSTED}
+            githubLink={githubLink}
         />
     );
 }

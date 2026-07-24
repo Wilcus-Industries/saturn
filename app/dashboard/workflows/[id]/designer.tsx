@@ -20,6 +20,7 @@ import {
     defaultNodeConfig,
     edgesToReplace,
     entryStyles,
+    isGithubEventKey,
     missingEntry,
     type ValidationIssue,
     validateGraphStrict,
@@ -70,6 +71,11 @@ import VariableModal, { type VariableRow } from "./variableModal";
 // don't JSON.parse arbitrarily huge samples for the path picker
 const MAX_SAMPLE_CHARS = 500_000;
 
+// github event availability: "unconfigured" = no GitHub App on this server,
+// "unlinked" = app present but the owner has no linked installation, "linked" =
+// ready. Only "linked" enables github event chips; the rest blank them out.
+export type GithubLink = "linked" | "unlinked" | "unconfigured";
+
 // window pointer listeners for gestures that outlive their start element
 // (toolbox spawn, port edge drags). Handlers live in a ref so the listeners
 // attach once per gesture but always see the latest closures.
@@ -108,6 +114,7 @@ export default function Designer({
     openrouterModels,
     cronFloorMinutes,
     selfHosted,
+    githubLink,
 }: {
     workflow: WorkflowRow;
     userCatalog: CatalogEntry[];
@@ -119,7 +126,10 @@ export default function Designer({
     cronFloorMinutes: number;
     // single-user mode — flips the empty-models hint to the server-key message
     selfHosted: boolean;
+    // github event availability — gates the github chips + a validation warn
+    githubLink: GithubLink;
 }) {
+    const githubLinked = githubLink === "linked";
     const [history, dispatch] = useReducer(graphReducer, workflow.graph, initHistory);
     const present = history.present;
 
@@ -153,8 +163,8 @@ export default function Designer({
     // fresh workflow doesn't nag ("no event node") before anything is placed.
     const deferredGraph = useDeferredValue(present);
     const validation = useMemo(
-        () => validateGraphStrict(deferredGraph, byKey),
-        [deferredGraph, byKey],
+        () => validateGraphStrict(deferredGraph, byKey, { githubLinked }),
+        [deferredGraph, byKey, githubLinked],
     );
     const issues = useMemo<ValidationIssue[]>(
         () => (deferredGraph.nodes.length === 0 ? [] : validation.issues),
@@ -443,6 +453,13 @@ export default function Designer({
             // bounds — the drop missed its target, so say so instead of no-oping
             if (!point) {
                 notify("drop on the canvas to place the node");
+                return;
+            }
+            // github events need a linked GitHub App installation — the toolbox
+            // chip is already disabled without one; this guards any other drop
+            // path (e.g. a ghost mid-flight when linkage changed)
+            if (!githubLinked && isGithubEventKey(spawnKey)) {
+                notify("link the GitHub App in settings to use GitHub events");
                 return;
             }
             // one event node per workflow — the toolbox chip is already disabled
@@ -939,6 +956,7 @@ export default function Designer({
                     variables={variables}
                     openrouterModels={openrouterModels}
                     selfHosted={selfHosted}
+                    githubLink={githubLink}
                     hasEvent={events.length > 0}
                     onSpawnStart={(key, x, y, preset) =>
                         setSpawn({ key, x, y, config: preset?.config, label: preset?.label })

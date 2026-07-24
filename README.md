@@ -53,11 +53,12 @@ with Access in front.
 > "sandbox runtime not configured".
 
 > [!NOTE]
-> GitHub event nodes poll by default (up to a few minutes of delay). For
-> instant delivery, register your own GitHub App and point it at your
-> instance — see the runbook in
-> [`deploy/README.md`](deploy/README.md). Requires a publicly reachable
-> webhook URL (e.g. a Cloudflare Tunnel).
+> GitHub event nodes require the GitHub App (instant webhook delivery). The
+> official [Wilcus Industries deployment](https://saturn.wilcus.com) has it
+> built in. Self-hosters must register their own GitHub App and point it at
+> their instance — see the runbook in [`deploy/README.md`](deploy/README.md).
+> This needs a publicly reachable webhook URL (e.g. a Cloudflare Tunnel);
+> without one, GitHub event nodes are disabled in the designer.
 
 
 ## License
