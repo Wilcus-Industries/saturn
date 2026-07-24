@@ -1,15 +1,15 @@
 // hosted MCP server at /mcp. Hosted mode: auth is the OAuth flow the agent
 // runs itself, so this is purely a pointer. Self-hosted mode: OAuth is dead and
 // agents connect with a static bearer token (SELF_HOSTED_MCP_TOKEN) passed as
-// an Authorization header. Shared by overview + settings.
+// an Authorization header. Used by settings.
 export default function ConnectAgent({
     baseUrl,
-    selfHosted = false,
-    mcpToken = "",
+    selfHosted,
+    mcpToken,
 }: {
     baseUrl: string;
-    selfHosted?: boolean;
-    mcpToken?: string;
+    selfHosted: boolean;
+    mcpToken: string;
 }) {
     // self-hosted with no token configured — nothing to connect with yet
     if (selfHosted && !mcpToken) {

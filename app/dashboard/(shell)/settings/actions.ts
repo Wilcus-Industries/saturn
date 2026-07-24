@@ -4,6 +4,16 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import {
+    type ActionResult,
+    countKind,
+    MAX_DESCRIPTION,
+    MAX_NAME,
+    optionalId,
+    requiredName,
+    toError,
+    UUID,
+} from "@/lib/formActions.server";
+import {
     assertHttpsUrlShape,
     type AuthServerMeta,
     buildAuthorizeUrl,
@@ -21,7 +31,6 @@ import {
     type McpTool,
     mergeTools,
     type RegistryKind,
-    UUID_RE,
 } from "@/lib/registry";
 import { deleteInstallationOwned } from "@/lib/githubApp.server";
 import { freshMcpToken, getMcpSecrets, invalidateUserRegistry } from "@/lib/registry.server";
@@ -29,39 +38,11 @@ import { baseUrl, getActivation, limitsFor, requireUser } from "@/lib/subscripti
 
 // actions are public POST endpoints — every one re-checks the session itself
 
-const MAX_NAME = 60;
-const MAX_DESCRIPTION = 2000;
 const MAX_TOKEN = 4096;
-
-// expected failures come back as a value the modal renders inline; a thrown
-// error would only reach Next's generic error page (message redacted in prod)
-type ActionResult = { error: string } | undefined;
-
-function toError(err: unknown): { error: string } {
-    return { error: err instanceof Error ? err.message : "Something went wrong" };
-}
-
-function requiredName(formData: FormData): string {
-    const name = String(formData.get("name") ?? "").trim();
-    if (!name || name.length > MAX_NAME) throw new Error("Name is required (max 60 chars)");
-    return name;
-}
-
-// optional id field: present + valid uuid → update, absent → insert
-function optionalId(formData: FormData): string | null {
-    const id = String(formData.get("id") ?? "").trim();
-    if (!id) return null;
-    if (!UUID_RE.test(id)) throw new Error("Invalid id");
-    return id;
-}
 
 // cap defaults to the kind-wide maximum; mcp passes the caller's plan limit
 async function assertUnderCap(userId: string, kind: RegistryKind, cap = MAX_ENTRIES_PER_KIND) {
-    const { rows } = await db.query<{ count: string }>(
-        "select count(*) from registry_entry where user_id = $1 and kind = $2",
-        [userId, kind],
-    );
-    if (Number(rows[0].count) >= cap) {
+    if ((await countKind(userId, kind)) >= cap) {
         throw new Error(
             cap < MAX_ENTRIES_PER_KIND
                 ? `Your plan allows ${cap} MCP server${cap === 1 ? "" : "s"} — upgrade to add more`
@@ -274,7 +255,7 @@ export async function discoverMcpTools(
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID_RE.test(id)) throw new Error("Invalid id");
+    if (!UUID.test(id)) throw new Error("Invalid id");
     const entry = await getMcpSecrets(id, session.user.id);
     if (!entry) throw new Error("Not found");
 
@@ -382,7 +363,7 @@ export async function deleteRegistryEntry(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID_RE.test(id)) throw new Error("Invalid id");
+    if (!UUID.test(id)) throw new Error("Invalid id");
 
     const { rowCount } = await db.query(
         "delete from registry_entry where id = $1 and user_id = $2",

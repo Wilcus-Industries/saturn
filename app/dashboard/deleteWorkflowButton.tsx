@@ -1,22 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { deleteWorkflow } from "@/app/dashboard/(shell)/workflows/actions";
 
-// two-step inline confirm: first click arms, second submits the form (with a
-// hidden `id`); disarms after 3s. Shared by the shell's delete buttons —
-// pass the delete server action and, optionally, the labels.
-export default function ConfirmButton({
+// two-step inline confirm: first click arms, second submits; disarms after 3s
+export default function DeleteWorkflowButton({
     id,
-    action,
-    label = "delete",
-    confirm = "confirm?",
-    title,
+    sizeClass = "text-sm",
 }: {
     id: string;
-    action: (formData: FormData) => void | Promise<void>;
-    label?: string;
-    confirm?: string;
-    title?: string;
+    // text size — list cards keep the text-sm default, the designer topbar
+    // passes text-xs to match its control cluster
+    sizeClass?: string;
 }) {
     const [armed, setArmed] = useState(false);
 
@@ -31,23 +26,22 @@ export default function ConfirmButton({
             <button
                 type={"button"}
                 onClick={() => setArmed(true)}
-                className={"font-mono text-sm text-gray-400 hover:text-red-500"}
+                className={`font-mono ${sizeClass} text-gray-400 hover:text-red-500`}
             >
-                {label}
+                delete
             </button>
         );
     }
 
     return (
-        <form action={action}>
+        <form action={deleteWorkflow}>
             <input type={"hidden"} name={"id"} value={id} />
             <button
                 type={"submit"}
-                title={title}
-                className={`border border-red-500 px-2 font-mono text-sm transition-colors
+                className={`border border-red-500 px-2 font-mono ${sizeClass} transition-colors
                     duration-200 hover:bg-red-600 hover:text-white`}
             >
-                {confirm}
+                confirm?
             </button>
         </form>
     );

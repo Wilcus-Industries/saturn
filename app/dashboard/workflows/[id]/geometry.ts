@@ -1,9 +1,10 @@
-import type {
-    CatalogEntry,
-    ConfigField,
-    PortSpec,
-    WorkflowGraph,
-    WorkflowNode,
+import {
+    type CatalogEntry,
+    type ConfigField,
+    missingEntry,
+    type PortSpec,
+    type WorkflowGraph,
+    type WorkflowNode,
 } from "@/lib/workflow";
 
 // Single source of truth for node metrics. node.tsx must render to these
@@ -281,30 +282,66 @@ export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
     );
 }
 
-// vertical offset from node.y to the node's canonical (primary) port line —
-// the axis grid snapping aligns so cross-shape edges between same-level nodes
-// stay horizontal. Mirrors the y-offset portGeometry gives each shape's main
-// port (model/event/chip/literal center, if "in" input, agent flow "in", or a
-// generic rect's first port row), so snapping this offset onto the grid puts
-// that exact port on a grid line. Branch order matches nodeHeight/portGeometry.
-export function anchorOffsetY(entry: CatalogEntry, node?: WorkflowNode): number {
-    if (isModelEntry(entry)) return MODEL_D / 2;
-    if (isEventEntry(entry)) return EVENT_H / 2;
-    if (isIfEntry(entry)) return IF_HEADER_H + IF_BODY_H / 2; // the middle "in" input
-    if (isAgentEntry(entry)) return AGENT_HEADER_H + AGENT_BODY_H / 2; // flow "in" on the left edge
-    if (isChipEntry(entry)) return chipSize(entry) / 2;
-    if (isLiteralEntry(entry) || isVariableEntry(entry)) return nodeHeight(entry, node) / 2;
-    return HEADER_H + PORT_ROW_H / 2; // generic rect: first port row
+// Layered left→right placement for graphs authored without the canvas — the
+// hosted MCP server's save_graph. An external agent can't know a node's
+// rendered size (the agent node widens with its port count, string boxes size
+// from their text, chips/circles carry label strips), so hand-written
+// coordinates overlap; it omits them instead and gets this. Column = longest
+// path over all edges, so every node sits right of everything feeding it.
+const LAYOUT_COL_GAP = 80;
+const LAYOUT_ROW_GAP = 40;
+
+export function layoutGraph(
+    graph: WorkflowGraph,
+    byKey: Record<string, CatalogEntry>,
+): WorkflowGraph {
+    const preds = new Map<string, string[]>();
+    for (const e of graph.edges) {
+        preds.set(e.to.nodeId, [...(preds.get(e.to.nodeId) ?? []), e.from.nodeId]);
+    }
+
+    const depths = new Map<string, number>();
+    const walking = new Set<string>();
+    const depthOf = (id: string): number => {
+        const memo = depths.get(id);
+        if (memo !== undefined) return memo;
+        if (walking.has(id)) return 0; // flow cycle — the interpreter reports it; layout just breaks even
+        walking.add(id);
+        const d = (preds.get(id) ?? []).reduce((m, p) => Math.max(m, depthOf(p) + 1), 0);
+        walking.delete(id);
+        depths.set(id, d);
+        return d;
+    };
+
+    const columns = new Map<number, WorkflowNode[]>();
+    for (const n of graph.nodes) {
+        const d = depthOf(n.id);
+        columns.set(d, [...(columns.get(d) ?? []), n]);
+    }
+
+    const placed = new Map<string, { x: number; y: number }>();
+    let x = 0;
+    for (const d of [...columns.keys()].sort((a, b) => a - b)) {
+        let y = 0;
+        let widest = 0;
+        for (const n of columns.get(d) ?? []) {
+            const entry = byKey[n.type] ?? missingEntry(n.type);
+            placed.set(n.id, { x, y });
+            y += nodeHeight(entry, n) + LAYOUT_ROW_GAP;
+            widest = Math.max(widest, nodeWidth(entry, n));
+        }
+        x += widest + LAYOUT_COL_GAP;
+    }
+
+    return { ...graph, nodes: graph.nodes.map((n) => ({ ...n, ...placed.get(n.id) })) };
 }
 
 // vertical offset from node.y to the point that should sit under the pointer
-// when a node is dropped from the toolbox — i.e. the node's grab CENTER. This
-// is deliberately a DIFFERENT quantity from anchorOffsetY: anchorOffsetY is the
-// primary-port axis (used for grid snapping so cross-shape edges stay flat),
-// while grabOffsetY is where the block visually centers under the cursor while
-// dragging. For round/square/if shapes that's the block's mid-height; generic
-// rectangles hang from their header (HEADER_H / 2), matching the old spawn
-// ladder in designer.tsx. Branch order mirrors anchorOffsetY.
+// when a node is dropped from the toolbox — i.e. the node's grab CENTER, where
+// the block visually centers under the cursor while dragging. For
+// round/square/if shapes that's the block's mid-height; generic rectangles
+// hang from their header (HEADER_H / 2). Placement is otherwise free-form —
+// there is no grid snap (GRID survives only as the arrow-nudge/duplicate step).
 export function grabOffsetY(entry: CatalogEntry): number {
     if (isModelEntry(entry)) return MODEL_D / 2;
     if (isEventEntry(entry)) return EVENT_H / 2;

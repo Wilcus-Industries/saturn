@@ -37,8 +37,6 @@ import {
     AGENT_PORT_H,
     AGENT_PORT_SLOT,
     AGENT_RIGHT_GUTTER,
-    anchorOffsetY,
-    GRID,
     EVENT_H,
     EVENT_LABEL_W,
     EVENT_W,
@@ -200,8 +198,7 @@ export default memo(function Node({
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
-    // combined catalog — resolves each dragged node's entry at drag-end so its
-    // primary port axis (not the top-left corner) settles onto the grid; a
+    // combined catalog — resolves snapped-variable entries in config rows; a
     // stable useMemo reference, so it doesn't defeat this component's memo
     byKey: Record<string, CatalogEntry>;
     graphRef: RefObject<WorkflowGraph>;
@@ -358,39 +355,15 @@ export default memo(function Node({
     };
 
     // pointercancel ends the drag like pointerup; commitDrag no-ops when the
-    // graph didn't actually change
+    // graph didn't actually change. Placement is free-form (no grid snap) —
+    // nodes rest exactly where the drag leaves them.
     const endDrag = () => {
         removeDragEscape();
         const drag = dragRef.current;
         dragRef.current = null;
         if (!drag?.active) return;
-        // settle each dragged node onto the grid, then record one undo step.
-        // x snaps the left edge; y snaps the node's primary port axis (node.y +
-        // anchorOffsetY) so differently-shaped nodes left at the same level get
-        // their ports on the same grid line and edges between them stay flat.
-        for (const id of drag.ids) {
-            const n = graphRef.current.nodes.find((candidate) => candidate.id === id);
-            if (!n) continue;
-            const off = byKey[n.type] ? anchorOffsetY(byKey[n.type], n) : HEADER_H / 2;
-            const dx = Math.round(n.x / GRID) * GRID - n.x;
-            const dy = Math.round((n.y + off) / GRID) * GRID - off - n.y;
-            if (dx || dy) dispatch({ type: "moveNodes", ids: [id], dx, dy });
-        }
         dispatch({ type: "commitDrag", before: drag.before });
     };
-
-    // a press that stayed under the drag threshold is a click: end the drag,
-    // then hand the caller the node's client-space bottom-left corner (where
-    // every node-anchored popover opens). Not a component — see the memo note.
-    const clickEndDrag =
-        (open: (anchor: { x: number; y: number }) => void) =>
-        (e: ReactPointerEvent<HTMLDivElement>) => {
-            const wasClick = !!dragRef.current && !dragRef.current.active;
-            endDrag();
-            if (!wasClick) return;
-            const r = e.currentTarget.getBoundingClientRect();
-            open({ x: r.left, y: r.bottom + 4 });
-        };
 
     // config edits are transient (setConfig) and coalesce into one undo step:
     // stash the graph on focus, commit it on blur
@@ -463,19 +436,30 @@ export default memo(function Node({
         );
     };
 
-    // a port placed on an explicit local (x,y) anchor instead of a layout row:
-    // it hangs off the BORDERLESS outer box, so the anchor is node.x/node.y plus
-    // this offset exactly — nested inside a bordered circle/chip it would drift
-    // by the border width, off geometry.ts's anchor. Not a component (called as
-    // a plain function), so Node stays the module's only component.
-    const anchoredPort = (spec: PortSpec, dir: "in" | "out", [ax, ay]: [number, number]) => (
-        <span
-            className={"absolute flex"}
-            style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-        >
-            {port(spec, dir, "")}
-        </span>
-    );
+    // a press that never crossed DRAG_SLOP is a click, not a drag: end the
+    // gesture and report which it was, so each shape can open its popover
+    const clickedNotDragged = () => {
+        const wasClick = !!dragRef.current && !dragRef.current.active;
+        endDrag();
+        return wasClick;
+    };
+
+    // the single value-output marker for the non-rectangular shapes
+    // (model/chip/literal/variable): the branch's right-edge default unless a
+    // rotated chip/model supplied parsedOutAnchor. The event branch's
+    // multi-anchor at() differs and stays separate.
+    const outMarker = (out: PortSpec | undefined, fx: number, fy: number) => {
+        if (!out) return null;
+        const [ax, ay] = parsedOutAnchor ?? [fx, fy];
+        return (
+            <span
+                className={"absolute flex"}
+                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+            >
+                {port(out, "out", "")}
+            </span>
+        );
+    };
 
     // model nodes render as a circle (MODEL_D 54, h-6 name strip =
     // MODEL_LABEL_H 24) — the single value output anchors on the circle's
@@ -490,9 +474,9 @@ export default memo(function Node({
         // the model segment; the full slug stays in the title tooltip
         const shortName = name.slice(name.indexOf("/") + 1);
         return (
-            // selection outline rides the outer wrapper (circle + name strip),
-            // matching the agent/if/generic branches
             <BlockShell
+                // selection outline rides the outer wrapper (circle + name
+                // strip), matching the agent/if/generic branches
                 nodeId={node.id}
                 x={node.x}
                 y={node.y}
@@ -519,7 +503,10 @@ export default memo(function Node({
                         <ModelLogo slug={node.config.model ?? ""} name={name} size={MODEL_D} />
                     </span>
                 </div>
-                {output && anchoredPort(output, "out", parsedOutAnchor ?? [MODEL_D, MODEL_D / 2])}
+                {/* the port hangs off the borderless outer box, so its anchor
+                    is node.x/node.y exactly — inside the bordered circle it
+                    would drift by the border width, off geometry.ts's anchor */}
+                {outMarker(output, MODEL_D, MODEL_D / 2)}
                 <div
                     style={{ width: MODEL_D }}
                     className={"flex h-6 items-center justify-center"}
@@ -574,10 +561,15 @@ export default memo(function Node({
         const isWebhook = entry.key === "event:webhook";
         const clickOpens = hasCron || isWebhook;
 
-        const eventEndDrag = clickEndDrag((anchor) => {
+        // a press that stayed under the drag threshold is a click → open the
+        // matching popover
+        const eventEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+            if (!clickedNotDragged()) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            const anchor = { x: r.left, y: r.bottom + 4 };
             if (isWebhook) onOpenWebhook?.(anchor, node.id);
             else onOpenCron?.(anchor, node.id);
-        });
+        };
 
         // per-port "portId=lx,ly" local anchors from the canvas (rotated toward
         // each port's connection, matching the edge anchors from geometry)
@@ -589,16 +581,25 @@ export default memo(function Node({
                 const [x, y] = xy.split(",").map(Number);
                 anchors.set(id, [x, y]);
             }
-        const at = (spec: PortSpec, home: [number, number]) =>
-            anchoredPort(spec, "out", anchors.get(spec.id) ?? home);
+        const at = (spec: PortSpec, home: [number, number]) => {
+            const [ax, ay] = anchors.get(spec.id) ?? home;
+            return (
+                <span
+                    className={"absolute flex"}
+                    style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+                >
+                    {port(spec, "out", "")}
+                </span>
+            );
+        };
 
         return (
-            // selection outline rides the outer wrapper (EVENT_W wide), matching
-            // agent/if/generic. Accepted quirk: the label strip below is wider
-            // (EVENT_LABEL_W) than the wrapper, so multi-word labels overflow the
-            // outline — the strip is render-only and never anchors a port/edge,
-            // so this is purely cosmetic.
             <BlockShell
+                // selection outline rides the outer wrapper (EVENT_W wide),
+                // matching agent/if/generic. Accepted quirk: the label strip
+                // below is wider (EVENT_LABEL_W) than the wrapper, so multi-word
+                // labels overflow the outline — the strip is render-only and
+                // never anchors a port/edge, so this is purely cosmetic.
                 nodeId={node.id}
                 x={node.x}
                 y={node.y}
@@ -638,6 +639,7 @@ export default memo(function Node({
                         </span>
                     )}
                 </div>
+                {/* ports on the borderless outer box — see the model branch */}
                 {flowOut && at(flowOut, [EVENT_W, EVENT_H / 2])}
                 {/* strip is wider than the circle (EVENT_LABEL_W, centered via
                     negative margin) so multi-word labels fit — render-only,
@@ -671,17 +673,21 @@ export default memo(function Node({
         const sandbox = isSandboxChipEntry(entry);
         const size = mcp ? MCP_CHIP : memory ? MEMORY_CHIP : sandbox ? SANDBOX_CHIP : SKILL_CHIP;
 
-        // an mcp server chip opens the tool-picker popover, a skill/memory chip
-        // opens a read-only info popover
-        const chipEndDrag = clickEndDrag((anchor) => {
+        // a press that stayed under the drag threshold is a click: an mcp
+        // server chip opens the tool-picker popover, a skill/memory chip opens
+        // a read-only info popover (both anchored at the chip's bottom-left)
+        const chipEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+            if (!clickedNotDragged()) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            const anchor = { x: r.left, y: r.bottom + 4 };
             if (mcp) onOpenTools?.(anchor, node.id);
             else onOpenInfo?.(anchor, node.id);
-        });
+        };
 
         return (
-            // selection outline rides the outer wrapper (chip + label strip),
-            // matching agent/if/generic
             <BlockShell
+                // selection outline rides the outer wrapper (chip + label
+                // strip), matching agent/if/generic
                 nodeId={node.id}
                 x={node.x}
                 y={node.y}
@@ -707,8 +713,9 @@ export default memo(function Node({
                         <span className={"text-2xl leading-none"}>{entry.emoji}</span>
                     )}
                 </div>
-                {/* chips carry border-2, so nesting the port would skew it 2px */}
-                {output && anchoredPort(output, "out", parsedOutAnchor ?? [size, size / 2])}
+                {/* port on the borderless outer box — see the model branch.
+                    Chips carry border-2, so nesting it would skew 2px */}
+                {outMarker(output, size, size / 2)}
                 <div className={"flex h-6 items-center justify-center"}>
                     <NodeLabel title={entry.label}>{entry.label}</NodeLabel>
                 </div>
@@ -728,8 +735,10 @@ export default memo(function Node({
         const width = nodeWidth(entry, node);
         const height = nodeHeight(entry, node);
 
-        // a click focuses the value field (no popover, so the anchor goes unused)
-        const literalEndDrag = clickEndDrag(() => literalFieldRef.current?.focus());
+        // a press that stayed under the drag threshold is a click → focus
+        const literalEndDrag = () => {
+            if (clickedNotDragged()) literalFieldRef.current?.focus();
+        };
         // once focused, the field owns the pointer (caret + text selection);
         // otherwise the press bubbles to the box for drag/click-to-focus
         const fieldPointerDown = (e: ReactPointerEvent) => {
@@ -741,8 +750,9 @@ export default memo(function Node({
             "min-w-0 flex-1 bg-transparent leading-[18px] text-foreground outline-none placeholder:text-gray-500";
 
         return (
-            // selection outline rides the outer wrapper, matching every other shape
             <BlockShell
+                // selection outline rides the outer wrapper, matching every
+                // other shape
                 nodeId={node.id}
                 x={node.x}
                 y={node.y}
@@ -793,7 +803,8 @@ export default memo(function Node({
                         />
                     )}
                 </div>
-                {output && anchoredPort(output, "out", parsedOutAnchor ?? [width, height / 2])}
+                {/* port on the borderless outer box — see the model branch */}
+                {outMarker(output, width, height / 2)}
             </BlockShell>
         );
     }
@@ -856,13 +867,12 @@ export default memo(function Node({
                     return;
                 }
             }
-            // no drop target: a plain click opens the edit modal (the anchor
-            // goes unused — the modal is centered)
-            clickEndDrag(() => onOpenVariable?.(node.id))(e);
+            if (clickedNotDragged()) onOpenVariable?.(node.id);
         };
         return (
-            // selection outline rides the outer wrapper, matching every other shape
             <BlockShell
+                // selection outline rides the outer wrapper, matching every
+                // other shape
                 nodeId={node.id}
                 x={node.x}
                 y={node.y}
@@ -887,7 +897,8 @@ export default memo(function Node({
                     </span>
                     <span className={"truncate leading-[18px]"}>{entry.label}</span>
                 </div>
-                {output && anchoredPort(output, "out", parsedOutAnchor ?? [width, height / 2])}
+                {/* port on the borderless outer box — see the model branch */}
+                {outMarker(output, width, height / 2)}
             </BlockShell>
         );
     }
@@ -967,7 +978,7 @@ export default memo(function Node({
                 y={node.y}
                 width={width}
                 selected={selected}
-                className={"absolute bg-background font-mono text-xs"}
+                className={`absolute bg-background font-mono text-xs`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
@@ -1022,8 +1033,18 @@ export default memo(function Node({
                 </div>
 
                 {/* flow "in" on the left edge, centered on the body band */}
-                {flowInput &&
-                    anchoredPort(flowInput, "in", [0, AGENT_HEADER_H + AGENT_BODY_H / 2])}
+                {flowInput && (
+                    <span
+                        className={"absolute flex"}
+                        style={{
+                            left: 0,
+                            top: AGENT_HEADER_H + AGENT_BODY_H / 2,
+                            transform: "translate(-50%, -50%)",
+                        }}
+                    >
+                        {port(flowInput, "in", "")}
+                    </span>
+                )}
 
                 {/* outputs stacked on the right edge of the body, matching geometry.ts */}
                 {entry.outputs.map((spec, i) => {
@@ -1062,7 +1083,7 @@ export default memo(function Node({
                 y={node.y}
                 width={IF_W}
                 selected={selected}
-                className={"absolute bg-background font-mono text-xs"}
+                className={`absolute bg-background font-mono text-xs`}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
@@ -1125,7 +1146,12 @@ export default memo(function Node({
                         const y = (IF_BODY_H * (i + 1)) / (entry.inputs.length + 1);
                         return (
                             <span key={spec.id}>
-                                {anchoredPort(spec, "in", [0, y])}
+                                <span
+                                    className={"absolute flex"}
+                                    style={{ left: 0, top: y, transform: "translate(-50%, -50%)" }}
+                                >
+                                    {port(spec, "in", "")}
+                                </span>
                                 {!isGenericLabel(spec.label) && (
                                     <span
                                         className={"absolute text-[9px] leading-none text-gray-400"}
@@ -1181,9 +1207,7 @@ export default memo(function Node({
             y={node.y}
             width={nodeWidth(entry, node)}
             selected={selected}
-            className={`absolute bg-background pb-1 font-mono text-xs ${
-                entry.missing ? "opacity-50" : ""
-            }`}
+            className={`absolute bg-background pb-1 font-mono text-xs ${entry.missing ? "opacity-50" : ""}`}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
@@ -1326,7 +1350,7 @@ export default memo(function Node({
                                 value={node.config[field.id] ?? ""}
                                 disabled={overridden}
                                 disabledTitle={overridden ? "set by connected edge" : undefined}
-                                dynStr={field.id === "reasoning" ? reasoningOptions : outputOptions}
+                                dynStr={""}
                                 fontClass={"text-xs"}
                                 highlight={varHighlight}
                                 onChange={(value) =>

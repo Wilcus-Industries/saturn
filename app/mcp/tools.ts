@@ -4,15 +4,25 @@
 // same cores as the designer actions and the cron runner; tool-execution
 // failures return as isError results, never as JSON-RPC errors.
 
-import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
+import { layoutGraph } from "@/app/dashboard/workflows/[id]/geometry";
+import { type McpCallResult, MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS } from "@/lib/agent";
 import { db } from "@/lib/db";
 import { subscriptionsChanged } from "@/lib/events.server";
+import { countKind, MAX_DESCRIPTION, MAX_NAME } from "@/lib/formActions.server";
 import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
 import { EXTENSION_EVENTS, eventNodeKey } from "@/lib/integrations";
 import type { ConsoleLine } from "@/lib/interpreter";
-import { buildUserCatalog, UUID_RE } from "@/lib/registry";
-import { getUserRegistry } from "@/lib/registry.server";
+import { countMemoryItems, executeMemoryTool, listMemoryItems } from "@/lib/memory.server";
+import { buildUserCatalog, MAX_ENTRIES_PER_KIND, UUID_RE } from "@/lib/registry";
+import { getUserRegistry, invalidateUserRegistry } from "@/lib/registry.server";
 import { executeWorkflowRun } from "@/lib/runner.server";
+import {
+    destroySandbox,
+    executeSandboxTool,
+    getSandboxStatuses,
+    resetSandbox,
+    stopSandboxNow,
+} from "@/lib/sandbox.server";
 import { baseUrl, getActivationLevels, limitsFor } from "@/lib/subscription";
 import {
     CATALOG_BY_KEY,
@@ -29,6 +39,8 @@ import {
 
 const MAX_RUN_TIMEOUT_S = 240;
 const MAX_LIST_RUNS = 50;
+const MAX_LIST_MEMORY_ITEMS = 100;
+const MAX_VARIABLE_VALUE = 4096; // mirrors saveVariable in workflows/[id]/actions.ts
 
 // ---------------------------------------------------------------------------
 // definitions
@@ -48,7 +60,7 @@ const str = (description: string): JsonSchema => ({ type: "string", description 
 const GRAPH_SCHEMA: JsonSchema = {
     type: "object",
     description:
-        "Complete workflow graph: { nodes: [{id, type, x, y, config}], edges: [{id, from: {nodeId, portId}, to: {nodeId, portId}, kind}] }. See get_catalog for node types, ports and authoring rules.",
+        "Complete workflow graph: { nodes: [{id, type, config}], edges: [{id, from: {nodeId, portId}, to: {nodeId, portId}, kind}] }. Leave node x/y out — Saturn places the nodes; send them on every node only to keep an existing canvas arrangement. See get_catalog for node types, ports and authoring rules.",
 };
 
 export const TOOL_DEFS: ToolDef[] = [
@@ -154,6 +166,218 @@ export const TOOL_DEFS: ToolDef[] = [
             ["workflowId", "runId"],
         ),
     },
+
+    // ------------------------------------------------------------- memory
+    {
+        name: "list_memory_stores",
+        description:
+            "The user's memory stores: id, name, emoji, description and item count. A store is given to an agent by wiring its \"memory:<id>\" chip node into the agent's memory port.",
+        inputSchema: obj({}),
+    },
+    {
+        name: "create_memory_store",
+        description: "Create a memory store. The account tier caps how many can exist.",
+        inputSchema: obj(
+            {
+                name: str("Store name"),
+                emoji: str("Single emoji icon (optional, default 🧠)"),
+                description: str("What this store holds (optional)"),
+            },
+            ["name"],
+        ),
+    },
+    {
+        name: "update_memory_store",
+        description: "Change a memory store's name, emoji or description. Omitted fields keep their stored value.",
+        inputSchema: obj(
+            {
+                id: str("Memory store id (uuid)"),
+                name: str("New name"),
+                emoji: str("New emoji"),
+                description: str("New description"),
+            },
+            ["id"],
+        ),
+    },
+    {
+        name: "delete_memory_store",
+        description: "Permanently delete a memory store and every item in it. Irreversible.",
+        inputSchema: obj({ id: str("Memory store id (uuid)") }, ["id"]),
+    },
+    {
+        name: "list_memory_items",
+        description: `Browse a store's items, newest first (max ${MAX_LIST_MEMORY_ITEMS}), optionally filtered by a content substring. For meaning-based recall use search_memory instead.`,
+        inputSchema: obj(
+            {
+                storeId: str("Memory store id (uuid)"),
+                query: str("Substring filter on item content (optional)"),
+            },
+            ["storeId"],
+        ),
+    },
+    {
+        name: "search_memory",
+        description: "Semantic search over a memory store — the most relevant items with their ids, content and similarity score. Runs an embedding call, so it spends model credits.",
+        inputSchema: obj(
+            {
+                storeId: str("Memory store id (uuid)"),
+                query: str("What to look for"),
+                limit: { type: "number", description: "Max results, 1-20 (default 5)" },
+            },
+            ["storeId", "query"],
+        ),
+    },
+    {
+        name: "save_memory",
+        description: "Save one durable fact, preference or summary to a memory store (max 2000 chars) — not raw transcripts. Runs an embedding call, so it spends model credits.",
+        inputSchema: obj(
+            { storeId: str("Memory store id (uuid)"), content: str("The fact or summary to remember") },
+            ["storeId", "content"],
+        ),
+    },
+    {
+        name: "forget_memory",
+        description: "Permanently delete one memory item by id (ids come from search_memory or list_memory_items).",
+        inputSchema: obj(
+            { storeId: str("Memory store id (uuid)"), id: str("Memory item id (uuid)") },
+            ["storeId", "id"],
+        ),
+    },
+
+    // ----------------------------------------------------------- sandboxes
+    {
+        name: "list_sandboxes",
+        description:
+            "The user's linux sandboxes: id, name, description, whether the container is running, last-known disk usage, and whether this server has a sandbox runtime at all.",
+        inputSchema: obj({}),
+    },
+    {
+        name: "create_sandbox",
+        description:
+            "Create a persistent Debian linux sandbox. Nothing is provisioned until its first use; the account tier caps how many can exist and their memory/cpu/disk/timeout.",
+        inputSchema: obj(
+            { name: str("Sandbox name"), description: str("What it is for (optional)") },
+            ["name"],
+        ),
+    },
+    {
+        name: "delete_sandbox",
+        description: "Permanently delete a sandbox — the container and everything under /work are destroyed. Irreversible.",
+        inputSchema: obj({ id: str("Sandbox id (uuid)") }, ["id"]),
+    },
+    {
+        name: "reset_sandbox",
+        description: "Wipe a sandbox's /work volume and stop it. The sandbox stays registered and is recreated empty on next use.",
+        inputSchema: obj({ id: str("Sandbox id (uuid)") }, ["id"]),
+    },
+    {
+        name: "stop_sandbox",
+        description: "Stop a running sandbox now. /work survives; the next call starts it again.",
+        inputSchema: obj({ id: str("Sandbox id (uuid)") }, ["id"]),
+    },
+    {
+        name: "sandbox_exec",
+        description: "Run a bash command in a sandbox. stdout and stderr come back together (capped), nonzero exit codes are reported, /work persists across calls.",
+        inputSchema: obj(
+            {
+                id: str("Sandbox id (uuid)"),
+                command: str("Bash command to run inside the sandbox"),
+                timeout: { type: "number", description: "Seconds, capped by the account tier" },
+            },
+            ["id", "command"],
+        ),
+    },
+    {
+        name: "sandbox_write_file",
+        description: "Write a text file in a sandbox. Paths are confined to /work; parent directories are created and an existing file is overwritten.",
+        inputSchema: obj(
+            {
+                id: str("Sandbox id (uuid)"),
+                path: str("Path under /work"),
+                content: str("File contents"),
+            },
+            ["id", "path", "content"],
+        ),
+    },
+    {
+        name: "sandbox_read_file",
+        description: "Read a text file from a sandbox (paths confined to /work).",
+        inputSchema: obj(
+            { id: str("Sandbox id (uuid)"), path: str("Path under /work") },
+            ["id", "path"],
+        ),
+    },
+
+    // ------------------------------------------------------------ registry
+    {
+        name: "list_registry",
+        description:
+            "Everything registered on the account: MCP servers (with their tool allowlists), skills, memory stores, sandboxes and variables — the ids behind the \"mcp:<id>:*\", \"skill:<id>\", \"memory:<id>\", \"sandbox:<id>\" and \"variable:<id>\" node types. Secrets are never returned: MCP tokens and secret variables surface only as booleans.",
+        inputSchema: obj({}),
+    },
+
+    // -------------------------------------------------------------- skills
+    {
+        name: "create_skill",
+        description: `Create a skill — named instructions injected into an agent's system prompt when its "skill:<id>" chip is wired to the agent's skills port. description IS the instruction text (max ${MAX_DESCRIPTION} chars).`,
+        inputSchema: obj(
+            {
+                name: str("Skill name"),
+                description: str("The instruction text given to the agent"),
+                emoji: str("Single emoji icon (optional, default ⚙️)"),
+            },
+            ["name", "description"],
+        ),
+    },
+    {
+        name: "update_skill",
+        description: "Change a skill's name, emoji or instruction text (description). Omitted fields keep their stored value.",
+        inputSchema: obj(
+            {
+                id: str("Skill id (uuid)"),
+                name: str("New name"),
+                description: str("New instruction text"),
+                emoji: str("New emoji"),
+            },
+            ["id"],
+        ),
+    },
+    {
+        name: "delete_skill",
+        description: "Permanently delete a skill. Graphs wiring its chip keep an inert placeholder node.",
+        inputSchema: obj({ id: str("Skill id (uuid)") }, ["id"]),
+    },
+
+    // ----------------------------------------------------------- variables
+    {
+        name: "create_variable",
+        description:
+            "Create a variable — a named value wired into node config through its \"variable:<id>\" node (the graph only ever carries an opaque placeholder). secret=true makes it WRITE-ONLY: the value can never be read back, only overwritten or deleted — use it for bot tokens and API keys. The mode is fixed at creation.",
+        inputSchema: obj(
+            {
+                name: str("Variable name"),
+                value: str(`The value (max ${MAX_VARIABLE_VALUE} chars)`),
+                secret: {
+                    type: "boolean",
+                    description: "write-only when true; mode is fixed at creation (default false)",
+                },
+            },
+            ["name", "value"],
+        ),
+    },
+    {
+        name: "update_variable",
+        description: "Rename a variable or overwrite its value. Omitting value keeps the stored one; values are never returned by this server, secret or not.",
+        inputSchema: obj(
+            { id: str("Variable id (uuid)"), name: str("New name"), value: str("New value") },
+            ["id"],
+        ),
+    },
+    {
+        name: "delete_variable",
+        description: "Permanently delete a variable. Graphs referencing it keep an unresolvable placeholder.",
+        inputSchema: obj({ id: str("Variable id (uuid)") }, ["id"]),
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -174,7 +398,8 @@ const EVENT_NODE_DOCS = EXTENSION_EVENTS.map((e) => {
 const GRAPH_DOCS = `# Authoring Saturn workflow graphs
 
 A graph is {"nodes": [...], "edges": [...]}.
-Node: {"id": "<unique string>", "type": "<catalog key>", "x": <number>, "y": <number>, "config": {"<fieldId>": "<string value>"}}.
+Node: {"id": "<unique string>", "type": "<catalog key>", "config": {"<fieldId>": "<string value>"}}.
+OMIT x and y — Saturn lays the graph out itself (nodes render at sizes you cannot predict, so hand-picked coordinates overlap). If ANY node omits them the whole graph is re-laid-out left to right; only send x/y on EVERY node when you are round-tripping a graph from get_workflow and want to preserve the arrangement the user made on the canvas.
 Edge: {"id": "<unique string>", "from": {"nodeId", "portId"}, "to": {"nodeId", "portId"}, "kind": "flow" | "value"} — from is always an output port, to an input port, and kind must match both ports' kind.
 
 ## Ports
@@ -247,6 +472,25 @@ const fail = (message: string): ToolResult => ({
 const asId = (x: unknown): string | null =>
     typeof x === "string" && UUID_RE.test(x) ? x : null;
 
+const trimArg = (x: unknown): string => (typeof x === "string" ? x.trim() : "");
+// an omitted arg is null, which the UPDATEs below coalesce to the stored column
+const patchArg = (x: unknown): string | null => (x === undefined ? null : trimArg(x));
+
+// the memory/sandbox cores return {text} | {error} — text is already JSON or
+// plain output, so it passes through instead of being re-serialized by ok()
+const fromCall = (r: McpCallResult): ToolResult =>
+    "error" in r ? fail(r.error) : { content: [{ type: "text", text: r.text }] };
+
+// ownership gate for the registry-entry ops that touch a runtime resource
+// before (or instead of) the row itself
+async function ownsEntry(userId: string, id: string, kind: string): Promise<boolean> {
+    const { rows } = await db.query(
+        "select id from registry_entry where id = $1 and user_id = $2 and kind = $3",
+        [id, userId, kind],
+    );
+    return !!rows[0];
+}
+
 // catalog tool descriptions are for picking, not prompting — the full text
 // reaches the model at runtime via buildToolDefs, so first line capped
 const MAX_CATALOG_DESC = 150;
@@ -268,14 +512,41 @@ async function buildByKey(userId: string): Promise<Record<string, CatalogEntry>>
     return byKey;
 }
 
+// x/y are OPTIONAL over MCP: an authoring agent can't know a node's rendered
+// size, so its guessed coordinates overlap. A graph that omits any coordinate
+// is laid out server-side by layoutGraph; one that carries them all is trusted
+// verbatim, so a get_workflow → edit → save_graph round-trip never scrambles
+// the arrangement the user made on the canvas. Only absent coords are filled —
+// a non-number x still fails the shape guard with its real message.
+function fillCoords(graph: unknown): { graph: unknown; layout: boolean } {
+    if (!graph || typeof graph !== "object" || !Array.isArray((graph as WorkflowGraph).nodes)) {
+        return { graph, layout: false };
+    }
+    const nodes = (graph as { nodes: Record<string, unknown>[] }).nodes;
+    const layout = nodes.some((n) => !!n && (n.x === undefined || n.y === undefined));
+    if (!layout) return { graph, layout };
+    return {
+        graph: {
+            ...graph,
+            nodes: nodes.map((n) =>
+                n && typeof n === "object"
+                    ? { ...n, x: n.x === undefined ? 0 : n.x, y: n.y === undefined ? 0 : n.y }
+                    : n,
+            ),
+        },
+        layout,
+    };
+}
+
 // isWorkflowGraph + size caps + strict structural validation, shared by
 // validate_graph and save_graph. The github-linkage lookup is lazy: only a
 // graph carrying a github event node pays the installation query.
 async function checkGraph(
     userId: string,
-    graph: unknown,
+    raw: unknown,
     byKey: Record<string, CatalogEntry>,
 ): Promise<{ graph: WorkflowGraph; errors: string[]; warnings: string[] } | { reject: string }> {
+    const { graph, layout } = fillCoords(raw);
     if (!isWorkflowGraph(graph)) {
         return { reject: `invalid graph shape — ${graphShapeError(graph)}` };
     }
@@ -290,13 +561,25 @@ async function checkGraph(
         ? githubAppConfigured() && (await listInstallations(userId)).length > 0
         : undefined;
     return {
-        graph,
+        graph: layout ? layoutGraph(graph, byKey) : graph,
         ...validateGraphStrict(
             graph,
             byKey,
             githubLinked === undefined ? undefined : { githubLinked },
         ),
     };
+}
+
+// the graph a save_graph call actually STORED — coordinates filled in and, when
+// the model omitted them, laid out. The Agent-page chat streams this to a
+// designer that has the workflow open; the model's own JSON usually carries no
+// x/y at all, so it would fail isWorkflowGraph on the canvas side.
+export async function normalizeGraph(
+    userId: string,
+    graph: unknown,
+): Promise<WorkflowGraph | null> {
+    const checked = await checkGraph(userId, graph, await buildByKey(userId));
+    return "reject" in checked || checked.errors.length > 0 ? null : checked.graph;
 }
 
 async function tierFor(userId: string) {
@@ -566,6 +849,437 @@ export async function dispatchTool(
             );
             if (!rows[0]) return fail("run not found");
             return ok(rows[0], true);
+        }
+
+        // ----------------------------------------------------------- memory
+
+        case "list_memory_stores": {
+            const counts = await countMemoryItems(userId);
+            const rows = (await getUserRegistry(userId)).filter((r) => r.kind === "memory");
+            return ok(
+                rows.map((r) => ({
+                    id: r.id,
+                    name: r.name,
+                    emoji: r.emoji,
+                    description: r.description,
+                    itemCount: counts.get(r.id) ?? 0,
+                })),
+            );
+        }
+
+        case "create_memory_store": {
+            const name = trimArg(args.name);
+            if (!name || name.length > MAX_NAME) return fail(`name is required (max ${MAX_NAME} chars)`);
+            const emoji = trimArg(args.emoji) || "🧠";
+            const description = trimArg(args.description);
+            if (description.length > MAX_DESCRIPTION) {
+                return fail(`description too long (max ${MAX_DESCRIPTION} chars)`);
+            }
+            // tier cap on new stores; MAX_ENTRIES_PER_KIND is the absolute backstop
+            const cap = Math.min(limitsFor(await tierFor(userId)).memoryStores, MAX_ENTRIES_PER_KIND);
+            if ((await countKind(userId, "memory")) >= cap) {
+                return fail(`your plan allows ${cap} memory store${cap === 1 ? "" : "s"} — upgrade to add more`);
+            }
+            // ponytail: dup of saveMemoryStore in memory/actions.ts — extract if a third caller appears
+            const { rows } = await db.query<{ id: string }>(
+                `insert into registry_entry (user_id, kind, name, emoji, description)
+                 values ($1, 'memory', $2, $3, $4) returning id`,
+                [userId, name, emoji, description],
+            );
+            invalidateUserRegistry(userId);
+            return ok({ id: rows[0].id });
+        }
+
+        case "update_memory_store": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid memory store id");
+            const name = patchArg(args.name);
+            if (name !== null && (!name || name.length > MAX_NAME)) {
+                return fail(`name must be 1-${MAX_NAME} chars`);
+            }
+            const description = patchArg(args.description);
+            if (description !== null && description.length > MAX_DESCRIPTION) {
+                return fail(`description too long (max ${MAX_DESCRIPTION} chars)`);
+            }
+            // ponytail: dup of saveMemoryStore in memory/actions.ts — extract if a third caller appears
+            const { rowCount } = await db.query(
+                `update registry_entry
+                 set name = coalesce($1::text, name), emoji = coalesce($2::text, emoji),
+                     description = coalesce($3::text, description), updated_at = now()
+                 where id = $4 and user_id = $5 and kind = 'memory'`,
+                [name, trimArg(args.emoji) || null, description, id, userId],
+            );
+            if (!rowCount) return fail("memory store not found");
+            invalidateUserRegistry(userId);
+            return ok({ updated: true });
+        }
+
+        case "delete_memory_store": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid memory store id");
+            // ponytail: dup of deleteMemoryStore in memory/actions.ts — extract if a third caller appears
+            // memory_item rows cascade on the registry_entry FK
+            const { rowCount } = await db.query(
+                "delete from registry_entry where id = $1 and user_id = $2 and kind = 'memory'",
+                [id, userId],
+            );
+            if (!rowCount) return fail("memory store not found");
+            invalidateUserRegistry(userId);
+            return ok({ deleted: true });
+        }
+
+        case "list_memory_items": {
+            const storeId = asId(args.storeId);
+            if (!storeId) return fail("invalid memory store id");
+            if (!(await ownsEntry(userId, storeId, "memory"))) return fail("memory store not found");
+            const items = await listMemoryItems(storeId, userId, trimArg(args.query));
+            return ok(items.slice(0, MAX_LIST_MEMORY_ITEMS), true);
+        }
+
+        case "search_memory": {
+            const storeId = asId(args.storeId);
+            if (!storeId) return fail("invalid memory store id");
+            return fromCall(
+                await executeMemoryTool(
+                    userId,
+                    storeId,
+                    "memory_search",
+                    JSON.stringify({ query: args.query, limit: args.limit }),
+                    "manual",
+                ),
+            );
+        }
+
+        case "save_memory": {
+            const storeId = asId(args.storeId);
+            if (!storeId) return fail("invalid memory store id");
+            return fromCall(
+                await executeMemoryTool(
+                    userId,
+                    storeId,
+                    "memory_save",
+                    JSON.stringify({ content: args.content }),
+                    "manual",
+                ),
+            );
+        }
+
+        case "forget_memory": {
+            const storeId = asId(args.storeId);
+            if (!storeId) return fail("invalid memory store id");
+            return fromCall(
+                await executeMemoryTool(
+                    userId,
+                    storeId,
+                    "memory_forget",
+                    JSON.stringify({ id: args.id }),
+                    "manual",
+                ),
+            );
+        }
+
+        // --------------------------------------------------------- sandboxes
+
+        case "list_sandboxes": {
+            const rows = (await getUserRegistry(userId)).filter((r) => r.kind === "sandbox");
+            const statuses = await getSandboxStatuses(rows.map((r) => r.id));
+            return ok(
+                rows.map((r) => ({
+                    id: r.id,
+                    name: r.name,
+                    description: r.description,
+                    running: statuses.get(r.id)?.running ?? false,
+                    diskMb: statuses.get(r.id)?.diskMb ?? null,
+                    runtimeConfigured: statuses.get(r.id)?.configured ?? false,
+                })),
+            );
+        }
+
+        case "create_sandbox": {
+            const name = trimArg(args.name);
+            if (!name || name.length > MAX_NAME) return fail(`name is required (max ${MAX_NAME} chars)`);
+            const description = trimArg(args.description);
+            if (description.length > MAX_DESCRIPTION) {
+                return fail(`description too long (max ${MAX_DESCRIPTION} chars)`);
+            }
+            // tier cap on new sandboxes; MAX_ENTRIES_PER_KIND is the absolute backstop
+            const cap = Math.min(limitsFor(await tierFor(userId)).sandboxes, MAX_ENTRIES_PER_KIND);
+            if ((await countKind(userId, "sandbox")) >= cap) {
+                return fail(`your plan allows ${cap} linux sandbox${cap === 1 ? "" : "es"} — upgrade to add more`);
+            }
+            // ponytail: dup of saveSandbox in sandboxes/actions.ts — extract if a third caller appears
+            // no podman calls here — the container is created on first use
+            const { rows } = await db.query<{ id: string }>(
+                `insert into registry_entry (user_id, kind, name, description)
+                 values ($1, 'sandbox', $2, $3) returning id`,
+                [userId, name, description],
+            );
+            invalidateUserRegistry(userId);
+            return ok({ id: rows[0].id });
+        }
+
+        case "delete_sandbox": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid sandbox id");
+            // ponytail: dup of deleteSandbox in sandboxes/actions.ts — extract if a third caller appears
+            // ownership check before we touch any runtime resource, then a
+            // best-effort teardown BEFORE the row goes away
+            if (!(await ownsEntry(userId, id, "sandbox"))) return fail("sandbox not found");
+            await destroySandbox(id);
+            const { rowCount } = await db.query(
+                "delete from registry_entry where id = $1 and user_id = $2 and kind = 'sandbox'",
+                [id, userId],
+            );
+            if (!rowCount) return fail("sandbox not found");
+            invalidateUserRegistry(userId);
+            return ok({ deleted: true });
+        }
+
+        case "reset_sandbox": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid sandbox id");
+            if (!(await ownsEntry(userId, id, "sandbox"))) return fail("sandbox not found");
+            const result = await resetSandbox(id);
+            if (result.error) return fail(result.error);
+            return ok({ reset: true });
+        }
+
+        case "stop_sandbox": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid sandbox id");
+            if (!(await ownsEntry(userId, id, "sandbox"))) return fail("sandbox not found");
+            await stopSandboxNow(id);
+            return ok({ stopped: true });
+        }
+
+        case "sandbox_exec": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid sandbox id");
+            return fromCall(
+                await executeSandboxTool(
+                    userId,
+                    id,
+                    "sandbox_exec",
+                    JSON.stringify({ command: args.command, timeout: args.timeout }),
+                ),
+            );
+        }
+
+        case "sandbox_write_file": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid sandbox id");
+            return fromCall(
+                await executeSandboxTool(
+                    userId,
+                    id,
+                    "sandbox_write_file",
+                    JSON.stringify({ path: args.path, content: args.content }),
+                ),
+            );
+        }
+
+        case "sandbox_read_file": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid sandbox id");
+            return fromCall(
+                await executeSandboxTool(
+                    userId,
+                    id,
+                    "sandbox_read_file",
+                    JSON.stringify({ path: args.path }),
+                ),
+            );
+        }
+
+        // ---------------------------------------------------------- registry
+
+        case "list_registry": {
+            // getUserRegistry's projection is the secret gate: auth_token comes
+            // back only as has_token, except a NON-secret variable's plaintext
+            // value. getMcpSecrets/getVariableValues are never called here.
+            const rows = await getUserRegistry(userId);
+            const pick = (kind: string) => rows.filter((r) => r.kind === kind);
+            return ok(
+                {
+                    mcpServers: pick("mcp").map((r) => ({
+                        id: r.id,
+                        name: r.name,
+                        serverUrl: r.server_url,
+                        connected: r.connected,
+                        hasToken: r.has_token,
+                        tools: (r.tools ?? []).map((t) => ({
+                            name: t.name,
+                            access: t.access,
+                            enabled: t.enabled,
+                        })),
+                    })),
+                    skills: pick("skill").map((r) => ({
+                        id: r.id,
+                        name: r.name,
+                        emoji: r.emoji,
+                        description: r.description,
+                    })),
+                    memoryStores: pick("memory").map((r) => ({
+                        id: r.id,
+                        name: r.name,
+                        emoji: r.emoji,
+                        description: r.description,
+                    })),
+                    sandboxes: pick("sandbox").map((r) => ({
+                        id: r.id,
+                        name: r.name,
+                        description: r.description,
+                    })),
+                    variables: pick("variable").map((r) => ({
+                        id: r.id,
+                        name: r.name,
+                        secret: r.secret,
+                        hasValue: r.has_token,
+                        // secret values are write-only — only a regular
+                        // variable's plaintext is ever readable
+                        ...(r.secret ? {} : { value: r.value }),
+                    })),
+                },
+                true,
+            );
+        }
+
+        // ------------------------------------------------------------ skills
+
+        case "create_skill": {
+            const name = trimArg(args.name);
+            if (!name || name.length > MAX_NAME) return fail(`name is required (max ${MAX_NAME} chars)`);
+            const emoji = trimArg(args.emoji) || "⚙️";
+            const description = trimArg(args.description);
+            if (!description) return fail("description is the skill's instruction text — it is required");
+            if (description.length > MAX_DESCRIPTION) {
+                return fail(`instructions too long (max ${MAX_DESCRIPTION} chars)`);
+            }
+            if ((await countKind(userId, "skill")) >= MAX_ENTRIES_PER_KIND) {
+                return fail(`limit of ${MAX_ENTRIES_PER_KIND} skill entries reached`);
+            }
+            // ponytail: dup of saveSkill in settings/actions.ts — extract if a third caller appears
+            const { rows } = await db.query<{ id: string }>(
+                `insert into registry_entry (user_id, kind, name, emoji, description)
+                 values ($1, 'skill', $2, $3, $4) returning id`,
+                [userId, name, emoji, description],
+            );
+            invalidateUserRegistry(userId);
+            return ok({ id: rows[0].id });
+        }
+
+        case "update_skill": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid skill id");
+            const name = patchArg(args.name);
+            if (name !== null && (!name || name.length > MAX_NAME)) {
+                return fail(`name must be 1-${MAX_NAME} chars`);
+            }
+            const description = patchArg(args.description);
+            if (description !== null && description.length > MAX_DESCRIPTION) {
+                return fail(`instructions too long (max ${MAX_DESCRIPTION} chars)`);
+            }
+            // ponytail: dup of saveSkill in settings/actions.ts — extract if a third caller appears
+            const { rowCount } = await db.query(
+                `update registry_entry
+                 set name = coalesce($1::text, name), emoji = coalesce($2::text, emoji),
+                     description = coalesce($3::text, description), updated_at = now()
+                 where id = $4 and user_id = $5 and kind = 'skill'`,
+                [name, trimArg(args.emoji) || null, description, id, userId],
+            );
+            if (!rowCount) return fail("skill not found");
+            invalidateUserRegistry(userId);
+            return ok({ updated: true });
+        }
+
+        case "delete_skill": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid skill id");
+            // ponytail: dup of deleteRegistryEntry in settings/actions.ts (kind-scoped here
+            // so a skill id can't delete an MCP server) — extract if a third caller appears
+            const { rowCount } = await db.query(
+                "delete from registry_entry where id = $1 and user_id = $2 and kind = 'skill'",
+                [id, userId],
+            );
+            if (!rowCount) return fail("skill not found");
+            invalidateUserRegistry(userId);
+            return ok({ deleted: true });
+        }
+
+        // --------------------------------------------------------- variables
+
+        case "create_variable": {
+            const name = trimArg(args.name);
+            if (!name || name.length > MAX_NAME) return fail(`name is required (max ${MAX_NAME} chars)`);
+            const value = trimArg(args.value);
+            if (!value) return fail("value is required");
+            if (value.length > MAX_VARIABLE_VALUE) {
+                return fail(`value too long (max ${MAX_VARIABLE_VALUE} chars)`);
+            }
+            if (args.secret !== undefined && typeof args.secret !== "boolean") {
+                return fail("secret must be a boolean");
+            }
+            if ((await countKind(userId, "variable")) >= MAX_ENTRIES_PER_KIND) {
+                return fail(`limit of ${MAX_ENTRIES_PER_KIND} variables reached`);
+            }
+            // ponytail: dup of saveVariable in workflows/[id]/actions.ts — extract if a third caller appears
+            const { rows } = await db.query<{ id: string }>(
+                `insert into registry_entry (user_id, kind, name, auth_token, secret)
+                 values ($1, 'variable', $2, $3, $4) returning id`,
+                [userId, name, value, args.secret === true],
+            );
+            invalidateUserRegistry(userId);
+            // a variable may feed an event node's bot token — reconnect transports now
+            subscriptionsChanged();
+            return ok({ id: rows[0].id, secret: args.secret === true });
+        }
+
+        case "update_variable": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid variable id");
+            const name = patchArg(args.name);
+            if (name !== null && (!name || name.length > MAX_NAME)) {
+                return fail(`name must be 1-${MAX_NAME} chars`);
+            }
+            const value = patchArg(args.value);
+            if (value !== null && value.length > MAX_VARIABLE_VALUE) {
+                return fail(`value too long (max ${MAX_VARIABLE_VALUE} chars)`);
+            }
+            // mode is fixed at creation — read the stored one, never take it from args
+            const { rows } = await db.query<{ secret: boolean }>(
+                `select secret from registry_entry
+                 where id = $1 and user_id = $2 and kind = 'variable'`,
+                [id, userId],
+            );
+            if (!rows[0]) return fail("variable not found");
+            // ponytail: dup of saveVariable in workflows/[id]/actions.ts — extract if a third caller appears
+            // an omitted value keeps the stored one (both modes); a submitted
+            // one overwrites it — nothing is ever read back
+            const { rowCount } = await db.query(
+                `update registry_entry
+                 set name = coalesce($1::text, name), auth_token = coalesce($2::text, auth_token),
+                     updated_at = now()
+                 where id = $3 and user_id = $4 and kind = 'variable'`,
+                [name, value, id, userId],
+            );
+            if (!rowCount) return fail("variable not found");
+            invalidateUserRegistry(userId);
+            subscriptionsChanged(); // may feed an event node's bot token
+            return ok({ updated: true, secret: rows[0].secret });
+        }
+
+        case "delete_variable": {
+            const id = asId(args.id);
+            if (!id) return fail("invalid variable id");
+            // ponytail: dup of deleteVariable in workflows/[id]/actions.ts — extract if a third caller appears
+            const { rowCount } = await db.query(
+                "delete from registry_entry where id = $1 and user_id = $2 and kind = 'variable'",
+                [id, userId],
+            );
+            if (!rowCount) return fail("variable not found");
+            invalidateUserRegistry(userId);
+            subscriptionsChanged();
+            return ok({ deleted: true });
         }
 
         default:

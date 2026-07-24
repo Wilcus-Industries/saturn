@@ -106,8 +106,8 @@ export default async function Sandboxes() {
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
                                     <SandboxModal entry={entry} />
                                     <ConfirmButton
+                                        id={entry.id}
                                         action={deleteSandbox}
-                                        fields={{ id: entry.id }}
                                         title={"deletes the environment and all its files"}
                                     />
                                 </div>

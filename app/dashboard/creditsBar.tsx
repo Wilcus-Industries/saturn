@@ -1,5 +1,5 @@
-// built-in model credits used/allowance bar — shared by settings and the
-// overview usage panel. Callers guard on allowance > 0; this assumes it.
+// built-in model credits used/allowance bar (settings). Callers guard on
+// allowance > 0; this assumes it.
 export default function CreditsBar({
     used,
     allowance,

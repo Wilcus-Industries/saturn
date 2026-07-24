@@ -36,6 +36,9 @@ export type GraphAction =
           removeNodeId?: string;
       }
     | { type: "commitConfig"; before: WorkflowGraph }
+    // wholesale swap (the embedded agent saved a graph server-side); one undo
+    // entry, so Cmd+Z brings the canvas back to what the user had
+    | { type: "replaceGraph"; graph: WorkflowGraph }
     | { type: "undo" }
     | { type: "redo" };
 
@@ -153,6 +156,9 @@ export function graphReducer(history: History, action: GraphAction): History {
                 edges: g.edges.filter(dropEdge),
             });
         }
+
+        case "replaceGraph":
+            return step(history, action.graph);
 
         case "undo": {
             const previous = history.past.at(-1);

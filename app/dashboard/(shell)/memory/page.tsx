@@ -74,7 +74,7 @@ export default async function Memory() {
                                 </Link>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
                                     <MemoryModal entry={entry} />
-                                    <ConfirmButton action={deleteMemoryStore} fields={{ id: entry.id }} />
+                                    <ConfirmButton id={entry.id} action={deleteMemoryStore} />
                                 </div>
                             </div>
                         </div>

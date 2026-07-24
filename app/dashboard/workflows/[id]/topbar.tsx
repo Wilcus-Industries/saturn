@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import ConfirmButton from "@/app/dashboard/confirmButton";
-import { deleteWorkflow } from "@/app/dashboard/(shell)/workflows/actions";
+import DeleteWorkflowButton from "@/app/dashboard/deleteWorkflowButton";
 import type { ValidationIssue } from "@/lib/workflow";
 import PopoverShell from "./popoverShell";
 
@@ -160,11 +159,7 @@ export default function Topbar({
                         ▶ run
                     </button>
                 )}
-                <ConfirmButton
-                    action={deleteWorkflow}
-                    fields={{ id: workflowId }}
-                    sizeClass={"text-xs"}
-                />
+                <DeleteWorkflowButton id={workflowId} sizeClass={"text-xs"} />
             </span>
 
             {/* validation summary badge — red errors win, else amber warnings,

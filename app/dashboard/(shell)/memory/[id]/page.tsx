@@ -4,10 +4,9 @@ import { countMemoryItems, listMemoryItems, MAX_MEMORY_ITEMS } from "@/lib/memor
 import { UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import { getSessionCached } from "@/lib/subscription";
-import ConfirmButton from "@/app/dashboard/confirmButton";
 import { relativeTime } from "../../workflows/workflowCard";
-import { deleteMemoryItem } from "../actions";
-import { WipeStoreButton } from "./itemButtons";
+import { DeleteItemButton, WipeStoreButton } from "./itemButtons";
+
 
 // browse and manage one memory store's items; session + ownership checked here
 export default async function MemoryStore({
@@ -112,13 +111,7 @@ export default async function MemoryStore({
                                 {relativeTime(item.created_at)}
                             </span>
                         </div>
-                        <ConfirmButton
-                            action={deleteMemoryItem}
-                            fields={{ id: item.id, entryId: id }}
-                            label={"forget"}
-                            sizeClass={"text-xs"}
-                            extraClass={"shrink-0"}
-                        />
+                        <DeleteItemButton id={item.id} entryId={id} />
                     </div>
                 ))}
             </div>

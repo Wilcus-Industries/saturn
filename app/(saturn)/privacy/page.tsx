@@ -43,8 +43,9 @@ export default function Privacy() {
             </LegalSection>
             <LegalSection heading={"4. Cookies"}>
                 <p>
-                    Essential cookies only: your sign-in session and one UI preference
-                    (sidebar state). No tracking cookies.
+                    Essential cookies only: your sign-in session and a few UI preferences
+                    (sidebar state, the model and reasoning effort you last picked in the
+                    agent chat). No tracking cookies.
                 </p>
             </LegalSection>
             <LegalSection heading={"5. Where data goes"}>

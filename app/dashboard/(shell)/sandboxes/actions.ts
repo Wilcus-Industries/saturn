@@ -2,45 +2,21 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { MAX_ENTRIES_PER_KIND, UUID_RE } from "@/lib/registry";
+import {
+    type ActionResult,
+    countKind,
+    MAX_DESCRIPTION,
+    optionalId,
+    requiredName,
+    toError,
+    UUID,
+} from "@/lib/formActions.server";
+import { MAX_ENTRIES_PER_KIND } from "@/lib/registry";
 import { invalidateUserRegistry } from "@/lib/registry.server";
 import { destroySandbox, resetSandbox, stopSandboxNow } from "@/lib/sandbox.server";
 import { getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
-
-const MAX_NAME = 60;
-const MAX_DESCRIPTION = 2000;
-
-// expected failures come back as a value the modal renders inline; a thrown
-// error would only reach Next's generic error page (message redacted in prod)
-type ActionResult = { error: string } | undefined;
-
-function toError(err: unknown): { error: string } {
-    return { error: err instanceof Error ? err.message : "Something went wrong" };
-}
-
-function requiredName(formData: FormData): string {
-    const name = String(formData.get("name") ?? "").trim();
-    if (!name || name.length > MAX_NAME) throw new Error("Name is required (max 60 chars)");
-    return name;
-}
-
-// optional id field: present + valid uuid → update, absent → insert
-function optionalId(formData: FormData): string | null {
-    const id = String(formData.get("id") ?? "").trim();
-    if (!id) return null;
-    if (!UUID_RE.test(id)) throw new Error("Invalid id");
-    return id;
-}
-
-async function countSandboxes(userId: string): Promise<number> {
-    const { rows } = await db.query<{ count: string }>(
-        "select count(*) from registry_entry where user_id = $1 and kind = 'sandbox'",
-        [userId],
-    );
-    return Number(rows[0].count);
-}
 
 // no podman calls here — the container + volume are created lazily on the
 // first sandbox tool call, not at save time
@@ -64,7 +40,7 @@ export async function saveSandbox(formData: FormData): Promise<ActionResult> {
         } else {
             // tier cap on new sandboxes; MAX_ENTRIES_PER_KIND is the absolute backstop
             const cap = limitsFor(await getActivation(requestHeaders)).sandboxes;
-            const count = await countSandboxes(session.user.id);
+            const count = await countKind(session.user.id, "sandbox");
             if (count >= cap) {
                 throw new Error(
                     `Your plan allows ${cap} linux sandbox${cap === 1 ? "" : "es"} — upgrade to add more`,
@@ -91,7 +67,7 @@ export async function deleteSandbox(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID_RE.test(id)) throw new Error("Invalid id");
+    if (!UUID.test(id)) throw new Error("Invalid id");
 
     // ownership check before we touch any runtime resource
     const { rows } = await db.query(
@@ -121,7 +97,7 @@ export async function resetSandboxAction(formData: FormData): Promise<ActionResu
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID_RE.test(id)) return { error: "Invalid id" };
+    if (!UUID.test(id)) return { error: "Invalid id" };
 
     // ownership: the sandbox must exist, be a sandbox kind, and belong to the user
     const { rows } = await db.query(
@@ -140,7 +116,7 @@ export async function stopSandboxAction(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID_RE.test(id)) throw new Error("Invalid id");
+    if (!UUID.test(id)) throw new Error("Invalid id");
 
     const { rows } = await db.query(
         "select id from registry_entry where id = $1 and user_id = $2 and kind = 'sandbox'",
