@@ -77,10 +77,11 @@ export const LIT_CHAR_W = 7.2; // Geist Mono advance at text-xs (12px)
 export const NUM_W = 80;
 
 // generic rectangular nodes (integration actions, extension-event nodes) size
-// to their own contents — header label, port labels, and config rows (label
-// column + placeholder-sized input) — so nothing truncates. Same deterministic
-// mono-advance approach as literalMetrics; see rectWidth below.
-export const CFG_LABEL_CW = 6; // ≈ LIT_CHAR_W × 10/12 — the text-[10px] label column / port labels
+// to their own contents — header label, port labels, and config rows
+// (placeholder-sized input; field labels render as placeholders, not a
+// column) — so nothing truncates. Same deterministic mono-advance approach as
+// literalMetrics; see rectWidth below.
+export const CFG_LABEL_CW = 6; // ≈ LIT_CHAR_W × 10/12 — the text-[10px] port labels
 export const RECT_MAX_W = 380; // width cap (long text past this still ellipsizes)
 export const RECT_INPUT_MIN_CH = 10; // input column floor (short/unknown select+number content)
 export const RECT_INPUT_PAD = 12; // input px-1 + border + advance slack so placeholders don't clip
@@ -206,20 +207,14 @@ export function rectWidth(entry: CatalogEntry): number {
     }
 
     // config rows: left space — a paired field renders an inline port marker +
-    // its gap-1.5 before the label, an unpaired field just pads pl-2 (8) — then
-    // label column + gap-1.5 (6) + input + pr-2 (8) + json-path picker (~24)
+    // its gap-1.5 before the control, an unpaired field just pads pl-2 (8) —
+    // then the input (labels render as placeholders now, so the column sizes
+    // from whichever is longer) + pr-2 (8) + json-path picker (~24)
     for (const f of entry.config ?? []) {
         const leftSpace = f.overriddenBy ? PORT_MARKER_W + 6 : 8;
-        const inputCh = Math.max(f.placeholder?.length ?? 0, RECT_INPUT_MIN_CH);
+        const inputCh = Math.max(f.placeholder?.length ?? 0, f.label.length, RECT_INPUT_MIN_CH);
         const picker = f.picker === "json-path" ? 24 : 0;
-        const rowW =
-            leftSpace +
-            f.label.length * CFG_LABEL_CW +
-            6 +
-            inputCh * LIT_CHAR_W +
-            RECT_INPUT_PAD +
-            8 +
-            picker;
+        const rowW = leftSpace + inputCh * LIT_CHAR_W + RECT_INPUT_PAD + 8 + picker;
         w = Math.max(w, rowW);
     }
 

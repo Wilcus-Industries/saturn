@@ -265,6 +265,13 @@ export default memo(function Node({
     const dragActive = connectable !== "";
     const connectableSet =
         connectable && connectable !== "-" ? new Set(connectable.split(",")) : null;
+    // port-name labels are quiet by default: visible only while the node is
+    // hovered (the wrapper carries `group`) or an edge drag is live (labels are
+    // the map mid-drag). Opacity only, NEVER conditional render — the spans
+    // keep occupying layout so rectWidth/geometry stay honest.
+    const labelVis = `transition-opacity ${
+        dragActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+    }`;
     // variable-drop affordance: split "kind|hoveredFieldId". varDragActive lights
     // up every snap slot on this node; varHoverField (may be "") is the one
     // under the pointer, highlighted stronger. varDragColor picks the accent.
@@ -532,7 +539,7 @@ export default memo(function Node({
                                 })
                             }
                             className={
-                                "w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 text-center font-mono text-[10px]"
+                                "w-full min-w-0 rounded bg-foreground/5 px-1 py-0.5 text-center font-mono text-[10px] focus:outline-none focus-visible:ring-1 focus-visible:ring-foreground/40"
                             }
                         />
                     )}
@@ -1000,8 +1007,8 @@ export default memo(function Node({
                                 const r = e.currentTarget.getBoundingClientRect();
                                 onOpenSystem?.({ x: r.left, y: r.bottom + 4 }, node.id);
                             }}
-                            className={`w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 text-left font-mono text-[10px] ${
-                                overridden ? "opacity-40" : "hover:border-foreground/40"
+                            className={`w-full min-w-0 rounded bg-foreground/5 px-1 py-0.5 text-left font-mono text-[10px] ${
+                                overridden ? "opacity-40" : "hover:bg-foreground/10"
                             }`}
                         >
                             {set ? "set" : "—"}
@@ -1033,7 +1040,7 @@ export default memo(function Node({
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width }}
-                className={`absolute bg-background font-mono text-xs ${
+                className={`group absolute bg-background font-mono text-xs ${
                     selected ? "outline outline-1 outline-foreground" : ""
                 }`}
                 onPointerDown={onPointerDown}
@@ -1072,9 +1079,7 @@ export default memo(function Node({
                         >
                             <span
                                 style={{ height: AGENT_LABEL_H }}
-                                className={
-                                    "w-full truncate px-0.5 text-center text-[9px] leading-4 text-gray-400"
-                                }
+                                className={`w-full truncate px-0.5 text-center text-[9px] leading-4 text-gray-400 ${labelVis}`}
                             >
                                 {spec.label}
                             </span>
@@ -1113,7 +1118,9 @@ export default memo(function Node({
                             style={{ right: 0, top: y, transform: "translateY(-50%)" }}
                         >
                             {!isGenericLabel(spec.label) && (
-                                <span className={"mr-1 text-[9px] leading-none text-gray-400"}>
+                                <span
+                                    className={`mr-1 text-[9px] leading-none text-gray-400 ${labelVis}`}
+                                >
                                     {spec.label}
                                 </span>
                             )}
@@ -1137,7 +1144,7 @@ export default memo(function Node({
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width: IF_W }}
-                className={`absolute bg-background font-mono text-xs ${
+                className={`group absolute bg-background font-mono text-xs ${
                     selected ? "outline outline-1 outline-foreground" : ""
                 }`}
                 onPointerDown={onPointerDown}
@@ -1210,7 +1217,7 @@ export default memo(function Node({
                                 </span>
                                 {!isGenericLabel(spec.label) && (
                                     <span
-                                        className={"absolute text-[9px] leading-none text-gray-400"}
+                                        className={`absolute text-[9px] leading-none text-gray-400 ${labelVis}`}
                                         style={{ left: 8, top: y, transform: "translateY(-50%)" }}
                                     >
                                         {spec.label}
@@ -1232,7 +1239,7 @@ export default memo(function Node({
                                     {port(spec, "out", "")}
                                 </span>
                                 <span
-                                    className={"absolute text-[9px] leading-none text-gray-400"}
+                                    className={`absolute text-[9px] leading-none text-gray-400 ${labelVis}`}
                                     style={{ right: 8, top: y, transform: "translateY(-50%)" }}
                                 >
                                     {spec.label}
@@ -1260,7 +1267,7 @@ export default memo(function Node({
         <div
             data-node-id={node.id}
             style={{ left: node.x, top: node.y, width: nodeWidth(entry, node) }}
-            className={`absolute bg-background pb-1 font-mono text-xs ${
+            className={`group absolute bg-background pb-1 font-mono text-xs ${
                 selected ? "outline outline-1 outline-foreground" : ""
             } ${entry.missing ? "opacity-50" : ""}`}
             onPointerDown={onPointerDown}
@@ -1292,7 +1299,9 @@ export default memo(function Node({
                             <>
                                 {port(input, "in")}
                                 {!isGenericLabel(input.label) && (
-                                    <span className={"truncate text-[10px] text-gray-400"}>
+                                    <span
+                                        className={`truncate text-[10px] text-gray-400 ${labelVis}`}
+                                    >
                                         {input.label}
                                     </span>
                                 )}
@@ -1303,7 +1312,9 @@ export default memo(function Node({
                         {output && (
                             <>
                                 {!isGenericLabel(output.label) && (
-                                    <span className={"truncate text-[10px] text-gray-400"}>
+                                    <span
+                                        className={`truncate text-[10px] text-gray-400 ${labelVis}`}
+                                    >
                                         {output.label}
                                     </span>
                                 )}
@@ -1340,7 +1351,7 @@ export default memo(function Node({
                             ) : (
                                 port(pairedPort, "in", "-ml-1.5", overriddenSet.has(field.id))
                             )}
-                            <span className={"truncate text-[10px] text-gray-400"}>
+                            <span className={`truncate text-[10px] text-gray-400 ${labelVis}`}>
                                 {field.label}
                             </span>
                         </div>
@@ -1469,7 +1480,7 @@ export default memo(function Node({
                                         );
                                     }}
                                     className={
-                                        "shrink-0 border border-foreground/15 px-1 py-0.5 text-[10px] text-gray-400 hover:text-foreground"
+                                        "shrink-0 rounded bg-foreground/5 px-1 py-0.5 text-[10px] text-gray-400 hover:text-foreground"
                                     }
                                 >
                                     {"{}"}

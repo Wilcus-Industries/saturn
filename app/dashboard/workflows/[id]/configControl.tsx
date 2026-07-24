@@ -46,10 +46,14 @@ export default function ConfigControl({
     onFocus: () => void;
     onBlur: () => void;
 }) {
-    // stopPropagation keeps a press on the control from starting a node drag
+    // stopPropagation keeps a press on the control from starting a node drag.
+    // Controls are borderless (bare fill + focus ring) — the config rows no
+    // longer render a label column, so the field's label doubles as the
+    // placeholder (callers pass it through field.placeholder) and as a hover
+    // title here for discoverability.
     const stop = (e: ReactPointerEvent) => e.stopPropagation();
-    const base = `w-full min-w-0 border border-foreground/15 px-1 py-0.5 font-mono transition-[background-color,box-shadow] ${
-        highlight || "bg-background"
+    const base = `w-full min-w-0 rounded px-1 py-0.5 font-mono transition-[background-color,box-shadow] focus:outline-none focus-visible:ring-1 focus-visible:ring-foreground/40 ${
+        highlight || "bg-foreground/5"
     } ${fontClass}`;
 
     if (field.input === "select") {
@@ -66,7 +70,7 @@ export default function ConfigControl({
             ? field.id === "reasoning"
                 ? "model has no reasoning setting — pick a reasoning-capable model"
                 : "output modalities unknown — set a model from the OpenRouter list"
-            : disabledTitle;
+            : (disabledTitle ?? field.label);
         return (
             <select
                 value={value}
@@ -78,7 +82,11 @@ export default function ConfigControl({
                 onChange={(e) => onChange(e.target.value)}
                 className={`${base} ${off ? "opacity-40" : ""}`}
             >
-                <option value={""} hidden />
+                {/* selects have no placeholder — an unset select reads its
+                    field label through the hidden empty option instead */}
+                <option value={""} hidden>
+                    {field.label}
+                </option>
                 {options.map((opt) => (
                     <option key={opt} value={opt}>
                         {opt}
@@ -93,7 +101,7 @@ export default function ConfigControl({
             <textarea
                 value={value}
                 disabled={disabled}
-                title={disabledTitle}
+                title={disabledTitle ?? field.label}
                 rows={3}
                 maxLength={4000}
                 placeholder={field.placeholder}
@@ -111,7 +119,7 @@ export default function ConfigControl({
             type={field.input}
             value={value}
             disabled={disabled}
-            title={disabledTitle}
+            title={disabledTitle ?? field.label}
             placeholder={field.placeholder}
             onPointerDown={stop}
             onFocus={onFocus}
