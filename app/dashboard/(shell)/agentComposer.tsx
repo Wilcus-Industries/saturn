@@ -19,6 +19,10 @@ const MAX_LISTED = 120;
 // mirrors the agent node's reasoning select (executeAgentTurn allowlist)
 const REASONING_LEVELS = ["off", "low", "medium", "high"] as const;
 
+// OpenRouter names read "Author: Model" — the trigger chip drops the author
+// (the logo already says who made it); list rows keep the full name
+const shortName = (name: string) => name.replace(/^[^:]+:\s*/, "");
+
 // visual-only composer — submit clears the box, model wiring comes later
 export default function AgentComposer({ models }: { models: OpenrouterModel[] }) {
     const [value, setValue] = useState("");
@@ -124,7 +128,7 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                         (open ? "text-foreground" : "")
                     }
                 >
-                    <span>{selected?.name ?? model}</span>
+                    <span>{shortName(selected?.name ?? model)}</span>
                     <span className={"shrink-0 overflow-hidden rounded-full"}>
                         <ModelLogo slug={model} name={selected?.name ?? model} size={16} />
                     </span>
