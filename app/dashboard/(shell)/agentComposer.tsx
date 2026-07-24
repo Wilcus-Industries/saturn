@@ -29,6 +29,7 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
     const [model, setModel] = useState(DEFAULT_MODEL);
     const [reasoning, setReasoning] = useState("medium");
     const [open, setOpen] = useState(false);
+    const [effortOpen, setEffortOpen] = useState(false);
     const [q, setQ] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -203,33 +204,96 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                 )}
 
                 {selected?.supportsReasoning && (
-                    <label className={"group relative ml-3 inline-flex cursor-pointer items-center"}>
-                        <span className={"sr-only"}>Reasoning effort</span>
-                        <select
-                            value={reasoning}
-                            onChange={(e) => setReasoning(e.target.value)}
+                    <div className={"relative ml-3 inline-flex items-center"}>
+                        <button
+                            type={"button"}
+                            aria-haspopup={"dialog"}
+                            aria-expanded={effortOpen}
+                            aria-label={`Reasoning effort: ${reasoning}`}
+                            onClick={() => setEffortOpen((o) => !o)}
                             className={
-                                "cursor-pointer appearance-none bg-transparent py-1 pr-5 pl-1 " +
-                                // sizes to the selected label where supported; fallback = widest option
-                                "[field-sizing:content] " +
-                                "font-mono text-xs text-gray-400 outline-none transition-colors " +
-                                "group-hover:text-foreground focus-visible:text-foreground"
+                                "flex cursor-pointer items-center gap-1.5 py-1 px-1 font-mono " +
+                                "text-xs text-gray-400 transition-colors hover:text-foreground " +
+                                (effortOpen ? "text-foreground" : "")
                             }
                         >
-                            {REASONING_LEVELS.map((r) => (
-                                <option key={r} value={r} className={"bg-background text-foreground"}>
-                                    reasoning: {r}
-                                </option>
-                            ))}
-                        </select>
-                        <FaChevronDown
-                            aria-hidden
-                            className={
-                                "pointer-events-none absolute right-1 h-2.5 w-2.5 text-gray-400 " +
-                                "transition-colors group-hover:text-foreground"
-                            }
-                        />
-                    </label>
+                            <span>{reasoning}</span>
+                            <FaChevronDown
+                                aria-hidden
+                                className={`h-2.5 w-2.5 transition-transform ${effortOpen ? "rotate-180" : ""}`}
+                            />
+                        </button>
+
+                        {effortOpen && (
+                            <>
+                                <div className={"fixed inset-0 z-10"} onClick={() => setEffortOpen(false)} />
+                                <div
+                                    role={"dialog"}
+                                    aria-label={"Reasoning effort"}
+                                    className={
+                                        "absolute bottom-full left-0 z-20 mb-2 w-64 border " +
+                                        "border-foreground/15 bg-background p-3 " +
+                                        "shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)]"
+                                    }
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Escape") setEffortOpen(false);
+                                    }}
+                                >
+                                    <p className={"font-mono text-xs"}>
+                                        <span className={"text-gray-400"}>effort</span> {reasoning}
+                                    </p>
+                                    <div
+                                        className={
+                                            "mt-3 flex justify-between font-mono text-[10px] text-gray-400"
+                                        }
+                                    >
+                                        <span>faster</span>
+                                        <span>smarter</span>
+                                    </div>
+                                    {/* stop buttons carry the interaction; thumb + dots are paint */}
+                                    <div className={"relative mt-1.5 flex h-6 items-center"}>
+                                        <div
+                                            aria-hidden
+                                            className={"absolute inset-x-0 h-4 rounded-full bg-foreground/10"}
+                                        />
+                                        {REASONING_LEVELS.map((r, i) => {
+                                            const active = r === reasoning;
+                                            return (
+                                                <button
+                                                    key={r}
+                                                    type={"button"}
+                                                    title={r}
+                                                    aria-label={`effort: ${r}`}
+                                                    aria-pressed={active}
+                                                    onClick={() => setReasoning(r)}
+                                                    className={
+                                                        "relative flex h-6 flex-1 cursor-pointer " +
+                                                        "items-center " +
+                                                        (i === 0
+                                                            ? "justify-start"
+                                                            : i === REASONING_LEVELS.length - 1
+                                                              ? "justify-end"
+                                                              : "justify-center")
+                                                    }
+                                                >
+                                                    <span
+                                                        aria-hidden
+                                                        className={
+                                                            "rounded-full transition-all " +
+                                                            (active
+                                                                ? "h-4 w-3 bg-foreground/80"
+                                                                : "h-1.5 w-1.5 bg-foreground/30 " +
+                                                                  "group-hover:bg-foreground/50")
+                                                        }
+                                                    />
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 )}
             </div>
         </form>
