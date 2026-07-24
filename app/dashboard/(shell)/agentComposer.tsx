@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FaArrowUp, FaChevronDown } from "react-icons/fa6";
 import ModelLogo from "@/app/dashboard/workflows/[id]/modelLogo";
 import type { OpenrouterModel } from "@/lib/openrouter.server";
@@ -32,6 +32,22 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
     const [effortOpen, setEffortOpen] = useState(false);
     const [q, setQ] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const pickersRef = useRef<HTMLDivElement>(null);
+
+    // outside-click dismissal via document listener — a fixed backdrop div
+    // gets trapped under the hero's entrance-animation stacking context
+    useEffect(() => {
+        if (!open && !effortOpen) return;
+        const onDown = (e: PointerEvent) => {
+            if (pickersRef.current && !pickersRef.current.contains(e.target as Node)) {
+                setOpen(false);
+                setQ("");
+                setEffortOpen(false);
+            }
+        };
+        document.addEventListener("pointerdown", onDown);
+        return () => document.removeEventListener("pointerdown", onDown);
+    }, [open, effortOpen]);
 
     const all = models.length > 0 ? models : FALLBACK_MODELS;
     const selected = all.find((m) => m.id === model);
@@ -129,13 +145,16 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                 </button>
             </div>
 
-            <div className={"relative flex items-center"}>
+            <div ref={pickersRef} className={"relative flex items-center"}>
                 <button
                     type={"button"}
                     aria-haspopup={"listbox"}
                     aria-expanded={open}
                     title={model}
-                    onClick={() => setOpen((o) => !o)}
+                    onClick={() => {
+                        setOpen((o) => !o);
+                        setEffortOpen(false);
+                    }}
                     className={
                         "group flex cursor-pointer items-center gap-1.5 py-1 px-1 font-mono " +
                         "text-xs text-gray-400 transition-colors hover:text-foreground " +
@@ -154,8 +173,6 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
 
                 {open && (
                     <>
-                        {/* backdrop closes on any outside click */}
-                        <div className={"fixed inset-0 z-10"} onClick={() => setOpen(false)} />
                         <div
                             role={"listbox"}
                             aria-label={"Model"}
@@ -223,7 +240,10 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                             aria-haspopup={"dialog"}
                             aria-expanded={effortOpen}
                             aria-label={`Reasoning effort: ${reasoning}`}
-                            onClick={() => setEffortOpen((o) => !o)}
+                            onClick={() => {
+                                setEffortOpen((o) => !o);
+                                setOpen(false);
+                            }}
                             className={
                                 "flex cursor-pointer items-center gap-1.5 py-1 px-1 font-mono " +
                                 "text-xs text-gray-400 transition-colors hover:text-foreground " +
@@ -239,7 +259,6 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
 
                         {effortOpen && (
                             <>
-                                <div className={"fixed inset-0 z-10"} onClick={() => setEffortOpen(false)} />
                                 <div
                                     role={"dialog"}
                                     aria-label={"Reasoning effort"}
