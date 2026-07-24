@@ -125,7 +125,9 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                     }
                 >
                     <span>{selected?.name ?? model}</span>
-                    <ModelLogo slug={model} name={selected?.name ?? model} size={16} />
+                    <span className={"shrink-0 overflow-hidden rounded-full"}>
+                        <ModelLogo slug={model} name={selected?.name ?? model} size={16} />
+                    </span>
                     <FaChevronDown
                         aria-hidden
                         className={`h-2.5 w-2.5 transition-transform ${open ? "rotate-180" : ""}`}
@@ -176,7 +178,9 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                                         }
                                     >
                                         <span className={"min-w-0 flex-1 truncate"}>{m.name}</span>
-                                        <ModelLogo slug={m.id} name={m.name} size={16} />
+                                        <span className={"shrink-0 overflow-hidden rounded-full"}>
+                                            <ModelLogo slug={m.id} name={m.name} size={16} />
+                                        </span>
                                     </button>
                                 ))}
                                 {listed.rows.length === 0 && (
