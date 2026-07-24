@@ -26,7 +26,7 @@ export const DELETE = methodNotAllowed;
 
 export async function POST(req: Request): Promise<Response> {
     // 1. feature gate — unset secret means the app isn't registered; 404 so the
-    // endpoint is indistinguishable from not existing (poller-only mode)
+    // endpoint is indistinguishable from not existing (github events disabled)
     if (!githubWebhookConfigured()) return new Response("Not Found", { status: 404 });
     const secret = process.env.GITHUB_WEBHOOK_SECRET as string;
 
