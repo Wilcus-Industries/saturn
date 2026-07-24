@@ -1398,9 +1398,6 @@ export default memo(function Node({
                     } ${field.input === "textarea" ? "h-[72px]" : "h-9"}`}
                 >
                     {pairedPort && port(pairedPort, "in")}
-                    <span className={"shrink-0 whitespace-nowrap text-[10px] text-gray-400"}>
-                        {field.label}
-                    </span>
                     {snappedId ? (
                         <span
                             className={`flex min-w-0 flex-1 items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-[background-color,box-shadow] ${
@@ -1434,7 +1431,13 @@ export default memo(function Node({
                     ) : (
                         <>
                             <ConfigControl
-                                field={field}
+                                // field labels no longer render as a column —
+                                // the label doubles as the placeholder (and a
+                                // hover title inside ConfigControl) instead
+                                field={{
+                                    ...field,
+                                    placeholder: field.placeholder || field.label,
+                                }}
                                 value={node.config[field.id] ?? ""}
                                 disabled={overridden}
                                 disabledTitle={overridden ? "set by connected edge" : undefined}
