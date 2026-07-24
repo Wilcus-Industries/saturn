@@ -615,7 +615,18 @@ export default memo(function Node({
                     // category frame via entryStyles (amber for events)
                     className={`relative flex ${clickOpens ? "cursor-pointer hover:brightness-110" : "cursor-grab"} items-center justify-center rounded-full border ${styles.border} bg-background ${styles.headerBg}`}
                 >
-                    {entry.logoDomain ? (
+                    {entry.key === "run" ? (
+                        // manual "on run" node: green play glyph matching the
+                        // topbar run button (not the raw ▶ emoji, which renders
+                        // off-center and unstyled)
+                        <span
+                            className={
+                                "translate-x-[2px] text-2xl leading-none text-green-600 dark:text-green-400"
+                            }
+                        >
+                            {"▶"}
+                        </span>
+                    ) : entry.logoDomain ? (
                         <McpLogo domain={entry.logoDomain} name={entry.label} size={32} round />
                     ) : entry.emoji ? (
                         <span className={"text-2xl leading-none"}>{entry.emoji}</span>
