@@ -58,7 +58,6 @@ import {
     MODEL_D,
     nodeHeight,
     nodeWidth,
-    pairedConfigFields,
     SANDBOX_CHIP,
     SKILL_CHIP,
     unpairedInputs,
@@ -146,10 +145,7 @@ export type OpenSystemHandler = (
 // band's height comes straight from HEADER_H, h-6 port rows = PORT_ROW_H 24,
 // h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
-// bottom pad. Generic rects COLLAPSE when unselected: config rows vanish and
-// each paired config port folds into an h-6 row of its own (nodeHeight /
-// portGeometry expanded flag — expansion is selection-driven, threaded from
-// the canvas). Model nodes render circular: MODEL_D 54 plus an
+// bottom pad. Model nodes render circular: MODEL_D 54 plus an
 // h-6 name strip = MODEL_LABEL_H 24. Input-less event nodes (schedule) render
 // circular too: h-12 w-12 = EVENT_H 48 × EVENT_W 48 plus an h-6 label strip =
 // EVENT_LABEL_H 24. Change sizes only via geometry.ts. Frames come from NodeFrame (an inset
@@ -265,13 +261,6 @@ export default memo(function Node({
     const dragActive = connectable !== "";
     const connectableSet =
         connectable && connectable !== "-" ? new Set(connectable.split(",")) : null;
-    // port-name labels are quiet by default: visible only while the node is
-    // hovered (the wrapper carries `group`) or an edge drag is live (labels are
-    // the map mid-drag). Opacity only, NEVER conditional render — the spans
-    // keep occupying layout so rectWidth/geometry stay honest.
-    const labelVis = `transition-opacity ${
-        dragActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-    }`;
     // variable-drop affordance: split "kind|hoveredFieldId". varDragActive lights
     // up every snap slot on this node; varHoverField (may be "") is the one
     // under the pointer, highlighted stronger. varDragColor picks the accent.
@@ -395,9 +384,6 @@ export default memo(function Node({
         // rectangular rows straddle the node edge via a negative margin; the
         // circular model branch positions the port itself and passes ""
         marginClass = dir === "in" ? "-ml-1.5" : "-mr-1.5",
-        // a collapsed paired port with a connected edge renders filled (●) —
-        // the cheapest honest "something feeds this" cue when config is hidden
-        filled = false,
     ) => {
         // honest highlighting: only legal drop targets scale + glow; during a
         // drag every other port on this node dims (opacity-40). No drag → normal.
@@ -442,8 +428,6 @@ export default memo(function Node({
                 markers are rotation-agnostic so no branch needs to spin them. */}
             {spec.kind === "flow" ? (
                 <span className={"h-[7px] w-[7px] rotate-45 bg-current"} />
-            ) : filled ? (
-                "●"
             ) : (
                 "○"
             )}
@@ -539,7 +523,7 @@ export default memo(function Node({
                                 })
                             }
                             className={
-                                "w-full min-w-0 rounded bg-foreground/5 px-1 py-0.5 text-center font-mono text-[10px] focus:outline-none focus-visible:ring-1 focus-visible:ring-foreground/40"
+                                "w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 text-center font-mono text-[10px]"
                             }
                         />
                     )}
@@ -1007,8 +991,8 @@ export default memo(function Node({
                                 const r = e.currentTarget.getBoundingClientRect();
                                 onOpenSystem?.({ x: r.left, y: r.bottom + 4 }, node.id);
                             }}
-                            className={`w-full min-w-0 rounded bg-foreground/5 px-1 py-0.5 text-left font-mono text-[10px] ${
-                                overridden ? "opacity-40" : "hover:bg-foreground/10"
+                            className={`w-full min-w-0 border border-foreground/15 bg-background px-1 py-0.5 text-left font-mono text-[10px] ${
+                                overridden ? "opacity-40" : "hover:border-foreground/40"
                             }`}
                         >
                             {set ? "set" : "—"}
@@ -1040,7 +1024,7 @@ export default memo(function Node({
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width }}
-                className={`group absolute bg-background font-mono text-xs ${
+                className={`absolute bg-background font-mono text-xs ${
                     selected ? "outline outline-1 outline-foreground" : ""
                 }`}
                 onPointerDown={onPointerDown}
@@ -1079,7 +1063,9 @@ export default memo(function Node({
                         >
                             <span
                                 style={{ height: AGENT_LABEL_H }}
-                                className={`w-full truncate px-0.5 text-center text-[9px] leading-4 text-gray-400 ${labelVis}`}
+                                className={
+                                    "w-full truncate px-0.5 text-center text-[9px] leading-4 text-gray-400"
+                                }
                             >
                                 {spec.label}
                             </span>
@@ -1118,9 +1104,7 @@ export default memo(function Node({
                             style={{ right: 0, top: y, transform: "translateY(-50%)" }}
                         >
                             {!isGenericLabel(spec.label) && (
-                                <span
-                                    className={`mr-1 text-[9px] leading-none text-gray-400 ${labelVis}`}
-                                >
+                                <span className={"mr-1 text-[9px] leading-none text-gray-400"}>
                                     {spec.label}
                                 </span>
                             )}
@@ -1144,7 +1128,7 @@ export default memo(function Node({
             <div
                 data-node-id={node.id}
                 style={{ left: node.x, top: node.y, width: IF_W }}
-                className={`group absolute bg-background font-mono text-xs ${
+                className={`absolute bg-background font-mono text-xs ${
                     selected ? "outline outline-1 outline-foreground" : ""
                 }`}
                 onPointerDown={onPointerDown}
@@ -1217,7 +1201,7 @@ export default memo(function Node({
                                 </span>
                                 {!isGenericLabel(spec.label) && (
                                     <span
-                                        className={`absolute text-[9px] leading-none text-gray-400 ${labelVis}`}
+                                        className={"absolute text-[9px] leading-none text-gray-400"}
                                         style={{ left: 8, top: y, transform: "translateY(-50%)" }}
                                     >
                                         {spec.label}
@@ -1239,7 +1223,7 @@ export default memo(function Node({
                                     {port(spec, "out", "")}
                                 </span>
                                 <span
-                                    className={`absolute text-[9px] leading-none text-gray-400 ${labelVis}`}
+                                    className={"absolute text-[9px] leading-none text-gray-400"}
                                     style={{ right: 8, top: y, transform: "translateY(-50%)" }}
                                 >
                                     {spec.label}
@@ -1267,7 +1251,7 @@ export default memo(function Node({
         <div
             data-node-id={node.id}
             style={{ left: node.x, top: node.y, width: nodeWidth(entry, node) }}
-            className={`group absolute bg-background pb-1 font-mono text-xs ${
+            className={`absolute bg-background pb-1 font-mono text-xs ${
                 selected ? "outline outline-1 outline-foreground" : ""
             } ${entry.missing ? "opacity-50" : ""}`}
             onPointerDown={onPointerDown}
@@ -1299,9 +1283,7 @@ export default memo(function Node({
                             <>
                                 {port(input, "in")}
                                 {!isGenericLabel(input.label) && (
-                                    <span
-                                        className={`truncate text-[10px] text-gray-400 ${labelVis}`}
-                                    >
+                                    <span className={"truncate text-[10px] text-gray-400"}>
                                         {input.label}
                                     </span>
                                 )}
@@ -1312,9 +1294,7 @@ export default memo(function Node({
                         {output && (
                             <>
                                 {!isGenericLabel(output.label) && (
-                                    <span
-                                        className={`truncate text-[10px] text-gray-400 ${labelVis}`}
-                                    >
+                                    <span className={"truncate text-[10px] text-gray-400"}>
                                         {output.label}
                                     </span>
                                 )}
@@ -1325,40 +1305,7 @@ export default memo(function Node({
                 </div>
             ))}
 
-            {/* COLLAPSED (unselected): config rows disappear and each paired
-                config port folds into a PORT_ROW_H row of its own, in
-                config-field order — must mirror nodeHeight/portGeometry's
-                collapsed branch exactly (geometry.ts pairedConfigFields). A
-                snapped variable renders a ⚿ glyph in the port slot (value held
-                directly, nothing connectable); a connected paired port renders
-                filled (●) since the edge is the only remaining cue. */}
-            {!selected &&
-                pairedConfigFields(entry).map((field) => {
-                    const snappedId =
-                        field.input !== "select"
-                            ? variableIdFromSentinel(node.config[field.id] ?? "")
-                            : null;
-                    const pairedPort = entry.inputs.find((p) => p.id === field.overriddenBy);
-                    return (
-                        <div key={field.id} className={"flex h-6 items-center gap-1"}>
-                            {snappedId || !pairedPort ? (
-                                <span
-                                    aria-hidden
-                                    className={`-ml-1.5 flex shrink-0 items-center justify-center text-[10px] leading-none ${styles.text}`}
-                                >
-                                    {"⚿"}
-                                </span>
-                            ) : (
-                                port(pairedPort, "in", "-ml-1.5", overriddenSet.has(field.id))
-                            )}
-                            <span className={`truncate text-[10px] text-gray-400 ${labelVis}`}>
-                                {field.label}
-                            </span>
-                        </div>
-                    );
-                })}
-
-            {selected && entry.config?.map((field) => {
+            {entry.config?.map((field) => {
                 // a config field with a paired value port can hold a variable
                 // directly: dropping a variable stores its {{var:<uuid>}}
                 // sentinel here, the box shows a token, and the ○ port is
@@ -1409,6 +1356,9 @@ export default memo(function Node({
                     } ${field.input === "textarea" ? "h-[72px]" : "h-9"}`}
                 >
                     {pairedPort && port(pairedPort, "in")}
+                    <span className={"shrink-0 whitespace-nowrap text-[10px] text-gray-400"}>
+                        {field.label}
+                    </span>
                     {snappedId ? (
                         <span
                             className={`flex min-w-0 flex-1 items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-[background-color,box-shadow] ${
@@ -1442,13 +1392,7 @@ export default memo(function Node({
                     ) : (
                         <>
                             <ConfigControl
-                                // field labels no longer render as a column —
-                                // the label doubles as the placeholder (and a
-                                // hover title inside ConfigControl) instead
-                                field={{
-                                    ...field,
-                                    placeholder: field.placeholder || field.label,
-                                }}
+                                field={field}
                                 value={node.config[field.id] ?? ""}
                                 disabled={overridden}
                                 disabledTitle={overridden ? "set by connected edge" : undefined}
@@ -1480,7 +1424,7 @@ export default memo(function Node({
                                         );
                                     }}
                                     className={
-                                        "shrink-0 rounded bg-foreground/5 px-1 py-0.5 text-[10px] text-gray-400 hover:text-foreground"
+                                        "shrink-0 border border-foreground/15 px-1 py-0.5 text-[10px] text-gray-400 hover:text-foreground"
                                     }
                                 >
                                     {"{}"}
