@@ -58,6 +58,7 @@ import {
     MODEL_D,
     nodeHeight,
     nodeWidth,
+    pairedConfigFields,
     SANDBOX_CHIP,
     SKILL_CHIP,
     unpairedInputs,
@@ -145,7 +146,10 @@ export type OpenSystemHandler = (
 // band's height comes straight from HEADER_H, h-6 port rows = PORT_ROW_H 24,
 // h-9 config rows =
 // CONFIG_ROW_H 36 (h-[72px] textarea rows = TEXTAREA_ROW_H 72), pb-1 = 4px
-// bottom pad. Model nodes render circular: MODEL_D 54 plus an
+// bottom pad. Generic rects COLLAPSE when unselected: config rows vanish and
+// each paired config port folds into an h-6 row of its own (nodeHeight /
+// portGeometry expanded flag — expansion is selection-driven, threaded from
+// the canvas). Model nodes render circular: MODEL_D 54 plus an
 // h-6 name strip = MODEL_LABEL_H 24. Input-less event nodes (schedule) render
 // circular too: h-12 w-12 = EVENT_H 48 × EVENT_W 48 plus an h-6 label strip =
 // EVENT_LABEL_H 24. Change sizes only via geometry.ts. Frames come from NodeFrame (an inset
@@ -384,6 +388,9 @@ export default memo(function Node({
         // rectangular rows straddle the node edge via a negative margin; the
         // circular model branch positions the port itself and passes ""
         marginClass = dir === "in" ? "-ml-1.5" : "-mr-1.5",
+        // a collapsed paired port with a connected edge renders filled (●) —
+        // the cheapest honest "something feeds this" cue when config is hidden
+        filled = false,
     ) => {
         // honest highlighting: only legal drop targets scale + glow; during a
         // drag every other port on this node dims (opacity-40). No drag → normal.
@@ -428,6 +435,8 @@ export default memo(function Node({
                 markers are rotation-agnostic so no branch needs to spin them. */}
             {spec.kind === "flow" ? (
                 <span className={"h-[7px] w-[7px] rotate-45 bg-current"} />
+            ) : filled ? (
+                "●"
             ) : (
                 "○"
             )}
@@ -1305,7 +1314,40 @@ export default memo(function Node({
                 </div>
             ))}
 
-            {entry.config?.map((field) => {
+            {/* COLLAPSED (unselected): config rows disappear and each paired
+                config port folds into a PORT_ROW_H row of its own, in
+                config-field order — must mirror nodeHeight/portGeometry's
+                collapsed branch exactly (geometry.ts pairedConfigFields). A
+                snapped variable renders a ⚿ glyph in the port slot (value held
+                directly, nothing connectable); a connected paired port renders
+                filled (●) since the edge is the only remaining cue. */}
+            {!selected &&
+                pairedConfigFields(entry).map((field) => {
+                    const snappedId =
+                        field.input !== "select"
+                            ? variableIdFromSentinel(node.config[field.id] ?? "")
+                            : null;
+                    const pairedPort = entry.inputs.find((p) => p.id === field.overriddenBy);
+                    return (
+                        <div key={field.id} className={"flex h-6 items-center gap-1"}>
+                            {snappedId || !pairedPort ? (
+                                <span
+                                    aria-hidden
+                                    className={`-ml-1.5 flex shrink-0 items-center justify-center text-[10px] leading-none ${styles.text}`}
+                                >
+                                    {"⚿"}
+                                </span>
+                            ) : (
+                                port(pairedPort, "in", "-ml-1.5", overriddenSet.has(field.id))
+                            )}
+                            <span className={"truncate text-[10px] text-gray-400"}>
+                                {field.label}
+                            </span>
+                        </div>
+                    );
+                })}
+
+            {selected && entry.config?.map((field) => {
                 // a config field with a paired value port can hold a variable
                 // directly: dropping a variable stores its {{var:<uuid>}}
                 // sentinel here, the box shows a token, and the ○ port is

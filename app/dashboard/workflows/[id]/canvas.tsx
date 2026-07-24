@@ -250,7 +250,7 @@ export default function Canvas({
             minX = Math.min(minX, n.x);
             minY = Math.min(minY, n.y);
             maxX = Math.max(maxX, n.x + nodeWidth(entry, n));
-            maxY = Math.max(maxY, n.y + nodeHeight(entry, n));
+            maxY = Math.max(maxY, n.y + nodeHeight(entry, n, selection.has(n.id)));
         }
         if (minX === Infinity) return;
         const rect = el.getBoundingClientRect();
@@ -448,7 +448,7 @@ export default function Canvas({
                         n.x < mx + mw &&
                         n.x + nodeWidth(entry, n) > mx &&
                         n.y < my + mh &&
-                        n.y + nodeHeight(entry, n) > my
+                        n.y + nodeHeight(entry, n, selection.has(n.id)) > my
                     );
                 })
                 .map((n) => n.id);
@@ -531,6 +531,7 @@ export default function Canvas({
                     byKey={byKey}
                     pending={pending}
                     selectedEdgeId={selectedEdgeId}
+                    expandedIds={selection}
                     onSelect={onSelectEdge}
                     onDelete={onDeleteEdge}
                 />
@@ -572,13 +573,13 @@ export default function Canvas({
                     ) {
                         const out = entry.outputs[0];
                         if (out) {
-                            const p = portPosition(node, entry, out.id, graph, byKey);
+                            const p = portPosition(node, entry, out.id, graph, byKey, selection);
                             outAnchor = `${p.x - node.x},${p.y - node.y}`;
                         }
                     } else if (isEventEntry(entry)) {
                         outAnchor = [...entry.inputs, ...entry.outputs]
                             .map((p) => {
-                                const pos = portPosition(node, entry, p.id, graph, byKey);
+                                const pos = portPosition(node, entry, p.id, graph, byKey, selection);
                                 return `${p.id}=${pos.x - node.x},${pos.y - node.y}`;
                             })
                             .join(";");

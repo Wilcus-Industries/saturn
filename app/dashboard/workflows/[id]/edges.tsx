@@ -149,6 +149,7 @@ function resolveEnd(
     byKey: Record<string, CatalogEntry>,
     ref: PortRef,
     dir: "in" | "out",
+    expandedIds: ReadonlySet<string>,
 ): End | null {
     const node = graph.nodes.find((n) => n.id === ref.nodeId);
     if (!node) return null;
@@ -156,8 +157,12 @@ function resolveEnd(
     if (!entry) return null;
     const ports = dir === "in" ? entry.inputs : entry.outputs;
     if (!ports.some((p) => p.id === ref.portId)) return null;
-    // graph+byKey let chip/model outputs rotate toward the agent they feed
-    return { ...portGeometry(node, entry, ref.portId, graph, byKey), color: entryStyles(entry).edge };
+    // graph+byKey let chip/model outputs rotate toward the agent they feed;
+    // expandedIds keeps paired-port anchors honest on collapsed rects
+    return {
+        ...portGeometry(node, entry, ref.portId, graph, byKey, expandedIds),
+        color: entryStyles(entry).edge,
+    };
 }
 
 export default function Edges({
@@ -165,6 +170,7 @@ export default function Edges({
     byKey,
     pending,
     selectedEdgeId,
+    expandedIds,
     onSelect,
     onDelete,
 }: {
@@ -173,6 +179,9 @@ export default function Edges({
     pending: PendingEdge | null;
     // the edge selected in the designer (mutually exclusive with node selection)
     selectedEdgeId: string | null;
+    // expanded (selected) node ids — collapsed rects fold their paired-port
+    // anchors into port rows, and edge endpoints must follow (geometry.ts)
+    expandedIds: ReadonlySet<string>;
     // stable designer callbacks: select sets selectedEdgeId + clears nodes;
     // delete dispatches the one-undo-step deleteEdge action
     onSelect: (id: string) => void;
@@ -182,8 +191,9 @@ export default function Edges({
 
     // a pending drag may start from an input port — try both sides, then bow
     // the curve away from whichever side the anchor sits on
-    const outAnchor = pending ? resolveEnd(graph, byKey, pending.from, "out") : null;
-    const inAnchor = pending && !outAnchor ? resolveEnd(graph, byKey, pending.from, "in") : null;
+    const outAnchor = pending ? resolveEnd(graph, byKey, pending.from, "out", expandedIds) : null;
+    const inAnchor =
+        pending && !outAnchor ? resolveEnd(graph, byKey, pending.from, "in", expandedIds) : null;
     const tp = pending?.toWorldPoint;
     // the dragged end follows the cursor with no edge to exit along (zero normal)
     const cursor = tp ? { x: tp.x, y: tp.y, nx: 0, ny: 0 } : null;
@@ -199,8 +209,8 @@ export default function Edges({
             style={{ pointerEvents: "none" }}
         >
             {graph.edges.map((edge) => {
-                const from = resolveEnd(graph, byKey, edge.from, "out");
-                const to = resolveEnd(graph, byKey, edge.to, "in");
+                const from = resolveEnd(graph, byKey, edge.from, "out", expandedIds);
+                const to = resolveEnd(graph, byKey, edge.to, "in", expandedIds);
                 if (!from || !to) return null;
                 const { d, mx, my } = curve(from, to);
                 return (

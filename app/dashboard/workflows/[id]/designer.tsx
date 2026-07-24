@@ -25,7 +25,6 @@ import {
     type ValidationIssue,
     validateGraphStrict,
     type WorkflowGraph,
-    type WorkflowNode,
     type WorkflowRow,
 } from "@/lib/workflow";
 import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
@@ -484,16 +483,20 @@ export default function Designer({
             // fresh object per spawn — never share a mutable config; catalog
             // field defaults seed first, a toolbox preset wins
             const config = { ...(entry ? defaultNodeConfig(entry) : {}), ...(preset ?? {}) };
+            const nodeId = crypto.randomUUID();
             dispatch({
                 type: "addNode",
                 node: {
-                    id: crypto.randomUUID(),
+                    id: nodeId,
                     type: spawnKey,
                     x: point.x - w / 2,
                     y: point.y - dy,
                     config,
                 },
             });
+            // a fresh drop lands selected → expanded (config rows visible), and
+            // selectNodes also clears any edge selection
+            selectNodes(new Set([nodeId]));
         },
         onCancel: () => {
             setSpawn(null);

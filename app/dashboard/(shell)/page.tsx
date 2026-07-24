@@ -10,10 +10,11 @@ export default async function Dashboard() {
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
 
-    // fill the viewport from inside the shell padding: mobile = h-12 top bar +
-    // p-4 (5rem), desktop = p-8 (4rem). min-h, not h — short viewports scroll.
+    // fill the viewport from inside the shell padding: mobile = two-row top bar
+    // (h-12 lockup + chip row ≈ 87px) + p-4 ≈ 119px, 7.5rem leaves 1px slack;
+    // desktop = p-8 (4rem). min-h, not h — short viewports scroll.
     return (
-        <div className={"flex min-h-[calc(100dvh-5rem)] flex-col md:min-h-[calc(100dvh-4rem)]"}>
+        <div className={"flex min-h-[calc(100dvh-7.5rem)] flex-col md:min-h-[calc(100dvh-4rem)]"}>
             <div
                 className={
                     "agent-enter -mt-4 flex flex-1 flex-col items-center justify-center gap-8 md:-mt-8"

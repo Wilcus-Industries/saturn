@@ -262,7 +262,21 @@ export const unpairedInputs = (entry: CatalogEntry): PortSpec[] => {
 const portRows = (entry: CatalogEntry): number =>
     Math.max(unpairedInputs(entry).length, entry.outputs.length);
 
-export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
+// the config fields whose paired port folds into its own PORT_ROW_H row when a
+// generic rect is COLLAPSED (unselected — see nodeHeight). Config-array order,
+// derived from the entry alone so anchors stay deterministic from
+// (entry, expanded) regardless of snapped-variable state.
+export const pairedConfigFields = (entry: CatalogEntry): ConfigField[] =>
+    (entry.config ?? []).filter(
+        (f) => !!f.overriddenBy && entry.inputs.some((p) => p.id === f.overriddenBy),
+    );
+
+// generic rects collapse when unselected: config rows disappear, and each
+// paired config port folds into a port row of its own below the zipped rows.
+// `expanded` is selection-driven (canvas passes selection.has(node.id));
+// default true keeps defensive callers on the full layout. Only the generic
+// rect branch reads it — every other shape has one fixed height.
+export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode, expanded = true): number {
     if (isModelEntry(entry)) return MODEL_D + MODEL_LABEL_H;
     if (isEventEntry(entry)) return EVENT_H + EVENT_LABEL_H;
     if (isIfEntry(entry)) return IF_H;
@@ -273,6 +287,13 @@ export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
             ? LIT_LINE_H + LIT_PAD_Y
             : literalMetrics(node?.config.value ?? "").height;
     if (isVariableEntry(entry)) return LIT_LINE_H + LIT_PAD_Y;
+    if (!expanded) {
+        return (
+            HEADER_H +
+            (portRows(entry) + pairedConfigFields(entry).length) * PORT_ROW_H +
+            4 // bottom pad
+        );
+    }
     return (
         HEADER_H +
         portRows(entry) * PORT_ROW_H +
@@ -303,6 +324,7 @@ function outputTargetCentroid(
     node: WorkflowNode,
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
+    expandedIds?: ReadonlySet<string>,
 ): { x: number; y: number } | null {
     let sx = 0;
     let sy = 0;
@@ -313,7 +335,7 @@ function outputTargetCentroid(
         if (!tn) continue;
         const te = byKey[tn.type];
         if (!te) continue;
-        const p = portPosition(tn, te, e.to.portId);
+        const p = portPosition(tn, te, e.to.portId, undefined, undefined, expandedIds);
         sx += p.x;
         sy += p.y;
         n += 1;
@@ -332,6 +354,7 @@ function portPeerCentroid(
     isInput: boolean,
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
+    expandedIds?: ReadonlySet<string>,
 ): { x: number; y: number } | null {
     let sx = 0;
     let sy = 0;
@@ -344,7 +367,7 @@ function portPeerCentroid(
         if (!pn) continue;
         const pe = byKey[pn.type];
         if (!pe) continue;
-        const p = portPosition(pn, pe, peer.portId);
+        const p = portPosition(pn, pe, peer.portId, undefined, undefined, expandedIds);
         sx += p.x;
         sy += p.y;
         n += 1;
@@ -367,6 +390,10 @@ export function portGeometry(
     portId: string,
     graph?: WorkflowGraph,
     byKey?: Record<string, CatalogEntry>,
+    // node ids currently EXPANDED (selected) — generic rects not in the set are
+    // collapsed, folding their paired config ports into left-edge port rows.
+    // Omitted (or undefined) = every node expanded, the defensive default.
+    expandedIds?: ReadonlySet<string>,
 ): PortGeometry {
     // model circle: output rides the circle's perimeter toward its target
     // (right-edge midline when unconnected); no inputs, the left branch is
@@ -377,7 +404,7 @@ export function portGeometry(
         const cy = node.y + r;
         if (entry.inputs.some((p) => p.id === portId))
             return { x: node.x, y: cy, nx: -1, ny: 0 };
-        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey, expandedIds) : null;
         if (!target) return { x: node.x + MODEL_D, y: cy, nx: 1, ny: 0 };
         const vx = target.x - cx;
         const vy = target.y - cy;
@@ -392,7 +419,7 @@ export function portGeometry(
         const r = EVENT_W / 2;
         const cx = node.x + r;
         const cy = node.y + EVENT_H / 2;
-        const peer = graph && byKey ? portPeerCentroid(node, portId, false, graph, byKey) : null;
+        const peer = graph && byKey ? portPeerCentroid(node, portId, false, graph, byKey, expandedIds) : null;
         if (!peer) return { x: node.x + EVENT_W, y: cy, nx: 1, ny: 0 };
         const vx = peer.x - cx;
         const vy = peer.y - cy;
@@ -435,7 +462,7 @@ export function portGeometry(
         const cy = node.y + half;
         if (entry.inputs.some((p) => p.id === portId))
             return { x: node.x, y: cy, nx: -1, ny: 0 };
-        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey, expandedIds) : null;
         if (!target) return { x: node.x + size, y: cy, nx: 1, ny: 0 };
         const vx = target.x - cx;
         const vy = target.y - cy;
@@ -458,7 +485,7 @@ export function portGeometry(
         const cy = node.y + h / 2;
         if (entry.inputs.some((p) => p.id === portId))
             return { x: node.x, y: cy, nx: -1, ny: 0 };
-        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey, expandedIds) : null;
         if (!target) return { x: node.x + w, y: cy, nx: 1, ny: 0 };
         const vx = target.x - cx;
         const vy = target.y - cy;
@@ -485,11 +512,19 @@ export function portGeometry(
 
     const rowY = (row: number) => node.y + HEADER_H + row * PORT_ROW_H + PORT_ROW_H / 2;
 
-    // paired inputs anchor at the vertical center of their config row,
-    // below every port row
+    // paired inputs: EXPANDED they anchor at the vertical center of their
+    // config row (below every port row); COLLAPSED (node not in expandedIds)
+    // the config rows are gone and each paired port folds into a PORT_ROW_H
+    // row of its own, appended after the zipped rows in config-field order —
+    // must match node.tsx's collapsed generic branch and nodeHeight
     const fields = entry.config ?? [];
     const pairedField = fields.findIndex((f) => f.overriddenBy === portId);
     if (pairedField !== -1 && entry.inputs.some((p) => p.id === portId)) {
+        const expanded = expandedIds?.has(node.id) ?? true;
+        if (!expanded) {
+            const idx = pairedConfigFields(entry).findIndex((f) => f.overriddenBy === portId);
+            return { x: node.x, y: rowY(portRows(entry) + Math.max(idx, 0)), nx: -1, ny: 0 };
+        }
         let y = node.y + HEADER_H + portRows(entry) * PORT_ROW_H;
         for (let i = 0; i < pairedField; i++) y += configRowHeight(fields[i]);
         y += configRowHeight(fields[pairedField]) / 2;
@@ -511,7 +546,8 @@ export function portPosition(
     portId: string,
     graph?: WorkflowGraph,
     byKey?: Record<string, CatalogEntry>,
+    expandedIds?: ReadonlySet<string>,
 ): { x: number; y: number } {
-    const g = portGeometry(node, entry, portId, graph, byKey);
+    const g = portGeometry(node, entry, portId, graph, byKey, expandedIds);
     return { x: g.x, y: g.y };
 }
