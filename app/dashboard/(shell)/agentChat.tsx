@@ -279,7 +279,7 @@ export default function AgentChat({
                         }
                     >
                         <AsciiSaturn
-                            scale={panel ? 1 : 2}
+                            scale={2}
                             sizeClass={"text-[min(9px,2vw)]"}
                             noise={false}
                         />
