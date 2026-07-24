@@ -12,6 +12,7 @@ import {
     useRef,
     useState,
 } from "react";
+import { FaRobot } from "react-icons/fa6";
 import {
     canConnect,
     type CatalogEntry,
@@ -168,6 +169,8 @@ export default function Canvas({
     onOpenVariable,
     onOpenSystem,
     onVarDrag,
+    agentOpen,
+    onToggleAgent,
     ref,
 }: {
     graph: WorkflowGraph;
@@ -211,6 +214,10 @@ export default function Canvas({
     onOpenVariable?: OpenVariableHandler;
     onOpenSystem?: OpenSystemHandler;
     onVarDrag?: OnVarDragHandler;
+    // the docked Saturn Agent panel (designer-owned state), toggled from the
+    // canvas control cluster next to fit
+    agentOpen: boolean;
+    onToggleAgent: () => void;
     ref?: Ref<CanvasHandle>;
 }) {
     const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
@@ -643,19 +650,38 @@ export default function Canvas({
                     drag nodes from the toolbox · drag to pan · shift+drag to select
                 </p>
             )}
-            {graph.nodes.length > 0 && (
+            {/* canvas controls, bottom-right: the agent toggle sits beside fit
+                and shares its chrome (fit hides on an empty graph) */}
+            <div className={"absolute bottom-2 right-2 flex items-center gap-1"}>
                 <button
                     type={"button"}
-                    onClick={fitView}
+                    onClick={onToggleAgent}
                     onPointerDown={(e) => e.stopPropagation()}
-                    title={"zoom to fit"}
-                    className={`absolute bottom-2 right-2 border border-foreground/15 bg-background
-                        px-2 py-0.5 font-mono text-xs text-gray-400 transition-colors
-                        hover:text-foreground`}
+                    aria-pressed={agentOpen}
+                    aria-label={"saturn agent"}
+                    title={"saturn agent"}
+                    className={`grid size-[22px] place-items-center rounded border bg-background
+                        transition-colors ${
+                            agentOpen
+                                ? "border-foreground/40 bg-foreground/10 text-foreground"
+                                : "border-foreground/15 text-gray-400 hover:text-foreground"
+                        }`}
                 >
-                    ⛶ fit
+                    <FaRobot aria-hidden className={"size-3.5"} />
                 </button>
-            )}
+                {graph.nodes.length > 0 && (
+                    <button
+                        type={"button"}
+                        onClick={fitView}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        title={"zoom to fit"}
+                        className={`border border-foreground/15 bg-background px-2 py-0.5
+                            font-mono text-xs text-gray-400 transition-colors hover:text-foreground`}
+                    >
+                        ⛶ fit
+                    </button>
+                )}
+            </div>
         </div>
     );
 }

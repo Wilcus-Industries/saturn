@@ -995,8 +995,6 @@ export default function Designer({
                 onRun={runGraph}
                 onStop={stopRun}
                 running={running}
-                agentOpen={agentOpen}
-                onToggleAgent={() => setAgentOpen((o) => !o)}
             />
             <div className={"flex min-h-0 flex-1"}>
                 <Toolbox
@@ -1038,6 +1036,8 @@ export default function Designer({
                     onOpenVariable={openVariable}
                     onOpenSystem={openSystem}
                     onVarDrag={handleVarBoxDrag}
+                    agentOpen={agentOpen}
+                    onToggleAgent={() => setAgentOpen((o) => !o)}
                 />
                 {agentOpen && (
                     <AgentPanel
