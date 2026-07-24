@@ -1,14 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { UUID_RE } from "@/lib/registry";
 import { getSessionCached } from "@/lib/subscription";
 import { relativeTime } from "../../workflowCard";
 
 // run history for one workflow; lives inside (shell) so it gets the sidebar,
 // unlike the shell-less designer at /dashboard/workflows/[id]. session check
 // lives here, not the layout.
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 type RunRow = {
     id: string;
     trigger: "cron" | "manual" | "event";
@@ -53,7 +52,7 @@ export default async function WorkflowRuns({
 }: PageProps<"/dashboard/workflows/[id]/runs">) {
     const { id } = await params;
     // pre-validate before querying — junk ids would throw pg 22P02, not miss
-    if (!UUID.test(id)) notFound();
+    if (!UUID_RE.test(id)) notFound();
 
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");

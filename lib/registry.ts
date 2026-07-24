@@ -42,12 +42,16 @@ export const MAX_MCP_TOOLS = 40;
 
 export const userNodeKey = (kind: RegistryKind, id: string) => `${kind}:${id}`;
 
+// canonical uuid shape check, shared by every id-validating route/action/tool.
+// Anchored + case-insensitive, never /g — no lastIndex state, so one shared
+// object is safe to .test() from anywhere.
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Secret variables (kind 'variable'): the node evaluates to an opaque
 // sentinel client-side; only executeIntegration swaps in the real value,
 // server-side, scoped to the owning user. The plaintext never enters the
 // graph, the interpreter, logs, or onValue samples.
 export const VARIABLE_PREFIX = "variable:";
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function variableIdFromNodeType(type: string): string | null {
     if (!type.startsWith(VARIABLE_PREFIX)) return null;
     const id = type.slice(VARIABLE_PREFIX.length);

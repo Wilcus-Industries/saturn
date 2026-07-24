@@ -5,8 +5,11 @@
 // Expected failures come back as a value the modal renders inline; a thrown
 // error would only reach Next's generic error page (message redacted in prod).
 import { db } from "@/lib/db";
+import { UUID_RE } from "@/lib/registry";
 
-export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// one canonical uuid shape for the whole app (lib/registry.ts), re-exported
+// under the name these action files already use
+export { UUID_RE as UUID };
 
 export const MAX_NAME = 60;
 export const MAX_DESCRIPTION = 2000;
@@ -27,7 +30,7 @@ export function requiredName(formData: FormData): string {
 export function optionalId(formData: FormData): string | null {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) return null;
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
     return id;
 }
 

@@ -276,10 +276,6 @@ export const EXTENSIONS: PlatformExtension[] = [
                         id: "branch", label: "branch (optional)", input: "text",
                         placeholder: "filter to one branch",
                     },
-                    {
-                        id: "botToken", label: "access token (optional)", input: "text",
-                        placeholder: "github token — private repos / higher limits",
-                    },
                 ],
                 requiredConfig: ["repo"],
                 samplePayload: {
@@ -311,10 +307,6 @@ export const EXTENSIONS: PlatformExtension[] = [
                         id: "repo", label: "repository", input: "text",
                         placeholder: "owner/repo",
                     },
-                    {
-                        id: "botToken", label: "access token (optional)", input: "text",
-                        placeholder: "github token — private repos / higher limits",
-                    },
                 ],
                 requiredConfig: ["repo"],
                 samplePayload: {
@@ -337,10 +329,6 @@ export const EXTENSIONS: PlatformExtension[] = [
                     {
                         id: "repo", label: "repository", input: "text",
                         placeholder: "owner/repo",
-                    },
-                    {
-                        id: "botToken", label: "access token (optional)", input: "text",
-                        placeholder: "github token — private repos / higher limits",
                     },
                 ],
                 requiredConfig: ["repo"],
@@ -368,10 +356,6 @@ export const EXTENSIONS: PlatformExtension[] = [
                         id: "repo", label: "repository", input: "text",
                         placeholder: "owner/repo",
                     },
-                    {
-                        id: "botToken", label: "access token (optional)", input: "text",
-                        placeholder: "github token — private repos / higher limits",
-                    },
                 ],
                 requiredConfig: ["repo"],
                 samplePayload: {
@@ -394,10 +378,6 @@ export const EXTENSIONS: PlatformExtension[] = [
                     {
                         id: "repo", label: "repository", input: "text",
                         placeholder: "owner/repo",
-                    },
-                    {
-                        id: "botToken", label: "access token (optional)", input: "text",
-                        placeholder: "github token — private repos / higher limits",
                     },
                 ],
                 requiredConfig: ["repo"],

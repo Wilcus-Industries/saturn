@@ -120,12 +120,56 @@ export async function getActivation(headers: Headers): Promise<ActivationLevel |
     return (await getActivationDetails(headers)).level;
 }
 
-// headless tier resolution for the cron runner, which has no request (and so no
-// headers for getActivation) — queries better-auth's subscription table and
-// user.plan directly. Mirrors getActivationDetails semantics: an active/trialing
-// Stripe subscription wins (max over pro), then the self-serve free tier, then
-// null. Users absent from the DB are simply not set (callers treat missing as
-// null via limitsFor).
+type ResolvedPlan = {
+    level: ActivationLevel | null;
+    periodStart: Date | null; // null unless a live paid subscription
+    periodEnd: Date | null;
+};
+
+// headless tier resolution for paths with no request (and so no headers for
+// getActivation): the cron runner and the credits ledger. Queries better-auth's
+// subscription table and user.plan directly, mirroring getActivationDetails
+// semantics: an active/trialing Stripe subscription wins (max over pro), then
+// the self-serve free tier, then null. Users absent from the DB are simply not
+// in the returned map (callers treat missing as null via limitsFor).
+// Every caller MUST short-circuit SELF_HOSTED before reaching here — the
+// subscription table does not exist under that flag.
+export async function resolvePlans(userIds: string[]): Promise<Map<string, ResolvedPlan>> {
+    const { rows } = await db.query<{
+        id: string;
+        user_plan: string | null;
+        sub_plan: string | null;
+        period_start: Date | null;
+        period_end: Date | null;
+    }>(
+        `select u.id, u.plan as user_plan, s.plan as sub_plan,
+                s."periodStart" as period_start, s."periodEnd" as period_end
+           from "user" u
+           left join lateral (
+                 select plan, "periodStart", "periodEnd" from subscription
+                  where "referenceId" = u.id and status in ('active', 'trialing')
+                  order by case when plan = 'max' then 0 else 1 end
+                  limit 1
+                ) s on true
+          where u.id = any($1::text[])`,
+        [userIds],
+    );
+    const plans = new Map<string, ResolvedPlan>();
+    for (const row of rows) {
+        plans.set(row.id, {
+            level:
+                row.sub_plan !== null && isPaidPlan(row.sub_plan)
+                    ? row.sub_plan
+                    : row.user_plan === "free"
+                      ? "free"
+                      : null,
+            periodStart: (row.sub_plan !== null && row.period_start) || null,
+            periodEnd: (row.sub_plan !== null && row.period_end) || null,
+        });
+    }
+    return plans;
+}
+
 export async function getActivationLevels(
     userIds: string[],
 ): Promise<Map<string, ActivationLevel | null>> {
@@ -138,29 +182,7 @@ export async function getActivationLevels(
         return levels;
     }
 
-    const { rows } = await db.query<{
-        id: string;
-        user_plan: string | null;
-        sub_plan: string | null;
-    }>(
-        `select u.id, u.plan as user_plan,
-                (select s.plan from subscription s
-                  where s."referenceId" = u.id and s.status in ('active', 'trialing')
-                  order by case when s.plan = 'max' then 0 else 1 end
-                  limit 1) as sub_plan
-           from "user" u where u.id = any($1::text[])`,
-        [userIds],
-    );
-    for (const row of rows) {
-        levels.set(
-            row.id,
-            row.sub_plan !== null && isPaidPlan(row.sub_plan)
-                ? row.sub_plan
-                : row.user_plan === "free"
-                  ? "free"
-                  : null,
-        );
-    }
+    for (const [id, plan] of await resolvePlans(userIds)) levels.set(id, plan.level);
     return levels;
 }
 

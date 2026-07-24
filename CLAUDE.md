@@ -45,7 +45,7 @@ Production self-hosted on Raspberry Pi (hostname `saturn`, reachable `saturn.loc
 
 ## Stack
 
-Next.js 16 App Router (with `experimental.viewTransition`), React 19, Tailwind CSS 4 (no config file — theme, view-transition keyframes, tier glow utilities live in `app/globals.css`), TypeScript, better-auth + `@better-auth/stripe`, raw `pg` Pool against Neon Postgres (no ORM). Fonts: `geist` package + Google Inter, loaded in `app/layout.tsx`.
+Next.js 16 App Router (with `experimental.viewTransition`), React 19, Tailwind CSS 4 (no config file — theme, view-transition keyframes, tier glow utilities live in `app/globals.css`), TypeScript, better-auth + `@better-auth/stripe`, raw `pg` Pool against Neon Postgres (no ORM). Fonts: Geist + Geist Mono from `next/font/google`, loaded in `app/layout.tsx` (the `geist` **package** stays a dependency even though nothing imports it: `app/opengraph-image.tsx` reads `node_modules/geist/dist/fonts/geist-mono/GeistMono-Regular.ttf` at build time, a runtime path no type checker or linter can see).
 
 `next.config.ts` sets global security headers via `headers()` (applied to `/:path*`): CSP (`default-src 'self'`; `script-src`/`style-src` allow `'unsafe-inline'` for Next inline bootstrap + designer inline styles; `img-src` allows `data:` + Google s2 favicons + avatar host; dev adds `'unsafe-eval'` + `ws:` for Fast Refresh/HMR — computed inside `headers()` so `NODE_ENV` resolved at bake time), plus `frame-ancestors 'none'`/`X-Frame-Options: DENY` (clickjacking, notably OAuth consent page), HSTS, `nosniff`, `Referrer-Policy`, minimal `Permissions-Policy`.
 

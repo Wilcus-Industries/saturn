@@ -12,7 +12,6 @@ create table if not exists workflow (
     name        text not null,
     emoji       text not null default '⚙️',
     description text not null default '',
-    cron        text,  -- vestigial: the schedule now lives in a "schedule" event node's config.cron
     graph       jsonb not null default '{"nodes":[],"edges":[]}',
     active      boolean not null default true, -- gates scheduled runs only; manual runs ignore it
     webhook_secret text, -- nullable: per-workflow inbound webhook secret, provisioned on demand (never provisioned = null)
@@ -25,8 +24,9 @@ create index if not exists workflow_user_id_idx on workflow (user_id);
 alter table workflow add column if not exists last_run_at timestamptz;
 alter table workflow add column if not exists active boolean not null default true;
 alter table workflow add column if not exists webhook_secret text;
--- schedule moved into the graph's "schedule" event node; the column is now unused
-alter table workflow alter column cron drop not null;
+-- schedule moved into the graph's "schedule" event node's config.cron; the
+-- column was never read again, so drop it from already-deployed databases
+alter table workflow drop column if exists cron;
 
 -- execution history for scheduled/test runs; retention capped in code (lib/runner.server.ts)
 create table if not exists workflow_run (

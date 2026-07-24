@@ -13,9 +13,9 @@ import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
 import { EXTENSION_EVENTS, eventNodeKey } from "@/lib/integrations";
 import type { ConsoleLine } from "@/lib/interpreter";
 import { countMemoryItems, executeMemoryTool, listMemoryItems } from "@/lib/memory.server";
-import { buildUserCatalog, MAX_ENTRIES_PER_KIND } from "@/lib/registry";
+import { buildUserCatalog, MAX_ENTRIES_PER_KIND, UUID_RE } from "@/lib/registry";
 import { getUserRegistry, invalidateUserRegistry } from "@/lib/registry.server";
-import { executeWorkflowRun, UUID } from "@/lib/runner.server";
+import { executeWorkflowRun } from "@/lib/runner.server";
 import {
     destroySandbox,
     executeSandboxTool,
@@ -470,7 +470,7 @@ const fail = (message: string): ToolResult => ({
 });
 
 const asId = (x: unknown): string | null =>
-    typeof x === "string" && UUID.test(x) ? x : null;
+    typeof x === "string" && UUID_RE.test(x) ? x : null;
 
 const trimArg = (x: unknown): string => (typeof x === "string" ? x.trim() : "");
 // an omitted arg is null, which the UPDATEs below coalesce to the stored column

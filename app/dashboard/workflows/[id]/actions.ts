@@ -16,9 +16,9 @@ import { subscriptionsChanged } from "@/lib/events.server";
 import { executeIntegration } from "@/lib/integrations.server";
 import type { CallAgentRequest } from "@/lib/interpreter";
 import { executeMemoryTool } from "@/lib/memory.server";
-import { MAX_ENTRIES_PER_KIND } from "@/lib/registry";
+import { MAX_ENTRIES_PER_KIND, UUID_RE } from "@/lib/registry";
 import { invalidateUserRegistry } from "@/lib/registry.server";
-import { executeAgentTurn, executeMcpTool, UUID } from "@/lib/runner.server";
+import { executeAgentTurn, executeMcpTool } from "@/lib/runner.server";
 import { executeSandboxTool } from "@/lib/sandbox.server";
 import { requireUser } from "@/lib/subscription";
 import { isWorkflowGraph, MAX_EDGES, MAX_GRAPH_JSON, MAX_NODES } from "@/lib/workflow";
@@ -32,7 +32,7 @@ const MAX_SANDBOX_INPUT = 65_536;
 
 export async function saveWorkflow(id: string, graph: unknown) {
     const { session } = await requireUser();
-    if (!UUID.test(id)) throw new Error("Invalid workflow id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid workflow id");
     if (!isWorkflowGraph(graph)) throw new Error("Invalid graph");
     if (graph.nodes.length > MAX_NODES || graph.edges.length > MAX_EDGES) {
         throw new Error("Graph too large");
@@ -63,7 +63,7 @@ const webhookSecret = () => randomBytes(24).toString("base64url");
 // same URL); only a never-provisioned row gets the fresh value.
 export async function getOrCreateWebhookSecret(id: string): Promise<string> {
     const { session } = await requireUser();
-    if (!UUID.test(id)) throw new Error("Invalid workflow id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid workflow id");
     const { rows } = await db.query<{ webhook_secret: string }>(
         `update workflow set webhook_secret = coalesce(webhook_secret, $1)
          where id = $2 and user_id = $3 returning webhook_secret`,
@@ -76,7 +76,7 @@ export async function getOrCreateWebhookSecret(id: string): Promise<string> {
 // rotates the secret unconditionally — the old URL stops working instantly.
 export async function rotateWebhookSecret(id: string): Promise<string> {
     const { session } = await requireUser();
-    if (!UUID.test(id)) throw new Error("Invalid workflow id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid workflow id");
     const { rows } = await db.query<{ webhook_secret: string }>(
         `update workflow set webhook_secret = $1
          where id = $2 and user_id = $3 returning webhook_secret`,
@@ -104,7 +104,7 @@ export async function saveVariable(formData: FormData): Promise<ActionResult> {
 
     try {
         const id = String(formData.get("id") ?? "").trim();
-        if (id && !UUID.test(id)) throw new Error("Invalid id");
+        if (id && !UUID_RE.test(id)) throw new Error("Invalid id");
         const name = String(formData.get("name") ?? "").trim();
         if (!name || name.length > MAX_VARIABLE_NAME) {
             throw new Error(`Name is required (max ${MAX_VARIABLE_NAME} chars)`);
@@ -175,7 +175,7 @@ export async function saveVariable(formData: FormData): Promise<ActionResult> {
 export async function deleteVariable(formData: FormData): Promise<ActionResult> {
     const { session } = await requireUser();
     const id = String(formData.get("id") ?? "").trim();
-    if (!UUID.test(id)) return { error: "Invalid id" };
+    if (!UUID_RE.test(id)) return { error: "Invalid id" };
     // idempotent — deleting an already-deleted variable is fine
     await db.query(
         "delete from registry_entry where id = $1 and user_id = $2 and kind = 'variable'",
@@ -208,7 +208,7 @@ export async function callMemoryTool(
     input: string,
 ): Promise<McpCallResult> {
     const { session } = await requireUser();
-    if (typeof memoryId !== "string" || !UUID.test(memoryId)) return { error: "invalid memory id" };
+    if (typeof memoryId !== "string" || !UUID_RE.test(memoryId)) return { error: "invalid memory id" };
     if (typeof op !== "string" || !(MEMORY_TOOL_NAMES as readonly string[]).includes(op)) {
         return { error: "unknown memory operation" };
     }
@@ -228,7 +228,7 @@ export async function callSandboxTool(
     input: string,
 ): Promise<McpCallResult> {
     const { session } = await requireUser();
-    if (typeof sandboxId !== "string" || !UUID.test(sandboxId)) return { error: "invalid sandbox id" };
+    if (typeof sandboxId !== "string" || !UUID_RE.test(sandboxId)) return { error: "invalid sandbox id" };
     if (typeof op !== "string" || !(SANDBOX_TOOL_NAMES as readonly string[]).includes(op)) {
         return { error: "unknown sandbox operation" };
     }
@@ -277,7 +277,7 @@ function isAgentMessage(x: unknown): x is AgentMessage {
 const isToolRef = (x: unknown): x is AgentToolRef =>
     isRecord(x) &&
     typeof x.entryId === "string" &&
-    UUID.test(x.entryId) &&
+    UUID_RE.test(x.entryId) &&
     typeof x.toolName === "string" &&
     x.toolName.length > 0 &&
     x.toolName.length <= 60 &&
@@ -297,10 +297,10 @@ export async function callAgentModel(req: CallAgentRequest): Promise<AgentModelR
     if (!Array.isArray(req.tools) || !req.tools.every(isToolRef)) {
         return { error: "invalid tool grant" };
     }
-    if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID.test(req.memoryId))) {
+    if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID_RE.test(req.memoryId))) {
         return { error: "invalid memory store" };
     }
-    if (req.sandboxId !== undefined && (typeof req.sandboxId !== "string" || !UUID.test(req.sandboxId))) {
+    if (req.sandboxId !== undefined && (typeof req.sandboxId !== "string" || !UUID_RE.test(req.sandboxId))) {
         return { error: "invalid sandbox" };
     }
     if (

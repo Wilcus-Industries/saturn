@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { type ActionResult, toError, UUID } from "@/lib/formActions.server";
+import { type ActionResult, toError } from "@/lib/formActions.server";
 import { subscriptionsChanged } from "@/lib/events.server";
+import { UUID_RE } from "@/lib/registry";
 import { getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
@@ -61,7 +62,7 @@ export async function updateWorkflow(formData: FormData): Promise<ActionResult> 
 
     try {
         const id = String(formData.get("id") ?? "");
-        if (!UUID.test(id)) throw new Error("Invalid workflow id");
+        if (!UUID_RE.test(id)) throw new Error("Invalid workflow id");
         const { name, emoji, description } = parseWorkflowFields(formData);
 
         const { rowCount } = await db.query(
@@ -84,7 +85,7 @@ export async function setWorkflowActive(id: string, active: boolean): Promise<Ac
     const { session } = await requireUser();
 
     try {
-        if (!UUID.test(id)) throw new Error("Invalid workflow id");
+        if (!UUID_RE.test(id)) throw new Error("Invalid workflow id");
         const { rowCount } = await db.query(
             `update workflow set active = $1, updated_at = now()
              where id = $2 and user_id = $3`,
@@ -103,7 +104,7 @@ export async function deleteWorkflow(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid workflow id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid workflow id");
 
     // idempotent: a row already deleted elsewhere (another tab) is not an error
     await db.query("delete from workflow where id = $1 and user_id = $2", [

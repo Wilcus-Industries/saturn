@@ -13,26 +13,20 @@ import { runDueWorkflows } from "@/lib/runner.server";
 const MINUTE = 60_000;
 const MAX_CATCHUP_MINUTES = 5; // a long sleep must not burst-fire history
 
-let timer: NodeJS.Timeout | null = null;
-let stopped = false;
-
 export function startScheduler() {
-    stopped = false;
     // the boot minute counts as handled — whatever ran before this process
     // (systemd timer, previous process) owned everything up to now
     let lastMinute = Date.now() - (Date.now() % MINUTE);
 
     const arm = () => {
-        if (stopped) return;
         // +250ms past :00 absorbs timer drift either side of the boundary
-        timer = setTimeout(tick, MINUTE - (Date.now() % MINUTE) + 250);
-        timer.unref();
+        setTimeout(tick, MINUTE - (Date.now() % MINUTE) + 250).unref();
     };
 
     const tick = async () => {
         const nowMinute = Date.now() - (Date.now() % MINUTE);
         const from = Math.max(lastMinute + MINUTE, nowMinute - MAX_CATCHUP_MINUTES * MINUTE);
-        for (let m = from; m <= nowMinute && !stopped; m += MINUTE) {
+        for (let m = from; m <= nowMinute; m += MINUTE) {
             try {
                 const { due, ran } = await runDueWorkflows(new Date(m));
                 if (due > 0)
@@ -49,12 +43,4 @@ export function startScheduler() {
 
     console.log(`[scheduler] started (catch-up <= ${MAX_CATCHUP_MINUTES} min)`);
     arm();
-}
-
-export function stopScheduler() {
-    stopped = true;
-    if (timer) {
-        clearTimeout(timer);
-        timer = null;
-    }
 }

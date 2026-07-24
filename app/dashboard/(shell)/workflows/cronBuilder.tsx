@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { describeCron } from "@/lib/cron";
+import { describeCron, pad2 } from "@/lib/cron";
 
 type Frequency = "minutes" | "hourly" | "daily" | "weekly" | "monthly";
 
@@ -19,7 +19,6 @@ const FREQUENCY_MIN: Record<Frequency, number> = {
 };
 
 const range = (length: number, start = 0) => Array.from({ length }, (_, i) => i + start);
-const pad2 = (n: number) => String(n).padStart(2, "0");
 
 type BuilderState = {
     frequency: Frequency;

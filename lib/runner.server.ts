@@ -27,13 +27,12 @@ import { recordUsage, selectModelApiKey } from "@/lib/credits.server";
 import { executeIntegration } from "@/lib/integrations.server";
 import { executeMemoryTool, memoryToolSpecs } from "@/lib/memory.server";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
-import { buildUserCatalog, canCallTool } from "@/lib/registry";
+import { buildUserCatalog, canCallTool, UUID_RE } from "@/lib/registry";
 import { freshMcpToken, getMcpSecrets, getUserRegistry } from "@/lib/registry.server";
 import { executeSandboxTool, sandboxToolSpecs } from "@/lib/sandbox.server";
 import { getActivationLevels, limitsFor } from "@/lib/subscription";
 import { CATALOG_BY_KEY, type CatalogEntry, missingEntry, type WorkflowGraph } from "@/lib/workflow";
 
-export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MAX_TOOL_INPUT = 65_536;
 const MAX_SYSTEM_PROMPT = 8192;
@@ -48,7 +47,7 @@ export async function executeMcpTool(
     toolName: string,
     input: string,
 ): Promise<McpCallResult> {
-    if (typeof entryId !== "string" || !UUID.test(entryId)) return { error: "invalid entry id" };
+    if (typeof entryId !== "string" || !UUID_RE.test(entryId)) return { error: "invalid entry id" };
     if (typeof toolName !== "string" || !toolName) return { error: "no tool selected" };
     if (typeof input !== "string" || input.length > MAX_TOOL_INPUT) {
         return { error: "input too long" };
@@ -108,13 +107,13 @@ export async function executeAgentTurn(
     if (!Array.isArray(req.skillIds) || req.skillIds.length > MAX_GRANTED_SKILLS) {
         return { error: "too many skills" };
     }
-    if (!req.skillIds.every((id) => typeof id === "string" && UUID.test(id))) {
+    if (!req.skillIds.every((id) => typeof id === "string" && UUID_RE.test(id))) {
         return { error: "invalid skill id" };
     }
-    if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID.test(req.memoryId))) {
+    if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID_RE.test(req.memoryId))) {
         return { error: "invalid memory store" };
     }
-    if (req.sandboxId !== undefined && (typeof req.sandboxId !== "string" || !UUID.test(req.sandboxId))) {
+    if (req.sandboxId !== undefined && (typeof req.sandboxId !== "string" || !UUID_RE.test(req.sandboxId))) {
         return { error: "invalid sandbox" };
     }
     if (!Array.isArray(req.tools) || req.tools.length > MAX_GRANTED_TOOLS) {

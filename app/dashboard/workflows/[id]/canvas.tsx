@@ -29,7 +29,7 @@ import {
     isVariableEntry,
     nodeHeight,
     nodeWidth,
-    portPosition,
+    portGeometry,
 } from "./geometry";
 import type { GraphAction } from "./graphReducer";
 import Node, {
@@ -579,13 +579,13 @@ export default function Canvas({
                     ) {
                         const out = entry.outputs[0];
                         if (out) {
-                            const p = portPosition(node, entry, out.id, graph, byKey);
+                            const p = portGeometry(node, entry, out.id, graph, byKey);
                             outAnchor = `${p.x - node.x},${p.y - node.y}`;
                         }
                     } else if (isEventEntry(entry)) {
                         outAnchor = [...entry.inputs, ...entry.outputs]
                             .map((p) => {
-                                const pos = portPosition(node, entry, p.id, graph, byKey);
+                                const pos = portGeometry(node, entry, p.id, graph, byKey);
                                 return `${p.id}=${pos.x - node.x},${pos.y - node.y}`;
                             })
                             .join(";");
