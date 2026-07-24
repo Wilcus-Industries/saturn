@@ -16,10 +16,14 @@ const FALLBACK_MODELS: OpenrouterModel[] = [
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
 const MAX_LISTED = 120;
 
+// mirrors the agent node's reasoning select (executeAgentTurn allowlist)
+const REASONING_LEVELS = ["off", "low", "medium", "high"] as const;
+
 // visual-only composer — submit clears the box, model wiring comes later
 export default function AgentComposer({ models }: { models: OpenrouterModel[] }) {
     const [value, setValue] = useState("");
     const [model, setModel] = useState(DEFAULT_MODEL);
+    const [reasoning, setReasoning] = useState("medium");
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -188,6 +192,36 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                             </div>
                         </div>
                     </>
+                )}
+
+                {selected?.supportsReasoning && (
+                    <label className={"group relative ml-3 inline-flex cursor-pointer items-center"}>
+                        <span className={"sr-only"}>Reasoning effort</span>
+                        <select
+                            value={reasoning}
+                            onChange={(e) => setReasoning(e.target.value)}
+                            className={
+                                "cursor-pointer appearance-none bg-transparent py-1 pr-5 pl-1 " +
+                                // sizes to the selected label where supported; fallback = widest option
+                                "[field-sizing:content] " +
+                                "font-mono text-xs text-gray-400 outline-none transition-colors " +
+                                "group-hover:text-foreground focus-visible:text-foreground"
+                            }
+                        >
+                            {REASONING_LEVELS.map((r) => (
+                                <option key={r} value={r} className={"bg-background text-foreground"}>
+                                    reasoning: {r}
+                                </option>
+                            ))}
+                        </select>
+                        <FaChevronDown
+                            aria-hidden
+                            className={
+                                "pointer-events-none absolute right-1 h-2.5 w-2.5 text-gray-400 " +
+                                "transition-colors group-hover:text-foreground"
+                            }
+                        />
+                    </label>
                 )}
             </div>
         </form>
