@@ -40,6 +40,7 @@ import Node, {
     type OpenSystemHandler,
     type OpenToolsHandler,
     type OpenVariableHandler,
+    type OpenWebhookHandler,
     type PortPointerDownHandler,
 } from "./node";
 
@@ -162,6 +163,7 @@ export default function Canvas({
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
+    onOpenWebhook,
     onOpenTools,
     onOpenInfo,
     onOpenVariable,
@@ -204,6 +206,7 @@ export default function Canvas({
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
+    onOpenWebhook?: OpenWebhookHandler;
     onOpenTools?: OpenToolsHandler;
     onOpenInfo?: OpenInfoHandler;
     onOpenVariable?: OpenVariableHandler;
@@ -615,6 +618,7 @@ export default function Canvas({
                             onPortPointerDown={onPortPointerDown}
                             onOpenPicker={onOpenPicker}
                             onOpenCron={onOpenCron}
+                            onOpenWebhook={onOpenWebhook}
                             onOpenTools={onOpenTools}
                             onOpenInfo={onOpenInfo}
                             onOpenVariable={onOpenVariable}

@@ -5,6 +5,7 @@
 // logs can render them.
 import type { McpCallResult } from "@/lib/agent";
 import { INTEGRATIONS_BY_ID } from "@/lib/integrations";
+import { assertPublicHttpsUrl } from "@/lib/mcp";
 import { getVariableValues } from "@/lib/registry.server";
 
 const MAX_INTEGRATION_MESSAGE = 4096; // text cap (matches Telegram's message limit)
@@ -23,6 +24,27 @@ const SEND_TIMEOUT_MS = 15_000;
 // supergroups/channels) or a public @channelusername.
 const TELEGRAM_TOKEN = /^\d{1,20}:[A-Za-z0-9_-]{25,64}$/;
 const TELEGRAM_CHAT_ID = /^(-?\d{1,20}|@[A-Za-z0-9_]{5,32})$/;
+
+// Generic HTTP request action. The URL is fully user-controlled here (unlike
+// the app-specific senders' fixed bases), so every redirect hop is
+// re-validated with assertPublicHttpsUrl: a public host can 30x to a private
+// IP, which fetch's default redirect:"follow" would chase past the guard.
+// Responses are read through a byte-capped stream — res.text() buffers unbounded.
+const HTTP_METHODS: ReadonlySet<string> = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+const HTTP_MAX_URL = 2048;
+const HTTP_MAX_HEADERS = 20;
+const HTTP_MAX_HEADER_VALUE = 2048;
+const HTTP_MAX_REQUEST_BODY = 65_536;
+const HTTP_MAX_REDIRECTS = 5;
+const HTTP_MAX_RESPONSE_BYTES = 1_048_576; // 1 MiB read cap
+const HTTP_MAX_RESULT_BODY = 16_384; // chars of raw body kept in the result value
+const HTTP_TOTAL_DEADLINE_MS = 20_000;
+// hop-by-hop / length headers fetch owns — a caller must not set them
+const HTTP_FORBIDDEN_HEADERS: ReadonlySet<string> = new Set([
+    "host", "content-length", "transfer-encoding", "connection",
+    "upgrade", "expect", "accept-encoding",
+]);
+const HTTP_HEADER_NAME = /^[a-z0-9!#$%&'*+.^_`|~-]{1,64}$/i;
 
 // userId is unused by webhook senders but threaded through so bot-token
 // providers can resolve per-user secrets later
@@ -302,6 +324,173 @@ async function sendTelegramTyping(
     return { text: "typing" };
 }
 
+// parse the headers textarea (already variable-substituted) into a plain
+// lowercased-key object. Lowercasing collapses case-insensitive HTTP header
+// names, making the forbidden-strip and "user's value wins over defaults"
+// checks trivial. Throws terse messages caught by the sender's outer wrap.
+function parseHttpHeaders(raw: string): Record<string, string> {
+    const trimmed = raw.trim();
+    if (!trimmed) return {};
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(trimmed);
+    } catch {
+        throw new Error("headers must be a JSON object");
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error("headers must be a JSON object");
+    }
+    const entries = Object.entries(parsed);
+    if (entries.length > HTTP_MAX_HEADERS) {
+        throw new Error(`too many headers (max ${HTTP_MAX_HEADERS})`);
+    }
+    const out: Record<string, string> = {};
+    for (const [name, value] of entries) {
+        if (typeof value !== "string") throw new Error(`header "${name}" must be a string`);
+        if (!HTTP_HEADER_NAME.test(name)) throw new Error(`invalid header name "${name}"`);
+        if (value.length > HTTP_MAX_HEADER_VALUE) throw new Error(`header "${name}" value is too long`);
+        if (/[\r\n]/.test(value)) throw new Error(`header "${name}" value has a line break`);
+        const lower = name.toLowerCase();
+        if (HTTP_FORBIDDEN_HEADERS.has(lower)) continue; // fetch controls these
+        out[lower] = value;
+    }
+    return out;
+}
+
+// Generic outbound HTTP request. message/userId unused: the interpreter passes
+// "" and substituteVariables already resolved the config. Non-2xx responses are
+// data (the user branches on `status` with an if node), not errors.
+async function sendHttpRequest(
+    _userId: string,
+    config: Record<string, string>,
+): Promise<McpCallResult> {
+    try {
+        const method = ((config.method ?? "").trim() || "GET").toUpperCase();
+        if (!HTTP_METHODS.has(method)) throw new Error(`unsupported method "${method}"`);
+
+        const startUrl = (config.url ?? "").trim();
+        if (!startUrl) throw new Error("url is empty");
+        if (startUrl.length > HTTP_MAX_URL) throw new Error("url is too long");
+
+        const headers = parseHttpHeaders(config.headers ?? "");
+
+        // body rides non-GET requests only; a GET body is silently dropped
+        let body: string | undefined;
+        if (method !== "GET") {
+            const raw = config.body ?? "";
+            if (raw.length > HTTP_MAX_REQUEST_BODY) throw new Error("body is too large");
+            if (raw) {
+                body = raw;
+                if (!("content-type" in headers)) headers["content-type"] = "application/json";
+            }
+        }
+        // defaults sit UNDER the user's headers (theirs already occupy the key)
+        if (!("accept" in headers)) headers.accept = "*/*";
+        if (!("user-agent" in headers)) headers["user-agent"] = "saturn-workflow/1.0";
+
+        // manual redirect loop — re-validate every hop so a public host can't
+        // 30x us onto a private IP (closes the follow-to-private hole)
+        const deadline = Date.now() + HTTP_TOTAL_DEADLINE_MS;
+        let currentUrl = startUrl;
+        let curMethod = method;
+        let curBody = body;
+        let res: Response | undefined;
+        for (let hop = 0; hop <= HTTP_MAX_REDIRECTS; hop++) {
+            const remaining = deadline - Date.now();
+            if (remaining <= 0) throw new Error("timed out");
+            await assertPublicHttpsUrl(currentUrl);
+            res = await fetch(currentUrl, {
+                method: curMethod,
+                headers,
+                body: curMethod === "GET" ? undefined : curBody,
+                redirect: "manual",
+                signal: AbortSignal.timeout(Math.min(SEND_TIMEOUT_MS, remaining)),
+            });
+            if (![301, 302, 303, 307, 308].includes(res.status)) break;
+            const location = res.headers.get("location");
+            if (!location) break; // a 30x without Location is just the response
+            if (hop === HTTP_MAX_REDIRECTS) throw new Error("too many redirects");
+            const nextUrl = new URL(location, currentUrl);
+            // credentials never follow a cross-origin redirect (mirrors the fetch
+            // spec's Authorization strip — a service must not be able to 30x a
+            // wired bearer token onto a foreign host)
+            if (nextUrl.origin !== new URL(currentUrl).origin) {
+                delete headers.authorization;
+                delete headers.cookie;
+            }
+            currentUrl = nextUrl.toString();
+            // 301/302/303 downgrade the method to GET and drop the request body
+            if (res.status === 301 || res.status === 302 || res.status === 303) {
+                curMethod = "GET";
+                curBody = undefined;
+                delete headers["content-type"];
+            }
+        }
+        if (!res) throw new Error("no response"); // unreachable — satisfies the type
+
+        // streamed read capped at 1 MiB so a huge body can't exhaust memory
+        const contentType = res.headers.get("content-type") ?? "";
+        let truncated = false;
+        let text = "";
+        if (res.body) {
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let bytes = 0;
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                bytes += value.byteLength;
+                if (bytes > HTTP_MAX_RESPONSE_BYTES) {
+                    const keep = value.byteLength - (bytes - HTTP_MAX_RESPONSE_BYTES);
+                    if (keep > 0) text += decoder.decode(value.subarray(0, keep), { stream: true });
+                    truncated = true;
+                    await reader.cancel().catch(() => {});
+                    break;
+                }
+                text += decoder.decode(value, { stream: true });
+            }
+            text += decoder.decode(); // flush any trailing multi-byte char
+        }
+
+        // embed a parsed JSON body when whole (single-extract UX), else raw text
+        let outBody: unknown;
+        if (contentType.toLowerCase().includes("json") && !truncated) {
+            try {
+                const parsed: unknown = JSON.parse(text);
+                if (parsed !== null && typeof parsed === "object") outBody = parsed;
+            } catch {
+                // not valid JSON — fall through to raw text
+            }
+        }
+        if (outBody === undefined) {
+            if (text.length > HTTP_MAX_RESULT_BODY) {
+                outBody = text.slice(0, HTTP_MAX_RESULT_BODY);
+                truncated = true;
+            } else {
+                outBody = text;
+            }
+        }
+        return {
+            text: JSON.stringify({
+                status: String(res.status),
+                contentType,
+                body: outBody,
+                ...(truncated ? { truncated: "true" } : {}),
+            }),
+        };
+    } catch (err) {
+        // surface timeouts readably: AbortSignal.timeout throws TimeoutError,
+        // and undici wraps connect timeouts as "fetch failed" with a
+        // ConnectTimeoutError cause — both beat opaque transport noise
+        const cause = err instanceof Error ? (err.cause as { name?: string } | undefined) : undefined;
+        const names = [err instanceof Error ? err.name : "", cause?.name ?? ""];
+        if (["TimeoutError", "AbortError", "ConnectTimeoutError"].some((n) => names.includes(n))) {
+            return { error: "http request: timed out" };
+        }
+        return { error: `http request: ${err instanceof Error ? err.message : "failed"}` };
+    }
+}
+
 const SENDERS: Record<string, SendFn> = {
     "discord-webhook": sendDiscordWebhook,
     "discord-send-message": sendDiscordMessage,
@@ -309,6 +498,7 @@ const SENDERS: Record<string, SendFn> = {
     "discord-typing": sendDiscordTyping,
     "telegram-send-message": sendTelegramMessage,
     "telegram-typing": sendTelegramTyping,
+    "http-request": sendHttpRequest,
 };
 
 // Secret-variable sentinel substitution: variable nodes evaluate to

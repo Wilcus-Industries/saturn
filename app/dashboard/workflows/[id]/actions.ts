@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import {
     type AgentMessage,
     type AgentModelResult,
@@ -47,6 +48,42 @@ export async function saveWorkflow(id: string, graph: unknown) {
     // graph edits add/remove event nodes and change bot tokens — poke the
     // gateway (debounced there, so autosave bursts collapse)
     subscriptionsChanged();
+}
+
+// --- webhook trigger secret (event:webhook). The secret lives in the
+// workflow.webhook_secret column (nullable = never provisioned) and forms the
+// second path segment of the ingress URL. Both actions follow the saveWorkflow
+// pattern: requireUser, UUID check, ownership scoped in the WHERE clause. ---
+
+// 24 random bytes → 32-char base64url token (matches /^[A-Za-z0-9_-]{20,64}$/)
+const webhookSecret = () => randomBytes(24).toString("base64url");
+
+// returns the workflow's webhook secret, minting one on first call. The
+// coalesce keeps an existing secret (idempotent — repeated opens return the
+// same URL); only a never-provisioned row gets the fresh value.
+export async function getOrCreateWebhookSecret(id: string): Promise<string> {
+    const { session } = await requireUser();
+    if (!UUID.test(id)) throw new Error("Invalid workflow id");
+    const { rows } = await db.query<{ webhook_secret: string }>(
+        `update workflow set webhook_secret = coalesce(webhook_secret, $1)
+         where id = $2 and user_id = $3 returning webhook_secret`,
+        [webhookSecret(), id, session.user.id],
+    );
+    if (!rows[0]) throw new Error("Not found");
+    return rows[0].webhook_secret;
+}
+
+// rotates the secret unconditionally — the old URL stops working instantly.
+export async function rotateWebhookSecret(id: string): Promise<string> {
+    const { session } = await requireUser();
+    if (!UUID.test(id)) throw new Error("Invalid workflow id");
+    const { rows } = await db.query<{ webhook_secret: string }>(
+        `update workflow set webhook_secret = $1
+         where id = $2 and user_id = $3 returning webhook_secret`,
+        [webhookSecret(), id, session.user.id],
+    );
+    if (!rows[0]) throw new Error("Not found");
+    return rows[0].webhook_secret;
 }
 
 // --- variables (toolbox-managed registry_entry rows, kind 'variable'; value

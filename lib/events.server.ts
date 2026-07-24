@@ -74,8 +74,15 @@ function effectiveEventConfig(
 // only ever see plaintext tokens.
 export async function getEventSubscriptions(): Promise<EventSubscription[]> {
     // one jsonb-containment clause per known event type — active workflows
-    // containing any of them
-    const eventTypes = Object.keys(EXTENSION_EVENTS_BY_KEY);
+    // containing any of them. Webhook events have no transport (delivery is
+    // HTTP-driven via app/api/hooks), so they're excluded here: their workflows
+    // stay off the MAX_SUBSCRIPTIONS budget and out of every ingress poller.
+    const eventTypes = Object.keys(EXTENSION_EVENTS_BY_KEY).filter(
+        (t) => EXTENSION_EVENTS_BY_KEY[t].platform !== "webhook",
+    );
+    // no transport-backed events at all — nothing to subscribe (empty containment
+    // would produce invalid SQL)
+    if (!eventTypes.length) return [];
     const containment = eventTypes.map((_, i) => `graph->'nodes' @> $${i + 1}`).join(" or ");
     const { rows } = await db.query<{ id: string; user_id: string; graph: WorkflowGraph }>(
         `select id, user_id, graph from workflow
@@ -88,7 +95,7 @@ export async function getEventSubscriptions(): Promise<EventSubscription[]> {
     for (const wf of rows) {
         for (const node of wf.graph.nodes) {
             const event = EXTENSION_EVENTS_BY_KEY[node.type];
-            if (!event) continue;
+            if (!event || event.platform === "webhook") continue; // no transport for webhook events
             const merged = effectiveEventConfig(
                 wf.graph,
                 node,

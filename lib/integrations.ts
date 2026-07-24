@@ -410,6 +410,68 @@ export const EXTENSIONS: PlatformExtension[] = [
             },
         ],
     },
+    {
+        id: "webhook",
+        app: "webhook",
+        logoDomain: "",
+        // generic inbound trigger: any external service POSTs a per-workflow URL
+        // (provisioned in the designer, not config), so the event has no config
+        actions: [],
+        events: [
+            {
+                id: "webhook",
+                label: "webhook received",
+                emoji: "🪝",
+                config: [],
+                requiredConfig: [],
+                // body/query are deliberately non-string (precedent: github's
+                // messages/labels arrays) — the route embeds a JSON request body
+                // parsed so a single extract can reach body.user.id
+                samplePayload: {
+                    method: "POST",
+                    contentType: "application/json",
+                    query: { source: "example" },
+                    body: { event: "user.created", user: { id: "42", email: "ada@example.com" } },
+                    receivedAt: "2026-07-18T12:34:56Z",
+                },
+                payloadDoc: "{method, contentType, query, body, receivedAt}",
+            },
+        ],
+    },
+    {
+        id: "http",
+        app: "http",
+        logoDomain: "",
+        // generic outbound request: call any REST API without a per-app sender
+        actions: [
+            {
+                id: "http-request",
+                label: "http request",
+                section: "data",
+                config: [
+                    {
+                        id: "method", label: "method", input: "select",
+                        options: ["GET", "POST", "PUT", "PATCH", "DELETE"], default: "GET",
+                    },
+                    {
+                        id: "url", label: "url", input: "text",
+                        placeholder: "https://api.example.com/…",
+                    },
+                    {
+                        id: "headers", label: "headers (json)", input: "textarea",
+                        placeholder: '{"authorization": "Bearer …"}',
+                    },
+                    {
+                        id: "body", label: "body", input: "textarea",
+                        placeholder: "request body (ignored for GET)",
+                    },
+                ],
+                requiredConfig: ["url"],
+                output: { id: "response", label: "response" },
+            },
+        ],
+        events: [],
+    },
 ];
 
 export const integrationKey = (id: string) => `${INTEGRATION_PREFIX}${id}`;
