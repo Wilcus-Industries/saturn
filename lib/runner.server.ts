@@ -244,7 +244,7 @@ const MAX_LOG_LINE_CHARS = 2_000;
 const RUNS_KEPT_PER_WORKFLOW = 50;
 const CLAIM_GUARD_FLOOR_S = 50;
 
-type ClaimedWorkflow = { id: string; user_id: string; name: string; graph: WorkflowGraph };
+type ClaimedWorkflow = { id: string; user_id: string; graph: WorkflowGraph };
 
 export async function runDueWorkflows(
     at: Date = new Date(),
@@ -269,41 +269,45 @@ export async function runDueWorkflows(
             and graph->'nodes' @> '[{"type":"schedule"}]'`,
     );
 
-    const matched = candidates.filter((c) => matchingScheduleNodeIds(c.graph, at).length > 0);
+    // match once and carry the node ids through — the claim below reuses them
+    const matched = candidates
+        .map((c) => ({ ...c, entryNodeIds: matchingScheduleNodeIds(c.graph, at) }))
+        .filter((c) => c.entryNodeIds.length > 0);
     if (matched.length === 0) return { due: 0, ran: 0 };
     const toClaim = matched.slice(0, MAX_RUNS_PER_TICK);
 
     // batch tier resolution — one query for all candidate owners
     const levels = await getActivationLevels([...new Set(toClaim.map((c) => c.user_id))]);
 
-    const claimed: ClaimedWorkflow[] = [];
-    for (const c of toClaim) {
-        const floor = limitsFor(levels.get(c.user_id) ?? null).cronFloorMinutes;
-        // the guard doubles as the run-time tier-floor clamp: a downgraded
-        // user's '* * * * *' degrades to their floor instead of erroring.
-        // -30s absorbs tick jitter; the 50s floor makes duplicate
-        // same-minute ticks (catch-up bursts, a stray second process) no-ops.
-        const guardSeconds = Math.max(CLAIM_GUARD_FLOOR_S, floor * 60 - 30);
-        // atomic claim via single-statement conditional UPDATE — session
-        // advisory locks are unsafe on pgbouncer transaction pooling (Neon),
-        // and tick sources can overlap (see the guard comment above)
-        const { rows } = await db.query<ClaimedWorkflow>(
-            `update workflow set last_run_at = now()
-              where id = $1
-                and active
-                and (last_run_at is null or last_run_at <= now() - make_interval(secs => $2))
-              returning id, user_id, name, graph`,
-            [c.id, guardSeconds],
-        );
-        if (rows[0]) claimed.push(rows[0]);
-    }
+    // the guard doubles as the run-time tier-floor clamp: a downgraded user's
+    // '* * * * *' degrades to their floor instead of erroring. -30s absorbs
+    // tick jitter; the 50s floor makes duplicate same-minute ticks (catch-up
+    // bursts, a stray second process) no-ops.
+    const guards = toClaim.map((c) =>
+        Math.max(CLAIM_GUARD_FLOOR_S, limitsFor(levels.get(c.user_id) ?? null).cronFloorMinutes * 60 - 30),
+    );
+    // atomic claim, one statement for the whole tick — each row still carries
+    // its own guard (joined in via unnest), so the per-workflow conditions are
+    // exactly the ones the per-row UPDATEs applied. Session advisory locks are
+    // unsafe on pgbouncer transaction pooling (Neon), and tick sources can
+    // overlap (see the guard comment above). Only ids come back: the graph was
+    // already read by the candidate select.
+    const { rows: claimedRows } = await db.query<{ id: string }>(
+        `update workflow w set last_run_at = now()
+           from unnest($1::uuid[], $2::int[]) as c(id, guard)
+          where w.id = c.id
+            and w.active
+            and (w.last_run_at is null or w.last_run_at <= now() - make_interval(secs => c.guard))
+          returning w.id`,
+        [toClaim.map((c) => c.id), guards],
+    );
+    const claimedIds = new Set(claimedRows.map((r) => r.id));
+    const claimed = toClaim.filter((c) => claimedIds.has(c.id));
 
     // runOne never rejects, but allSettled keeps one pathological failure
     // from ever sinking its siblings. Fire only the schedule nodes matching
-    // this minute (recomputed from the claimed graph).
-    await Promise.allSettled(
-        claimed.map((wf) => runOne(wf, matchingScheduleNodeIds(wf.graph, at))),
-    );
+    // this minute.
+    await Promise.allSettled(claimed.map((wf) => runOne(wf, wf.entryNodeIds)));
     return { due: matched.length, ran: claimed.length };
 }
 

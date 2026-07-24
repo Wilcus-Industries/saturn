@@ -5,6 +5,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
+import { createTtlCache } from "@/lib/cache.server";
 import type { McpToolParam, McpToolParamType } from "@/lib/workflow";
 
 const PROTOCOL_VERSION = "2025-06-18";
@@ -257,8 +258,9 @@ async function rpc(
     return { result: msg.result, sessionId };
 }
 
-// initialize → notifications/initialized → tools/list (paginated)
-export async function discoverTools(serverUrl: string, token?: string): Promise<DiscoveredTool[]> {
+// initialize → notifications/initialized; returns the server's session id (if
+// it issues one). Both rpc calls still run the SSRF guard.
+async function handshake(serverUrl: string, token?: string): Promise<string | undefined> {
     const init = await rpc(
         serverUrl,
         "initialize",
@@ -273,8 +275,14 @@ export async function discoverTools(serverUrl: string, token?: string): Promise<
     try {
         await rpc(serverUrl, "notifications/initialized", {}, { token, sessionId });
     } catch {
-        // some servers reject the notification — tools/list may still work
+        // some servers reject the notification — the next call may still work
     }
+    return sessionId;
+}
+
+// handshake → tools/list (paginated)
+export async function discoverTools(serverUrl: string, token?: string): Promise<DiscoveredTool[]> {
+    const sessionId = await handshake(serverUrl, token);
 
     const tools: DiscoveredTool[] = [];
     let cursor: string | undefined;
@@ -311,37 +319,59 @@ export async function discoverTools(serverUrl: string, token?: string): Promise<
     return tools;
 }
 
-// initialize → notifications/initialized → tools/call; returns the joined
-// text content of the result
+// Initialized MCP sessions, reused across tool calls so an agent run doesn't
+// re-handshake (3 round trips) per call. Keyed by server URL + a hash of the
+// bearer token, so a session is NEVER reused across credentials; the token is
+// hashed so no plaintext credential sits in a long-lived map key. Only the
+// session id is cached — every rpc still runs assertPublicHttpsUrl, so the
+// SSRF/DNS-rebinding guard is unchanged.
+// ponytail: 60s TTL + re-handshake on rejection; upgrade path is a real
+// keep-alive/connection pool if the remaining per-call round trip shows up.
+const sessionCache = createTtlCache<string>(60_000, 200);
+
+const sessionKey = (serverUrl: string, token?: string) =>
+    `${serverUrl}\n${createHash("sha256").update(token ?? "").digest("base64url")}`;
+
+// a server that has forgotten/expired our session id rejects the request at
+// session validation (404 gone, 400 malformed) — i.e. BEFORE running the tool,
+// so re-handshaking and retrying can't double-execute a side effect
+const staleSession = (err: unknown) =>
+    err instanceof Error && /^MCP server responded (400|404)$/.test(err.message);
+
+// tools/call on a cached session (re-handshaking when there is none, or when
+// the server rejects a stale one); returns the joined text content
 export async function callTool(
     serverUrl: string,
     toolName: string,
     args: Record<string, unknown>,
     token?: string,
 ): Promise<string> {
-    const init = await rpc(
-        serverUrl,
-        "initialize",
-        {
-            protocolVersion: PROTOCOL_VERSION,
-            capabilities: {},
-            clientInfo: { name: "saturn", version: "0.1.0" },
-        },
-        { token, id: 1 },
-    );
-    const sessionId = init.sessionId;
-    try {
-        await rpc(serverUrl, "notifications/initialized", {}, { token, sessionId });
-    } catch {
-        // some servers reject the notification — tools/call may still work
+    const key = sessionKey(serverUrl, token);
+    const params = { name: toolName, arguments: args };
+    const cached = sessionCache.get(key);
+
+    let result: unknown;
+    let called = false;
+    if (cached) {
+        try {
+            ({ result } = await rpc(serverUrl, "tools/call", params, {
+                token,
+                sessionId: cached,
+                id: 2,
+            }));
+            called = true;
+        } catch (err) {
+            if (!staleSession(err)) throw err;
+            sessionCache.delete(key);
+        }
+    }
+    if (!called) {
+        const sessionId = await handshake(serverUrl, token);
+        ({ result } = await rpc(serverUrl, "tools/call", params, { token, sessionId, id: 2 }));
+        // cache only after a call succeeded on it
+        if (sessionId) sessionCache.set(key, sessionId);
     }
 
-    const { result } = await rpc(
-        serverUrl,
-        "tools/call",
-        { name: toolName, arguments: args },
-        { token, sessionId, id: 2 },
-    );
     const r = result as {
         content?: { type?: string; text?: string }[];
         isError?: boolean;

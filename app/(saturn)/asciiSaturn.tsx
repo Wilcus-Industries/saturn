@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // Intensity grids (hex 0-b per cell) sampled from public/art/saturn_with_tilted_rings.svg
 // with its blur+dither filter applied. Rings and planet are separate layers so the
@@ -194,8 +194,10 @@ export default function AsciiSaturn({
     // set false to skip the background noise field (e.g. small logo marks)
     noise?: boolean;
 }) {
-    const [t, setT] = useState(0);
     const artRef = useRef<HTMLDivElement>(null);
+    const ringRef = useRef<HTMLPreElement>(null);
+    const planetRef = useRef<HTMLPreElement>(null);
+    const bgRef = useRef<HTMLPreElement>(null);
     // parent-div coverage in whole cells around the art, so the bg grid stays
     // cell-aligned with the art grid and fills the section without spilling past it
     const [box, setBox] = useState<{
@@ -211,11 +213,47 @@ export default function AsciiSaturn({
 
     const [ringGrid, planetGrid] = gridsAt(scale);
 
+    // animation runs outside React (same shape as moon.tsx): the frames are
+    // written straight into the <pre> nodes, so a tick costs one string build
+    // and one textContent write instead of a re-render of the whole grid.
+    // rAF gives the backgrounded-tab gate for free (browsers don't fire it in
+    // hidden tabs); the IntersectionObserver adds the scrolled-past one.
     useEffect(() => {
+        const el = artRef.current;
+        if (!el) return;
         if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-        const id = setInterval(() => setT(prev => prev + 1), 90);
-        return () => clearInterval(id);
-    }, []);
+
+        let raf = 0;
+        let last = 0;
+        let t = 0;
+        const draw = (now: number) => {
+            raf = requestAnimationFrame(draw);
+            if (now - last < 90) return; // same ~11 Hz cadence as before
+            last = now;
+            t += 1;
+            const [ringText, planetText] = frame(t, ringGrid, planetGrid);
+            if (ringRef.current) ringRef.current.textContent = ringText;
+            if (planetRef.current) planetRef.current.textContent = planetText;
+            if (bgRef.current && box) {
+                bgRef.current.textContent = bgFrame(
+                    t, box.totalCols, box.totalRows, box.cellsLeft, box.cellsTop, ringGrid, planetGrid,
+                );
+            }
+        };
+        // rAF ids are positive, so 0 doubles as "not running"
+        const io = new IntersectionObserver(([entry]) => {
+            if (entry.isIntersecting && !raf) raf = requestAnimationFrame(draw);
+            else if (!entry.isIntersecting && raf) {
+                cancelAnimationFrame(raf);
+                raf = 0;
+            }
+        });
+        io.observe(el);
+        return () => {
+            io.disconnect();
+            cancelAnimationFrame(raf);
+        };
+    }, [ringGrid, planetGrid, box]);
 
     useEffect(() => {
         if (!noise) return;
@@ -253,7 +291,18 @@ export default function AsciiSaturn({
         return () => window.removeEventListener("resize", measure);
     }, [ringGrid]);
 
-    const [ringText, planetText] = frame(t, ringGrid, planetGrid);
+    // only the t=0 frame is rendered by React (SSR + hydration); every later
+    // frame is written to the DOM by the effect above. Memoized so an unrelated
+    // re-render doesn't rebuild the grids — and so React keeps diffing the same
+    // string and never stomps the animated textContent.
+    const [ringText, planetText] = useMemo(() => frame(0, ringGrid, planetGrid), [ringGrid, planetGrid]);
+    const bgText = useMemo(
+        () =>
+            box
+                ? bgFrame(0, box.totalCols, box.totalRows, box.cellsLeft, box.cellsTop, ringGrid, planetGrid)
+                : "",
+        [box, ringGrid, planetGrid],
+    );
     const preClasses = `font-mono ${sizeClass} leading-none select-none`;
 
     return (
@@ -265,20 +314,21 @@ export default function AsciiSaturn({
                     style={{ left: -box.dx, top: -box.dy, width: box.width, height: box.height }}
                 >
                     <pre
+                        ref={bgRef}
                         className={`${preClasses} absolute text-[#D9D9D9] dark:text-[#2E2E2E]`}
                         style={{
                             left: `calc(${box.dx}px - ${box.cellsLeft}ch)`,
                             top: `calc(${box.dy}px - ${box.cellsTop}em)`,
                         }}
                     >
-                        {bgFrame(t, box.totalCols, box.totalRows, box.cellsLeft, box.cellsTop, ringGrid, planetGrid)}
+                        {bgText}
                     </pre>
                 </div>
             )}
-            <pre aria-hidden className={`${preClasses} text-[#6E7780] dark:text-[#8E979F]`}>
+            <pre ref={planetRef} aria-hidden className={`${preClasses} text-[#6E7780] dark:text-[#8E979F]`}>
                 {planetText}
             </pre>
-            <pre aria-hidden className={`${preClasses} absolute inset-0 text-[#26221D] dark:text-[#F5F1E8]`}>
+            <pre ref={ringRef} aria-hidden className={`${preClasses} absolute inset-0 text-[#26221D] dark:text-[#F5F1E8]`}>
                 {ringText}
             </pre>
         </div>

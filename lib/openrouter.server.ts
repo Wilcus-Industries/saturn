@@ -2,6 +2,7 @@
 // when a user has no built-in credits (free tier / allowance exhausted; see
 // lib/credits.server.ts). The key is write-only — never return it to the
 // client.
+import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
 
 export async function getOpenrouterKey(userId: string): Promise<string | null> {
@@ -34,41 +35,51 @@ export type OpenrouterModel = {
 
 // public endpoint, deliberately unauthenticated: the response is the same
 // for every user, so the shared Next data cache (1h revalidate) is safe.
-// Failure degrades to [] — the toolbox falls back to the blank model chip
+// The parsed+sorted result is memoized on top of it for the same hour — the
+// fetch cache only spares the network hop, while the multi-MB parse and the
+// 1000-entry localeCompare sort re-ran on every dashboard/designer render.
+// Failure degrades to [] and is never cached (loadModels throws) — the toolbox
+// falls back to the blank model chip.
+const modelsCache = createTtlCache<OpenrouterModel[]>(3600_000, 1);
+
 export async function listOpenrouterModels(): Promise<OpenrouterModel[]> {
     try {
-        const res = await fetch("https://openrouter.ai/api/v1/models", {
-            next: { revalidate: 3600 },
-        });
-        if (!res.ok) return [];
-        const body: unknown = await res.json();
-        const data =
-            typeof body === "object" && body !== null && Array.isArray((body as { data?: unknown }).data)
-                ? ((body as { data: unknown[] }).data as {
-                      id?: unknown;
-                      name?: unknown;
-                      architecture?: { output_modalities?: unknown };
-                      supported_parameters?: unknown;
-                  }[])
-                : [];
-        return data
-            // 128 = the runner's MODEL_ID length cap
-            .filter((m) => typeof m?.id === "string" && m.id.length > 0 && m.id.length <= 128)
-            .slice(0, 1000)
-            .map((m) => ({
-                id: m.id as string,
-                name: typeof m.name === "string" && m.name ? m.name : (m.id as string),
-                outputModalities: Array.isArray(m.architecture?.output_modalities)
-                    ? m.architecture.output_modalities.filter(
-                          (x): x is string => x === "text" || x === "image",
-                      )
-                    : [],
-                supportsReasoning:
-                    Array.isArray(m.supported_parameters) &&
-                    m.supported_parameters.includes("reasoning"),
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+        return await modelsCache.getOrLoad("models", loadModels);
     } catch {
         return [];
     }
+}
+
+async function loadModels(): Promise<OpenrouterModel[]> {
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+        next: { revalidate: 3600 },
+    });
+    if (!res.ok) throw new Error(`openrouter models: ${res.status}`);
+    const body: unknown = await res.json();
+    const data =
+        typeof body === "object" && body !== null && Array.isArray((body as { data?: unknown }).data)
+            ? ((body as { data: unknown[] }).data as {
+                  id?: unknown;
+                  name?: unknown;
+                  architecture?: { output_modalities?: unknown };
+                  supported_parameters?: unknown;
+              }[])
+            : [];
+    return data
+        // 128 = the runner's MODEL_ID length cap
+        .filter((m) => typeof m?.id === "string" && m.id.length > 0 && m.id.length <= 128)
+        .slice(0, 1000)
+        .map((m) => ({
+            id: m.id as string,
+            name: typeof m.name === "string" && m.name ? m.name : (m.id as string),
+            outputModalities: Array.isArray(m.architecture?.output_modalities)
+                ? m.architecture.output_modalities.filter(
+                      (x): x is string => x === "text" || x === "image",
+                  )
+                : [],
+            supportsReasoning:
+                Array.isArray(m.supported_parameters) &&
+                m.supported_parameters.includes("reasoning"),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
 }

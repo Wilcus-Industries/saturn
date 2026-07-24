@@ -28,7 +28,10 @@ import {
     type WorkflowGraph,
     type WorkflowRow,
 } from "@/lib/workflow";
-import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
+// the interpreter (and the agent/tool machinery it drags in) is only needed by
+// the test-run button — import()ed at the call site so it stays out of the
+// designer's initial bundle. Type-only import here is compile-erased.
+import type { ConsoleLine } from "@/lib/interpreter";
 import { sampleEventPayload } from "@/lib/integrations";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
@@ -146,15 +149,19 @@ export default function Designer({
 
     // static catalog + user registry entries + "(deleted)" placeholders for
     // any node type that no longer resolves (deleted registry entry or a
-    // node type removed from the static catalog)
+    // node type removed from the static catalog).
+    // Keyed on the node TYPES, never on present.nodes: every drag frame
+    // allocates a fresh nodes array, and a new byKey identity breaks the memo
+    // of every Node on the canvas (byKey is a prop on all of them).
+    const nodeTypeKey = present.nodes.map((n) => n.type).join("\u0000");
     const byKey = useMemo(() => {
         const map: Record<string, CatalogEntry> = { ...CATALOG_BY_KEY };
         for (const entry of userCatalog) map[entry.key] = entry;
-        for (const n of present.nodes) {
-            if (!map[n.type]) map[n.type] = missingEntry(n.type);
+        for (const type of nodeTypeKey ? nodeTypeKey.split("\u0000") : []) {
+            if (!map[type]) map[type] = missingEntry(type);
         }
         return map;
-    }, [userCatalog, present.nodes]);
+    }, [userCatalog, nodeTypeKey]);
 
     // slug → output modalities, driving the agent node's output select
     const modelModalities = useMemo(
@@ -220,9 +227,12 @@ export default function Designer({
     );
 
     // saved snapshot as state (not a ref) so a successful save re-renders
-    // the dirty indicator immediately
-    const [savedJson, setSavedJson] = useState(() => JSON.stringify(workflow.graph));
-    const dirty = useMemo(() => JSON.stringify(present) !== savedJson, [present, savedJson]);
+    // the dirty indicator immediately. Compared by REFERENCE: the reducer
+    // allocates a new `present` per mutation and undo/redo restore the exact
+    // snapshot objects, so identity answers "dirty?" without stringifying the
+    // whole document (agent system prompts included) at pointer-event rate.
+    const [savedGraph, setSavedGraph] = useState(workflow.graph);
+    const dirty = present !== savedGraph;
 
     const [error, setError] = useState<string | null>(null);
 
@@ -264,10 +274,13 @@ export default function Designer({
         (graph: unknown) => {
             if (!isWorkflowGraph(graph)) return;
             dispatch({ type: "replaceGraph", graph });
-            setSavedJson(JSON.stringify(graph));
+            setSavedGraph(graph);
+            // the swapped-in graph may reuse node ids for different nodes — the
+            // cheap membership check below can't see that, so drop the selection
+            selectNodes(new Set());
             notify("agent updated the graph");
         },
-        [notify],
+        [notify, selectNodes],
     );
 
     // arrow-key nudge coalescing: a burst of arrow presses moves the selection
@@ -358,6 +371,7 @@ export default function Designer({
             if (payload) eventPayloads[n.id] = payload;
         }
         try {
+            const { runWorkflow } = await import("@/lib/interpreter");
             await runWorkflow(present, byKey, {
                 emit,
                 callMcp: callMcpTool,
@@ -386,9 +400,15 @@ export default function Designer({
     const [prevPresent, setPrevPresent] = useState(present);
     if (prevPresent !== present) {
         setPrevPresent(present);
-        const alive = new Set(present.nodes.map((n) => n.id));
-        const kept = [...selection].filter((id) => alive.has(id));
-        if (kept.length !== selection.size) setSelection(new Set(kept));
+        // only a MEMBERSHIP change can strand a selection — a drag/nudge frame
+        // rewrites positions, so skip the id scan (and the possible re-render)
+        // then. replaceGraph is the one action that can swap ids at equal count;
+        // handleAgentGraph, its only dispatcher, clears the selection itself.
+        if (selection.size && present.nodes.length !== prevPresent.nodes.length) {
+            const alive = new Set(present.nodes.map((n) => n.id));
+            const kept = [...selection].filter((id) => alive.has(id));
+            if (kept.length !== selection.size) setSelection(new Set(kept));
+        }
         // drop a stale edge selection (edge deleted, or its node removed)
         if (selectedEdgeId && !present.edges.some((e) => e.id === selectedEdgeId)) {
             setSelectedEdgeId(null);
@@ -808,11 +828,11 @@ export default function Designer({
     const save = () => {
         if (saving || !dirty) return;
         setError(null);
-        const json = JSON.stringify(present);
+        const snapshot = present;
         startSaving(async () => {
             try {
-                await saveWorkflow(workflow.id, present);
-                setSavedJson(json);
+                await saveWorkflow(workflow.id, snapshot);
+                setSavedGraph(snapshot);
             } catch {
                 setError("save failed");
             }
@@ -834,7 +854,7 @@ export default function Designer({
     // its own props change, so anything it reads mid-gesture comes through
     // refs) and for the unmount flush below
     const graphRef = useRef(present);
-    const savedJsonRef = useRef(savedJson);
+    const savedGraphRef = useRef(savedGraph);
     const byKeyRef = useRef(byKey);
     const selectionRef = useRef(selection);
     // live mirror of the variables prop so openVariable (a stable callback fed
@@ -843,7 +863,7 @@ export default function Designer({
     useEffect(() => {
         // eslint-disable-next-line react-hooks/immutability -- deliberate live-mirror refs, written in an effect (never during render)
         graphRef.current = present;
-        savedJsonRef.current = savedJson;
+        savedGraphRef.current = savedGraph;
         // eslint-disable-next-line react-hooks/immutability -- see above
         byKeyRef.current = byKey;
         selectionRef.current = selection;
@@ -861,7 +881,7 @@ export default function Designer({
             // transient moves already live in graphRef, so the save is correct
             // either way — this ordering is about the timer and undo hygiene.
             flushNudge();
-            if (JSON.stringify(graphRef.current) !== savedJsonRef.current) {
+            if (graphRef.current !== savedGraphRef.current) {
                 saveWorkflow(workflow.id, graphRef.current).catch(() => {});
             }
         };

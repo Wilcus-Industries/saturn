@@ -8,6 +8,7 @@ import {
     baseUrl,
     getActivation,
     getActivationDetails,
+    invalidateActivation,
     isPaidPlan,
     requireUser,
 } from "@/lib/subscription";
@@ -18,7 +19,7 @@ export async function changePlan(plan: string) {
     // self-hosted: no Stripe plans
     if (SELF_HOSTED) redirect("/dashboard");
     if (!isPaidPlan(plan)) throw new Error("Unknown plan");
-    const { requestHeaders } = await requireUser();
+    const { requestHeaders, session } = await requireUser();
     const level = await getActivation(requestHeaders);
     // any activated user may move to a paid plan they're not already on
     // (upgrade or downgrade, both via the billing portal's update flow for
@@ -37,6 +38,9 @@ export async function changePlan(plan: string) {
         headers: requestHeaders,
     });
     if (!url) throw new Error("Stripe checkout could not be created");
+    // the plan changes on Stripe's side from here on — drop the cached
+    // subscription rows so the post-checkout return reads the new tier
+    invalidateActivation(session.user.id);
     redirect(url);
 }
 
@@ -45,7 +49,7 @@ export async function changePlan(plan: string) {
 export async function continueSubscription() {
     // self-hosted: no Stripe subscription
     if (SELF_HOSTED) redirect("/dashboard");
-    const { requestHeaders } = await requireUser();
+    const { requestHeaders, session } = await requireUser();
 
     const { pendingCancel } = await getActivationDetails(requestHeaders);
     // restoreSubscription throws unless a cancel is pending; also blocks a
@@ -53,6 +57,7 @@ export async function continueSubscription() {
     if (!pendingCancel) redirect("/dashboard/upgrade");
 
     await auth.api.restoreSubscription({ body: {}, headers: requestHeaders });
+    invalidateActivation(session.user.id); // pendingCancel just flipped
     redirect("/dashboard/upgrade");
 }
 
@@ -68,6 +73,8 @@ export async function downgradeToFree() {
     // subscription outranks the plan column) and guarantees the user lands on
     // free instead of un-activated once the subscription expires
     await db.query(`update "user" set plan = 'free' where id = $1`, [session.user.id]);
+    // nothing below re-reads the activation, so one drop covers both exits
+    invalidateActivation(session.user.id);
 
     // Stripe rejects a second cancellation while one is pending; nothing left
     // to do but record the free fallback above

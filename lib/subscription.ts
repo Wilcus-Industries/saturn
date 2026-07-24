@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
 import { SELF_HOSTED } from "@/lib/selfhost";
 import { SELF_HOSTED_SANDBOX, selfHostedSession } from "@/lib/selfhost.server";
@@ -78,6 +79,21 @@ export const limitsFor = (level: ActivationLevel | null) =>
 
 const NONE: Activation = { level: null, status: null, pendingCancel: false, periodEnd: null };
 
+// per-user live-subscription rows — the one DB round trip getActivationDetails
+// makes, previously repeated on every page render and server action. Only the
+// Stripe half is cached: the free-tier fallback below still reads the live
+// session, so self-serve activation takes effect immediately. Never populated
+// under SELF_HOSTED (that path short-circuits before any of this). Same 60s TTL
+// as the registry and credits caches; paid mutations invalidate explicitly.
+type LiveSubscriptions = Awaited<ReturnType<typeof auth.api.listActiveSubscriptions>>;
+const subscriptionCache = createTtlCache<LiveSubscriptions>(60_000);
+
+// call after any Stripe mutation for a user — a just-paid user must not read a
+// pre-payment tier back out of the cache
+export function invalidateActivation(userId: string) {
+    subscriptionCache.delete(userId);
+}
+
 // effective activation for the current request: an active/trialing Stripe
 // subscription wins (max over pro), then the self-serve free tier, then nothing
 export async function getActivationDetails(headers: Headers): Promise<Activation> {
@@ -91,7 +107,9 @@ export async function getActivationDetails(headers: Headers): Promise<Activation
     // endpoint that doesn't exist under the flag).
     if (SELF_HOSTED) return { level: "max", status: null, pendingCancel: false, periodEnd: null };
 
-    const subscriptions = await auth.api.listActiveSubscriptions({ headers });
+    const subscriptions = await subscriptionCache.getOrLoad(session.user.id, () =>
+        auth.api.listActiveSubscriptions({ headers }),
+    );
     const live = subscriptions.filter(
         (s) => s.status === "active" || s.status === "trialing",
     );

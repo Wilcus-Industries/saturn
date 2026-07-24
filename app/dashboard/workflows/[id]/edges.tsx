@@ -160,7 +160,12 @@ function resolveEnd(
     return { ...portGeometry(node, entry, ref.portId, graph, byKey), color: entryStyles(entry).edge };
 }
 
-export default function Edges({
+// memoized like EdgePath above: a pan, zoom or marquee frame re-renders the
+// canvas but changes none of these props (graph + byKey only change per graph
+// mutation, `pending` is null unless a port drag is live, the callbacks are
+// designer useCallbacks) — and every render here re-runs the port-geometry
+// resolution for every edge end, which scans nodes and edges.
+export default memo(function Edges({
     graph,
     byKey,
     pending,
@@ -233,4 +238,4 @@ export default function Edges({
             )}
         </svg>
     );
-}
+});

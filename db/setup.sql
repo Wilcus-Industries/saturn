@@ -24,6 +24,15 @@ create index if not exists workflow_user_id_idx on workflow (user_id);
 alter table workflow add column if not exists last_run_at timestamptz;
 alter table workflow add column if not exists active boolean not null default true;
 alter table workflow add column if not exists webhook_secret text;
+-- the scheduler tick (lib/runner.server.ts) and the ingress subscription feed
+-- (lib/events.server.ts) both select `where active and graph->'nodes' @> …`.
+-- Index the same expression the containment operand is tested against, with
+-- jsonb_path_ops (containment-only, smaller than the default opclass); partial
+-- on `active` so it only holds rows those queries can return.
+-- Must come after the `active` backfill above — a partial index on a column
+-- this script is still adding would fail before the alter ever ran.
+create index if not exists workflow_active_graph_nodes_idx
+    on workflow using gin ((graph->'nodes') jsonb_path_ops) where active;
 -- schedule moved into the graph's "schedule" event node's config.cron; the
 -- column was never read again, so drop it from already-deployed databases
 alter table workflow drop column if exists cron;
@@ -41,6 +50,10 @@ create table if not exists workflow_run (
 );
 create index if not exists workflow_run_workflow_started_idx
     on workflow_run (workflow_id, started_at desc);
+-- stale-run janitor (lib/runner.server.ts, every scheduler tick):
+-- `where status = 'running' and started_at < now() - …`
+create index if not exists workflow_run_status_started_idx
+    on workflow_run (status, started_at);
 -- added after initial rollout; keeps existing tables in sync with the create above
 -- ('event' = real-time inbound event run, lib/events.server.ts ingestEvent)
 alter table workflow_run drop constraint if exists workflow_run_trigger_check;
@@ -89,6 +102,8 @@ create table if not exists memory_item (
     created_at timestamptz not null default now()
 );
 create index if not exists memory_item_entry_id_idx on memory_item (entry_id);
+-- per-user store counts (countMemoryItems) and the user-delete cascade
+create index if not exists memory_item_user_id_idx on memory_item (user_id);
 
 -- per-user secrets (settings → models). openrouter_key is the BYOK fallback
 -- used when a user has no built-in credits (free tier / allowance exhausted).

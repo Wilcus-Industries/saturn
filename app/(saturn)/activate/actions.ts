@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { SELF_HOSTED } from "@/lib/selfhost";
-import { baseUrl, getActivation, isPaidPlan, requireUser } from "@/lib/subscription";
+import { baseUrl, getActivation, invalidateActivation, isPaidPlan, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
 
@@ -21,7 +21,7 @@ export async function activatePlan(plan: string) {
     // self-hosted: no Stripe — the owner already has full access
     if (SELF_HOSTED) redirect("/dashboard");
     if (!isPaidPlan(plan)) throw new Error("Unknown plan");
-    const { requestHeaders } = await requireUser();
+    const { session, requestHeaders } = await requireUser();
 
     // existing subscribers manage plans at /dashboard/upgrade; also keeps a
     // replayed POST from opening a stray portal flow (upgradeSubscription routes
@@ -40,5 +40,8 @@ export async function activatePlan(plan: string) {
         headers: requestHeaders,
     });
     if (!url) throw new Error("Stripe checkout could not be created");
+    // drop the cached subscription rows so the post-checkout /dashboard render
+    // reads the new tier instead of the pre-payment one
+    invalidateActivation(session.user.id);
     redirect(url);
 }
