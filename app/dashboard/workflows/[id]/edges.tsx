@@ -80,8 +80,8 @@ const EdgePath = memo(function EdgePath({
                 d={d}
                 fill={"none"}
                 stroke={flow ? "var(--foreground)" : color}
-                strokeWidth={flow ? (emphasized ? 3.5 : 2) : emphasized ? 3 : 1.5}
-                strokeDasharray={flow ? undefined : "6 4"}
+                strokeWidth={flow ? (emphasized ? 3 : 1.5) : emphasized ? 2.5 : 1.25}
+                strokeDasharray={flow ? undefined : "4 4"}
             />
             {/* invisible fat twin: hover + click-to-select hit area. Clicking no
                 longer deletes — deletion is the midpoint × or Delete/Backspace. */}
@@ -237,7 +237,7 @@ export default function Edges({
                     fill={"none"}
                     stroke={"var(--foreground)"}
                     strokeWidth={1.5}
-                    strokeDasharray={"6 4"}
+                    strokeDasharray={"4 4"}
                     opacity={0.5}
                 />
             )}
