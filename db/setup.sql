@@ -15,6 +15,7 @@ create table if not exists workflow (
     cron        text,  -- vestigial: the schedule now lives in a "schedule" event node's config.cron
     graph       jsonb not null default '{"nodes":[],"edges":[]}',
     active      boolean not null default true, -- gates scheduled runs only; manual runs ignore it
+    webhook_secret text, -- nullable: per-workflow inbound webhook secret, provisioned on demand (never provisioned = null)
     last_run_at timestamptz,
     created_at  timestamptz not null default now(),
     updated_at  timestamptz not null default now()
@@ -23,6 +24,7 @@ create index if not exists workflow_user_id_idx on workflow (user_id);
 -- added after initial rollout; keeps existing tables in sync with the create above
 alter table workflow add column if not exists last_run_at timestamptz;
 alter table workflow add column if not exists active boolean not null default true;
+alter table workflow add column if not exists webhook_secret text;
 -- schedule moved into the graph's "schedule" event node; the column is now unused
 alter table workflow alter column cron drop not null;
 

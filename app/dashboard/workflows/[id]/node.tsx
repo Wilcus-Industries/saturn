@@ -96,6 +96,14 @@ export type OpenCronHandler = (
     nodeId: string,
 ) => void;
 
+// an event:webhook trigger circle opens the webhook-url popover when clicked
+// (press with no drag); the anchor is the node's client-space bottom-left
+// corner, like cron
+export type OpenWebhookHandler = (
+    anchor: { x: number; y: number },
+    nodeId: string,
+) => void;
+
 // an mcp server chip opens the tool picker popover when clicked (press with
 // no drag); the anchor is the node's client-space bottom-left corner, like cron
 export type OpenToolsHandler = (
@@ -182,6 +190,7 @@ export default memo(function Node({
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
+    onOpenWebhook,
     onOpenTools,
     onOpenInfo,
     onOpenVariable,
@@ -240,6 +249,7 @@ export default memo(function Node({
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
+    onOpenWebhook?: OpenWebhookHandler;
     onOpenTools?: OpenToolsHandler;
     onOpenInfo?: OpenInfoHandler;
     onOpenVariable?: OpenVariableHandler;
@@ -554,19 +564,21 @@ export default memo(function Node({
                 ? describeCron(cron)
                 : "not scheduled"
             : entry.label;
-        // a click opens the cron popover for a schedule; otherwise the node
-        // just drags
-        const clickOpens = hasCron;
+        // a click opens the cron popover for a schedule, or the webhook-url
+        // popover for the webhook trigger; otherwise the node just drags
+        const isWebhook = entry.key === "event:webhook";
+        const clickOpens = hasCron || isWebhook;
 
         // a press that stayed under the drag threshold is a click → open the
-        // cron popover
+        // matching popover
         const eventEndDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
             const wasClick = !!dragRef.current && !dragRef.current.active;
             endDrag();
             if (!wasClick) return;
             const r = e.currentTarget.getBoundingClientRect();
             const anchor = { x: r.left, y: r.bottom + 4 };
-            if (onOpenCron) onOpenCron(anchor, node.id);
+            if (isWebhook) onOpenWebhook?.(anchor, node.id);
+            else onOpenCron?.(anchor, node.id);
         };
 
         // per-port "portId=lx,ly" local anchors from the canvas (rotated toward

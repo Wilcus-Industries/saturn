@@ -6,7 +6,7 @@ import { hasOpenrouterKey, listOpenrouterModels } from "@/lib/openrouter.server"
 import { buildUserCatalog } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import { SELF_HOSTED } from "@/lib/selfhost";
-import { getActivation, getSessionCached, limitsFor } from "@/lib/subscription";
+import { baseUrl, getActivation, getSessionCached, limitsFor } from "@/lib/subscription";
 import type { WorkflowRow } from "@/lib/workflow";
 import Designer from "./designer";
 
@@ -28,7 +28,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     // workflow row rides the same Promise.all so the page pays one round trip
     const [{ rows }, registry, keyed, level] = await Promise.all([
         db.query(
-            "select id, name, emoji, description, cron, graph from workflow where id = $1 and user_id = $2",
+            "select id, name, emoji, description, cron, graph, webhook_secret from workflow where id = $1 and user_id = $2",
             [id, session.user.id],
         ),
         getUserRegistry(session.user.id),
@@ -38,6 +38,9 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     if (!rows[0]) notFound();
     // pg parses jsonb, so row.graph arrives as a WorkflowGraph object
     const row = rows[0] as WorkflowRow;
+    // webhook_secret isn't part of WorkflowRow (nullable, provisioned lazily) —
+    // read it off the raw row and thread it as the designer's webhook prop
+    const webhookSecret = (rows[0] as { webhook_secret: string | null }).webhook_secret ?? null;
     const userCatalog = buildUserCatalog(registry);
     // variables for the toolbox split — name + secret flag + whether a value is
     // set. For secrets the value never reaches the client (value is '' from the
@@ -68,6 +71,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
             openrouterModels={openrouterModels}
             cronFloorMinutes={limitsFor(level).cronFloorMinutes}
             selfHosted={SELF_HOSTED}
+            webhook={{ base: `${baseUrl}/api/hooks`, secret: webhookSecret }}
         />
     );
 }

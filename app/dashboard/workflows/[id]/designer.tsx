@@ -54,10 +54,12 @@ import type {
     OpenSystemHandler,
     OpenToolsHandler,
     OpenVariableHandler,
+    OpenWebhookHandler,
     PortPointerDownHandler,
 } from "./node";
 import ChipInfoPopover from "./chipInfoPopover";
 import CronPopover from "./cronPopover";
+import WebhookPopover from "./webhookPopover";
 import SystemPopover from "./systemPopover";
 import ToolPickerPopover from "./toolPickerPopover";
 import { describeCron } from "@/lib/cron";
@@ -108,6 +110,7 @@ export default function Designer({
     openrouterModels,
     cronFloorMinutes,
     selfHosted,
+    webhook,
 }: {
     workflow: WorkflowRow;
     userCatalog: CatalogEntry[];
@@ -119,6 +122,9 @@ export default function Designer({
     cronFloorMinutes: number;
     // single-user mode — flips the empty-models hint to the server-key message
     selfHosted: boolean;
+    // webhook-trigger ingress: base = "<baseUrl>/api/hooks", secret = null until
+    // provisioned (minted lazily by the webhook popover on first open)
+    webhook: { base: string; secret: string | null };
 }) {
     const [history, dispatch] = useReducer(graphReducer, workflow.graph, initHistory);
     const present = history.present;
@@ -665,6 +671,18 @@ export default function Designer({
         setCronEdit(null);
     };
 
+    // webhook-trigger popover: unlike cron it touches no graph state (the secret
+    // lives in a workflow column), so there's no before/commit undo coalescing.
+    // The minted/rotated secret lifts into local state so the URL survives
+    // reopening the popover without another server round trip.
+    const [webhookSecret, setWebhookSecret] = useState<string | null>(webhook.secret);
+    // the url is per-workflow (not per-node), so only the anchor matters here
+    const [webhookAnchor, setWebhookAnchor] = useState<{ x: number; y: number } | null>(null);
+
+    const openWebhook: OpenWebhookHandler = useCallback((anchor) => {
+        setWebhookAnchor(anchor);
+    }, []);
+
     // mcp-server-node tool picker popover: same before/commit undo coalescing
     // as the cron popover — one undo step for the whole editing session
     const [toolsEdit, setToolsEdit] = useState<{
@@ -899,6 +917,7 @@ export default function Designer({
                 // is skipped during a drag (no double-fire clearing the
                 // selection). It only reaches here when no node drag is active.
                 if (cronEdit) closeCron();
+                else if (webhookAnchor) setWebhookAnchor(null);
                 else if (toolsEdit) closeTools();
                 else if (systemEdit) closeSystem();
                 else if (infoView) setInfoView(null);
@@ -966,6 +985,7 @@ export default function Designer({
                     onPortPointerDown={startEdgeDrag}
                     onOpenPicker={openPicker}
                     onOpenCron={openCron}
+                    onOpenWebhook={openWebhook}
                     onOpenTools={openTools}
                     onOpenInfo={openInfo}
                     onOpenVariable={openVariable}
@@ -1000,6 +1020,17 @@ export default function Designer({
                     floorMinutes={cronFloorMinutes}
                     onChange={handleCronChange}
                     onClose={closeCron}
+                />
+            )}
+
+            {webhookAnchor && (
+                <WebhookPopover
+                    anchor={webhookAnchor}
+                    workflowId={workflow.id}
+                    base={webhook.base}
+                    secret={webhookSecret}
+                    onSecret={setWebhookSecret}
+                    onClose={() => setWebhookAnchor(null)}
                 />
             )}
 

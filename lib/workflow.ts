@@ -855,6 +855,30 @@ export function validateGraphStrict(
         }
     }
 
+    // http request headers must be a JSON object of strings — a literal that
+    // isn't (and no port feeding it) fails the send at run time
+    for (const node of graph.nodes) {
+        if (node.type !== integrationKey("http-request")) continue;
+        const headers = (node.config.headers ?? "").trim();
+        if (!headers || fedPorts.has(`${node.id}:headers`)) continue;
+        let ok = false;
+        try {
+            const parsed: unknown = JSON.parse(headers);
+            ok =
+                typeof parsed === "object" &&
+                parsed !== null &&
+                !Array.isArray(parsed) &&
+                Object.values(parsed).every((v) => typeof v === "string");
+        } catch {
+            ok = false;
+        }
+        if (!ok) {
+            warn(`http request "${node.id}" headers is not a JSON object of strings, the run will fail`, {
+                nodeId: node.id,
+            });
+        }
+    }
+
     // extension event nodes never fire without their required config (e.g. a
     // Discord "mentioned" node with a blank bot token) — a port-fed field is
     // fine, same as integrations
