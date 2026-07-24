@@ -169,6 +169,13 @@ export const CATALOG: CatalogEntry[] = [
         inputs: [], outputs: [flowOut],
         config: [{ id: "cron", label: "schedule", input: "text", default: "0 9 * * *" }],
     },
+    // manual entry point — fires only on run_workflow / designer test runs
+    // (cron runner keys on type "schedule", transports on event:<id> keys,
+    // so this type is invisible to both by construction)
+    {
+        key: "run", category: "events", label: "on run", emoji: "▶",
+        inputs: [], outputs: [flowOut],
+    },
     // legacy entry point — hidden from the toolbox, still resolves so graphs
     // saved before the events framework keep running (treated as an event node)
     {
