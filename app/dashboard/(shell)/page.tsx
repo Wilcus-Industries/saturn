@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import AsciiSaturn from "@/app/(saturn)/asciiSaturn";
+import { listOpenrouterModels } from "@/lib/openrouter.server";
 import { getSessionCached } from "@/lib/subscription";
 import AgentComposer from "./agentComposer";
 
@@ -9,6 +10,10 @@ import AgentComposer from "./agentComposer";
 export default async function Dashboard() {
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
+
+    // public 1h-cached list feeding the composer's model selector (visual-only
+    // for now; [] on fetch failure — composer falls back to a canned list)
+    const models = await listOpenrouterModels();
 
     // fill the viewport from inside the shell padding: mobile = two-row top bar
     // (h-12 lockup + chip row ≈ 87px) + p-4 ≈ 119px, 7.5rem leaves 1px slack;
@@ -28,7 +33,7 @@ export default async function Dashboard() {
                     </p>
                 </div>
             </div>
-            <AgentComposer />
+            <AgentComposer models={models} />
         </div>
     );
 }

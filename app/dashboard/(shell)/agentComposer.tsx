@@ -1,22 +1,41 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { FaArrowUp, FaChevronDown } from "react-icons/fa6";
+import ModelLogo from "@/app/dashboard/workflows/[id]/modelLogo";
+import type { OpenrouterModel } from "@/lib/openrouter.server";
 
-// visual-only for now — the selector feeds nothing yet, wiring comes later
-const MODELS = [
-    { slug: "anthropic/claude-sonnet-4.5", label: "claude sonnet 4.5" },
-    { slug: "anthropic/claude-opus-4.1", label: "claude opus 4.1" },
-    { slug: "openai/gpt-5", label: "gpt-5" },
-    { slug: "google/gemini-2.5-pro", label: "gemini 2.5 pro" },
-    { slug: "x-ai/grok-4", label: "grok 4" },
+// shown when the OpenRouter fetch degraded to [] — the selector still renders
+const FALLBACK_MODELS: OpenrouterModel[] = [
+    { id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5", outputModalities: ["text"], supportsReasoning: true },
+    { id: "anthropic/claude-opus-4.1", name: "Claude Opus 4.1", outputModalities: ["text"], supportsReasoning: true },
+    { id: "openai/gpt-5", name: "GPT-5", outputModalities: ["text"], supportsReasoning: true },
+    { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro", outputModalities: ["text"], supportsReasoning: true },
 ];
 
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
+const MAX_LISTED = 120;
+
 // visual-only composer — submit clears the box, model wiring comes later
-export default function AgentComposer() {
+export default function AgentComposer({ models }: { models: OpenrouterModel[] }) {
     const [value, setValue] = useState("");
-    const [model, setModel] = useState(MODELS[0].slug);
+    const [model, setModel] = useState(DEFAULT_MODEL);
+    const [open, setOpen] = useState(false);
+    const [q, setQ] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    const all = models.length > 0 ? models : FALLBACK_MODELS;
+    const selected = all.find((m) => m.id === model);
+
+    const listed = useMemo(() => {
+        const needle = q.trim().toLowerCase();
+        const hits = needle
+            ? all.filter(
+                  (m) => m.id.toLowerCase().includes(needle) || m.name.toLowerCase().includes(needle),
+              )
+            : all;
+        return { rows: hits.slice(0, MAX_LISTED), more: Math.max(0, hits.length - MAX_LISTED) };
+    }, [all, q]);
 
     const empty = value.trim() === "";
 
@@ -32,6 +51,12 @@ export default function AgentComposer() {
         setValue("");
         const el = textareaRef.current;
         if (el) el.style.height = "auto";
+    }
+
+    function pick(id: string) {
+        setModel(id);
+        setOpen(false);
+        setQ("");
     }
 
     return (
@@ -81,34 +106,89 @@ export default function AgentComposer() {
                     <FaArrowUp />
                 </button>
             </div>
-            <div className={"flex items-center"}>
-                <label className={"group relative inline-flex cursor-pointer items-center"}>
-                    <span className={"sr-only"}>Model</span>
-                    <select
-                        value={model}
-                        onChange={(e) => setModel(e.target.value)}
-                        className={
-                            "cursor-pointer appearance-none bg-transparent py-1 pr-5 pl-1 " +
-                            // sizes to the selected label where supported; fallback = widest option
-                            "[field-sizing:content] " +
-                            "font-mono text-xs text-gray-400 outline-none transition-colors " +
-                            "group-hover:text-foreground focus-visible:text-foreground"
-                        }
-                    >
-                        {MODELS.map((m) => (
-                            <option key={m.slug} value={m.slug} className={"bg-background text-foreground"}>
-                                {m.label}
-                            </option>
-                        ))}
-                    </select>
+
+            <div className={"relative flex items-center"}>
+                <button
+                    type={"button"}
+                    aria-haspopup={"listbox"}
+                    aria-expanded={open}
+                    title={model}
+                    onClick={() => setOpen((o) => !o)}
+                    className={
+                        "group flex cursor-pointer items-center gap-1.5 py-1 px-1 font-mono " +
+                        "text-xs text-gray-400 transition-colors hover:text-foreground " +
+                        (open ? "text-foreground" : "")
+                    }
+                >
+                    <span>{selected?.name ?? model}</span>
+                    <ModelLogo slug={model} name={selected?.name ?? model} size={16} />
                     <FaChevronDown
                         aria-hidden
-                        className={
-                            "pointer-events-none absolute right-1 h-2.5 w-2.5 text-gray-400 " +
-                            "transition-colors group-hover:text-foreground"
-                        }
+                        className={`h-2.5 w-2.5 transition-transform ${open ? "rotate-180" : ""}`}
                     />
-                </label>
+                </button>
+
+                {open && (
+                    <>
+                        {/* backdrop closes on any outside click */}
+                        <div className={"fixed inset-0 z-10"} onClick={() => setOpen(false)} />
+                        <div
+                            role={"listbox"}
+                            aria-label={"Model"}
+                            className={
+                                "absolute bottom-full left-0 z-20 mb-2 flex max-h-72 w-72 " +
+                                "flex-col border border-foreground/15 bg-background " +
+                                "shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)]"
+                            }
+                        >
+                            <input
+                                autoFocus
+                                value={q}
+                                placeholder={"search models…"}
+                                aria-label={"Search models"}
+                                className={
+                                    "border-b border-foreground/15 bg-transparent p-2 font-mono " +
+                                    "text-xs outline-none placeholder:text-gray-400"
+                                }
+                                onChange={(e) => setQ(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Escape") setOpen(false);
+                                }}
+                            />
+                            <div className={"overflow-y-auto"}>
+                                {listed.rows.map((m) => (
+                                    <button
+                                        key={m.id}
+                                        type={"button"}
+                                        role={"option"}
+                                        aria-selected={m.id === model}
+                                        title={m.id}
+                                        onClick={() => pick(m.id)}
+                                        className={
+                                            "flex w-full cursor-pointer items-center gap-2 p-2 " +
+                                            "text-left font-mono text-xs transition-colors " +
+                                            "hover:bg-foreground hover:text-background " +
+                                            (m.id === model ? "bg-foreground/10" : "")
+                                        }
+                                    >
+                                        <span className={"min-w-0 flex-1 truncate"}>{m.name}</span>
+                                        <ModelLogo slug={m.id} name={m.name} size={16} />
+                                    </button>
+                                ))}
+                                {listed.rows.length === 0 && (
+                                    <p className={"p-2 font-mono text-xs text-gray-400"}>
+                                        no models match &quot;{q}&quot;
+                                    </p>
+                                )}
+                                {listed.more > 0 && (
+                                    <p className={"border-t border-foreground/15 p-2 font-mono text-xs text-gray-400"}>
+                                        {listed.more} more — refine the search
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
         </form>
     );
