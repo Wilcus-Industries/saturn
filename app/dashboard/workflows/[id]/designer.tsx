@@ -21,24 +21,26 @@ import {
     edgesToReplace,
     entryStyles,
     isGithubEventKey,
+    isWorkflowGraph,
     missingEntry,
     type ValidationIssue,
     validateGraphStrict,
     type WorkflowGraph,
-    type WorkflowNode,
     type WorkflowRow,
 } from "@/lib/workflow";
 import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
 import { sampleEventPayload } from "@/lib/integrations";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
+import { takeHandoff } from "@/app/dashboard/(shell)/agentChatStore";
+import type { AgentPrefs } from "@/app/dashboard/agentPrefs";
 import { callAgentModel, callIntegration, callMcpTool, callMemoryTool, callSandboxTool, saveWorkflow } from "./actions";
+import AgentPanel from "./agentPanel";
 import Canvas, { type CanvasHandle, type PendingDrag } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
 import EntryIcon from "./entryIcon";
 import {
-    anchorOffsetY,
     GRID,
     grabOffsetY,
     HEADER_H,
@@ -114,6 +116,7 @@ export default function Designer({
     userCatalog,
     variables,
     openrouterModels,
+    agentPrefs,
     cronFloorMinutes,
     selfHosted,
     githubLink,
@@ -125,6 +128,8 @@ export default function Designer({
     variables: VariableRow[];
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
+    // last model + effort picked in the agent composer (cookie-backed)
+    agentPrefs: AgentPrefs;
     // tightest schedule interval the owner's tier allows — caps the cron picker
     cronFloorMinutes: number;
     // single-user mode — flips the empty-models hint to the server-key message
@@ -236,6 +241,34 @@ export default function Designer({
     useEffect(() => () => {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     }, []);
+
+    // the embedded Saturn Agent panel. Open state and width are never persisted
+    // — they die with the page, like the console.
+    const [agentOpen, setAgentOpen] = useState(false);
+    // arriving from the dashboard chat's "open in designer" chip: the
+    // conversation itself lives in module state (agentChatStore), still
+    // streaming if the turn hadn't finished — all that crosses is the intent to
+    // show it here. An effect, not a lazy useState initializer: reading an
+    // external store during render would desync hydration.
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot read of an external store; a lazy initializer would desync hydration
+        if (takeHandoff(workflow.id)) setAgentOpen(true);
+    }, [workflow.id]);
+
+    // the agent saved a graph for THIS workflow server-side: adopt it as one
+    // undo step and mark it saved (the server already persisted it, so the
+    // autosave must not immediately write it back). Unsaved canvas edits are
+    // clobbered — Cmd+Z recovers them. Stable: the memoized Node never sees it,
+    // but AgentChat's `apply` callback depends on it.
+    const handleAgentGraph = useCallback(
+        (graph: unknown) => {
+            if (!isWorkflowGraph(graph)) return;
+            dispatch({ type: "replaceGraph", graph });
+            setSavedJson(JSON.stringify(graph));
+            notify("agent updated the graph");
+        },
+        [notify],
+    );
 
     // arrow-key nudge coalescing: a burst of arrow presses moves the selection
     // one grid cell each via TRANSIENT moveNodes (same action a live drag uses
@@ -475,29 +508,23 @@ export default function Designer({
                 notify("one event node per workflow — remove the existing one first");
                 return;
             }
-            // same grid as the canvas dots and drag-end snapping
-            const snap = (value: number) => Math.round(value / GRID) * GRID;
             // rectangles drop with the header centered under the pointer;
             // model circles / event blocks / grant chips center the block itself
-            // (grabOffsetY encodes the per-shape grab center — see geometry.ts)
+            // (grabOffsetY encodes the per-shape grab center — see geometry.ts).
+            // Placement is free-form — no grid snap.
             const entry = byKey[spawnKey];
             const w = entry ? nodeWidth(entry) : NODE_W;
             const dy = entry ? grabOffsetY(entry) : HEADER_H / 2;
             // fresh object per spawn — never share a mutable config; catalog
             // field defaults seed first, a toolbox preset wins
             const config = { ...(entry ? defaultNodeConfig(entry) : {}), ...(preset ?? {}) };
-            // x snaps the left edge; y snaps the node's primary port axis (the
-            // literal box's height needs the config) so it drops grid-aligned to
-            // the same axis drag-end settles onto — see anchorOffsetY
-            const off = entry ? anchorOffsetY(entry, { config } as WorkflowNode) : HEADER_H / 2;
-            const rawY = point.y - dy;
             dispatch({
                 type: "addNode",
                 node: {
                     id: crypto.randomUUID(),
                     type: spawnKey,
-                    x: snap(point.x - w / 2),
-                    y: Math.round((rawY + off) / GRID) * GRID - off,
+                    x: point.x - w / 2,
+                    y: point.y - dy,
                     config,
                 },
             });
@@ -1009,7 +1036,18 @@ export default function Designer({
                     onOpenVariable={openVariable}
                     onOpenSystem={openSystem}
                     onVarDrag={handleVarBoxDrag}
+                    agentOpen={agentOpen}
+                    onToggleAgent={() => setAgentOpen((o) => !o)}
                 />
+                {agentOpen && (
+                    <AgentPanel
+                        workflowId={workflow.id}
+                        models={openrouterModels ?? []}
+                        prefs={agentPrefs}
+                        onGraph={handleAgentGraph}
+                        onClose={() => setAgentOpen(false)}
+                    />
+                )}
             </div>
 
             {consoleLines !== null && (

@@ -37,6 +37,21 @@ export const MAX_AGENT_TURNS = 8; // LLM calls per agent loop
 export const MAX_AGENT_MESSAGES = 60; // transcript length cap per model call
 export const MAX_TOOL_CALLS_PER_TURN = 5;
 
+// shared model-id shape + reasoning-mode allowlist for both agent paths
+// (executeAgentTurn and the Agent-page chat runAgentChat)
+export const MODEL_ID = /^[\w.:/-]{1,128}$/;
+export const REASONING_MODES = new Set(["off", "low", "medium", "high"]);
+
+// allowlist a reasoning-mode string → OpenRouter `reasoning` param. Unknown or
+// blank → undefined (model default); "off" disables reasoning; effort levels
+// (low/medium/high) pass through as { effort }.
+export function toReasoningParam(
+    mode: string | undefined,
+): { enabled: false } | { effort: string } | undefined {
+    if (typeof mode !== "string" || !REASONING_MODES.has(mode)) return undefined;
+    return mode === "off" ? { enabled: false } : { effort: mode };
+}
+
 // grants are now edges from chip nodes into the agent's tools/skills ports —
 // these cap how many an agent may carry (mirrored by the server's request
 // validation in lib/runner.server.ts)

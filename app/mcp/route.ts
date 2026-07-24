@@ -31,7 +31,9 @@ export const dynamic = "force-dynamic";
 const INSTRUCTIONS =
     "Saturn workflow editor. Workflows are cron-scheduled node graphs (flow + value ports) run server-side. " +
     "Typical loop: get_catalog (node types + authoring guide) → create_workflow → save_graph → run_workflow to test, " +
-    "then inspect list_runs/get_run. Graphs and schedules are validated against the account's tier limits.";
+    "then inspect list_runs/get_run. Graphs and schedules are validated against the account's tier limits. " +
+    "It also manages the account registry the graphs draw on — memory stores, linux sandboxes, skills and variables " +
+    "(list_registry for what exists); secret values are write-only and never readable.";
 
 // shared JSON-RPC handler: auth is resolved before this (OAuth bearer for the
 // normal path, static token for self-hosted) and passed in as userId.
@@ -64,7 +66,7 @@ async function handleRpc(req: Request, userId: string): Promise<Response> {
             return rpcResult(rpc.id, {});
 
         case "tools/list":
-            // 11 tools — no pagination needed
+            // 35 tools — no pagination needed
             return rpcResult(rpc.id, { tools: TOOL_DEFS });
 
         case "tools/call": {
