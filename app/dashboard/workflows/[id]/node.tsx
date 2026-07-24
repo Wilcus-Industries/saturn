@@ -36,8 +36,6 @@ import {
     AGENT_PORT_H,
     AGENT_PORT_SLOT,
     AGENT_RIGHT_GUTTER,
-    anchorOffsetY,
-    GRID,
     EVENT_H,
     EVENT_LABEL_W,
     EVENT_W,
@@ -199,8 +197,7 @@ export default memo(function Node({
 }: {
     node: WorkflowNode;
     entry: CatalogEntry;
-    // combined catalog — resolves each dragged node's entry at drag-end so its
-    // primary port axis (not the top-left corner) settles onto the grid; a
+    // combined catalog — resolves snapped-variable entries in config rows; a
     // stable useMemo reference, so it doesn't defeat this component's memo
     byKey: Record<string, CatalogEntry>;
     graphRef: RefObject<WorkflowGraph>;
@@ -357,24 +354,13 @@ export default memo(function Node({
     };
 
     // pointercancel ends the drag like pointerup; commitDrag no-ops when the
-    // graph didn't actually change
+    // graph didn't actually change. Placement is free-form (no grid snap) —
+    // nodes rest exactly where the drag leaves them.
     const endDrag = () => {
         removeDragEscape();
         const drag = dragRef.current;
         dragRef.current = null;
         if (!drag?.active) return;
-        // settle each dragged node onto the grid, then record one undo step.
-        // x snaps the left edge; y snaps the node's primary port axis (node.y +
-        // anchorOffsetY) so differently-shaped nodes left at the same level get
-        // their ports on the same grid line and edges between them stay flat.
-        for (const id of drag.ids) {
-            const n = graphRef.current.nodes.find((candidate) => candidate.id === id);
-            if (!n) continue;
-            const off = byKey[n.type] ? anchorOffsetY(byKey[n.type], n) : HEADER_H / 2;
-            const dx = Math.round(n.x / GRID) * GRID - n.x;
-            const dy = Math.round((n.y + off) / GRID) * GRID - off - n.y;
-            if (dx || dy) dispatch({ type: "moveNodes", ids: [id], dx, dy });
-        }
         dispatch({ type: "commitDrag", before: drag.before });
     };
 

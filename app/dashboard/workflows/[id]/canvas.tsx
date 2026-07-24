@@ -21,7 +21,6 @@ import {
 } from "@/lib/workflow";
 import Edges, { type PendingEdge } from "./edges";
 import {
-    GRID,
     isChipEntry,
     isEventEntry,
     isLiteralEntry,
@@ -512,10 +511,6 @@ export default function Canvas({
             ref={outerRef}
             className={"relative h-full flex-1 overflow-hidden touch-none select-none"}
             style={{
-                backgroundImage:
-                    "radial-gradient(circle, color-mix(in srgb, var(--foreground) 12%, transparent) 1px, transparent 1px)",
-                backgroundSize: `${GRID * view.zoom}px ${GRID * view.zoom}px`,
-                backgroundPosition: `${view.x}px ${view.y}px`,
                 cursor: panning ? "grabbing" : spaceHeld ? "grab" : undefined,
             }}
             onPointerDown={onPointerDown}

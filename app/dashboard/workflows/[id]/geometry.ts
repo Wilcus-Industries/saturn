@@ -281,30 +281,12 @@ export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
     );
 }
 
-// vertical offset from node.y to the node's canonical (primary) port line —
-// the axis grid snapping aligns so cross-shape edges between same-level nodes
-// stay horizontal. Mirrors the y-offset portGeometry gives each shape's main
-// port (model/event/chip/literal center, if "in" input, agent flow "in", or a
-// generic rect's first port row), so snapping this offset onto the grid puts
-// that exact port on a grid line. Branch order matches nodeHeight/portGeometry.
-export function anchorOffsetY(entry: CatalogEntry, node?: WorkflowNode): number {
-    if (isModelEntry(entry)) return MODEL_D / 2;
-    if (isEventEntry(entry)) return EVENT_H / 2;
-    if (isIfEntry(entry)) return IF_HEADER_H + IF_BODY_H / 2; // the middle "in" input
-    if (isAgentEntry(entry)) return AGENT_HEADER_H + AGENT_BODY_H / 2; // flow "in" on the left edge
-    if (isChipEntry(entry)) return chipSize(entry) / 2;
-    if (isLiteralEntry(entry) || isVariableEntry(entry)) return nodeHeight(entry, node) / 2;
-    return HEADER_H + PORT_ROW_H / 2; // generic rect: first port row
-}
-
 // vertical offset from node.y to the point that should sit under the pointer
-// when a node is dropped from the toolbox — i.e. the node's grab CENTER. This
-// is deliberately a DIFFERENT quantity from anchorOffsetY: anchorOffsetY is the
-// primary-port axis (used for grid snapping so cross-shape edges stay flat),
-// while grabOffsetY is where the block visually centers under the cursor while
-// dragging. For round/square/if shapes that's the block's mid-height; generic
-// rectangles hang from their header (HEADER_H / 2), matching the old spawn
-// ladder in designer.tsx. Branch order mirrors anchorOffsetY.
+// when a node is dropped from the toolbox — i.e. the node's grab CENTER, where
+// the block visually centers under the cursor while dragging. For
+// round/square/if shapes that's the block's mid-height; generic rectangles
+// hang from their header (HEADER_H / 2). Placement is otherwise free-form —
+// there is no grid snap (GRID survives only as the arrow-nudge/duplicate step).
 export function grabOffsetY(entry: CatalogEntry): number {
     if (isModelEntry(entry)) return MODEL_D / 2;
     if (isEventEntry(entry)) return EVENT_H / 2;

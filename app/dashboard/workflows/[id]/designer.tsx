@@ -38,7 +38,6 @@ import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
 import EntryIcon from "./entryIcon";
 import {
-    anchorOffsetY,
     GRID,
     grabOffsetY,
     HEADER_H,
@@ -475,29 +474,23 @@ export default function Designer({
                 notify("one event node per workflow — remove the existing one first");
                 return;
             }
-            // same grid as the canvas dots and drag-end snapping
-            const snap = (value: number) => Math.round(value / GRID) * GRID;
             // rectangles drop with the header centered under the pointer;
             // model circles / event blocks / grant chips center the block itself
-            // (grabOffsetY encodes the per-shape grab center — see geometry.ts)
+            // (grabOffsetY encodes the per-shape grab center — see geometry.ts).
+            // Placement is free-form — no grid snap.
             const entry = byKey[spawnKey];
             const w = entry ? nodeWidth(entry) : NODE_W;
             const dy = entry ? grabOffsetY(entry) : HEADER_H / 2;
             // fresh object per spawn — never share a mutable config; catalog
             // field defaults seed first, a toolbox preset wins
             const config = { ...(entry ? defaultNodeConfig(entry) : {}), ...(preset ?? {}) };
-            // x snaps the left edge; y snaps the node's primary port axis (the
-            // literal box's height needs the config) so it drops grid-aligned to
-            // the same axis drag-end settles onto — see anchorOffsetY
-            const off = entry ? anchorOffsetY(entry, { config } as WorkflowNode) : HEADER_H / 2;
-            const rawY = point.y - dy;
             dispatch({
                 type: "addNode",
                 node: {
                     id: crypto.randomUUID(),
                     type: spawnKey,
-                    x: snap(point.x - w / 2),
-                    y: Math.round((rawY + off) / GRID) * GRID - off,
+                    x: point.x - w / 2,
+                    y: point.y - dy,
                     config,
                 },
             });
