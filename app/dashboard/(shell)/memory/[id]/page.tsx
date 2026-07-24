@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { countMemoryItems, listMemoryItems, MAX_MEMORY_ITEMS } from "@/lib/memory.server";
+import { UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import { getSessionCached } from "@/lib/subscription";
+import ConfirmButton from "@/app/dashboard/confirmButton";
 import { relativeTime } from "../../workflows/workflowCard";
-import { DeleteItemButton, WipeStoreButton } from "./itemButtons";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { deleteMemoryItem } from "../actions";
+import { WipeStoreButton } from "./itemButtons";
 
 // browse and manage one memory store's items; session + ownership checked here
 export default async function MemoryStore({
@@ -15,7 +16,7 @@ export default async function MemoryStore({
 }: PageProps<"/dashboard/memory/[id]">) {
     const { id } = await params;
     // pre-validate before querying — junk ids would throw pg 22P02, not miss
-    if (!UUID.test(id)) notFound();
+    if (!UUID_RE.test(id)) notFound();
 
     const session = await getSessionCached();
     if (!session?.user) redirect("/onboard");
@@ -111,7 +112,13 @@ export default async function MemoryStore({
                                 {relativeTime(item.created_at)}
                             </span>
                         </div>
-                        <DeleteItemButton id={item.id} entryId={id} />
+                        <ConfirmButton
+                            action={deleteMemoryItem}
+                            fields={{ id: item.id, entryId: id }}
+                            label={"forget"}
+                            sizeClass={"text-xs"}
+                            extraClass={"shrink-0"}
+                        />
                     </div>
                 ))}
             </div>

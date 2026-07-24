@@ -4,6 +4,7 @@ import Link from "next/link";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import { auth } from "@/lib/auth";
 import ActionButton from "@/app/dashboard/actionButton";
+import ConfirmButton from "@/app/dashboard/confirmButton";
 import ConnectAgent from "@/app/dashboard/connectAgent";
 import CreditsBar from "@/app/dashboard/creditsBar";
 import { faviconDomain } from "@/lib/registry";
@@ -13,12 +14,10 @@ import { hasOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
 import { SELF_HOSTED } from "@/lib/selfhost";
 import { baseUrl, getActivationDetails, getSessionCached } from "@/lib/subscription";
-import { saveOpenrouterKey } from "./actions";
+import { deleteRegistryEntry, saveOpenrouterKey, unlinkGithubInstallation } from "./actions";
 import ConnectButton from "./connectButton";
-import DeleteEntryButton from "./deleteEntryButton";
 import McpEntryModal from "./mcpEntryModal";
 import SkillModal from "./skillModal";
-import UnlinkInstallationButton from "./unlinkInstallationButton";
 
 export default async function Settings({
     searchParams,
@@ -275,7 +274,7 @@ export default async function Settings({
                                 </div>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
                                     <McpEntryModal entry={entry} />
-                                    <DeleteEntryButton id={entry.id} />
+                                    <ConfirmButton action={deleteRegistryEntry} fields={{ id: entry.id }} />
                                 </div>
                             </div>
                             <div
@@ -342,7 +341,7 @@ export default async function Settings({
                         </div>
                         <div className={"ml-auto flex shrink-0 items-center gap-3"}>
                             <SkillModal entry={entry} />
-                            <DeleteEntryButton id={entry.id} />
+                            <ConfirmButton action={deleteRegistryEntry} fields={{ id: entry.id }} />
                         </div>
                     </div>
                 ))}
@@ -396,8 +395,11 @@ export default async function Settings({
                                 </span>
                             </div>
                             <div className={"ml-auto shrink-0"}>
-                                <UnlinkInstallationButton
-                                    installationId={inst.installationId}
+                                <ConfirmButton
+                                    action={unlinkGithubInstallation}
+                                    fields={{ installationId: inst.installationId }}
+                                    label={"unlink"}
+                                    inlineError
                                 />
                             </div>
                         </div>

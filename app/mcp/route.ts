@@ -5,11 +5,11 @@
 // better-auth mcp plugin's OAuth 2.1 flow; withMcpAuth resolves the bearer
 // token and 401s with the resource-metadata pointer when absent.
 
-import { timingSafeEqual } from "node:crypto";
 import { withMcpAuth } from "better-auth/plugins";
 import { auth } from "@/lib/auth";
 import { SELF_HOSTED, SELF_HOSTED_USER_ID } from "@/lib/selfhost";
 import { ensureSelfHostedUser } from "@/lib/selfhost.server";
+import { timingSafeEquals } from "@/lib/timingSafe.server";
 import {
     accepted,
     INVALID_PARAMS,
@@ -113,10 +113,7 @@ function selfHostedTokenOk(req: Request): boolean {
     const header = req.headers.get("authorization") ?? "";
     const prefix = "Bearer ";
     if (!header.startsWith(prefix)) return false;
-    const provided = header.slice(prefix.length);
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    return a.length === b.length && timingSafeEqual(a, b);
+    return timingSafeEquals(header.slice(prefix.length), expected);
 }
 
 // normal path: better-auth mcp-plugin OAuth bearer → userId. Under SELF_HOSTED

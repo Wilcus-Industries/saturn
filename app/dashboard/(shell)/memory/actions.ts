@@ -2,13 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { MAX_ENTRIES_PER_KIND } from "@/lib/registry";
+import { MAX_ENTRIES_PER_KIND, UUID_RE } from "@/lib/registry";
 import { invalidateUserRegistry } from "@/lib/registry.server";
 import { getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MAX_NAME = 60;
 const MAX_DESCRIPTION = 2000;
@@ -31,7 +29,7 @@ function requiredName(formData: FormData): string {
 function optionalId(formData: FormData): string | null {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) return null;
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
     return id;
 }
 
@@ -91,7 +89,7 @@ export async function deleteMemoryStore(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
 
     // memory_item rows cascade on the registry_entry FK
     const { rowCount } = await db.query(
@@ -109,7 +107,7 @@ export async function wipeMemoryStore(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
 
     // ownership: the store must exist, be a memory kind, and belong to the user
     const { rows } = await db.query(
@@ -132,7 +130,7 @@ export async function deleteMemoryItem(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
     // the store the item belongs to, so we can revalidate its page
     const entryId = String(formData.get("entryId") ?? "");
 
@@ -144,5 +142,5 @@ export async function deleteMemoryItem(formData: FormData) {
     if (!rowCount) throw new Error("Not found");
 
     revalidatePath("/dashboard/memory");
-    if (UUID.test(entryId)) revalidatePath(`/dashboard/memory/${entryId}`);
+    if (UUID_RE.test(entryId)) revalidatePath(`/dashboard/memory/${entryId}`);
 }

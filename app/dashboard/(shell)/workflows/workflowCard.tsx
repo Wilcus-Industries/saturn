@@ -1,6 +1,7 @@
 import Link from "next/link";
-import DeleteWorkflowButton from "@/app/dashboard/deleteWorkflowButton";
+import ConfirmButton from "@/app/dashboard/confirmButton";
 import type { WorkflowRow } from "@/lib/workflow";
+import { deleteWorkflow } from "./actions";
 import ActiveToggle from "./activeToggle";
 import LinkSpinner from "./linkSpinner";
 import WorkflowModal from "./workflowModal";
@@ -83,7 +84,7 @@ export default function WorkflowCard({
                     group-hover:opacity-100 max-sm:opacity-100`}
             >
                 <WorkflowModal workflow={workflow} />
-                <DeleteWorkflowButton id={workflow.id} />
+                <ConfirmButton action={deleteWorkflow} fields={{ id: workflow.id }} />
             </div>
         </div>
     );

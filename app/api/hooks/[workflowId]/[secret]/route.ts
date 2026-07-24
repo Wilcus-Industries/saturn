@@ -8,12 +8,11 @@
 // payload to ingestEvent fire-and-forget (same pipeline as every other event
 // trigger). Never logs the secret, URL, or payload. No env gate — works under
 // SELF_HOSTED unchanged.
-import { timingSafeEqual } from "node:crypto";
-
 import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
 import { ingestEvent, MAX_EVENT_PAYLOAD } from "@/lib/events.server";
-import { UUID } from "@/lib/runner.server";
+import { UUID_RE } from "@/lib/registry";
+import { timingSafeEquals } from "@/lib/timingSafe.server";
 import type { WorkflowGraph } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +33,7 @@ const hookHits = createTtlCache<{ count: number }>(60_000, 5_000);
 // fixed-length dummy for the row-miss / null-secret path so a missing workflow
 // or unprovisioned secret does the same constant-time crypto work as a real
 // compare — no timing oracle on whether the secret is even correct.
-const DUMMY_SECRET = Buffer.alloc(32);
+const DUMMY_SECRET = "\0".repeat(32);
 
 const notFound = () => new Response("Not Found", { status: 404 });
 const methodNotAllowed = () =>
@@ -51,7 +50,7 @@ export async function POST(
 ): Promise<Response> {
     // 1. shape gates — junk ids never reach the db (or the rate-limit map)
     const { workflowId, secret } = await ctx.params;
-    if (!UUID.test(workflowId) || !SECRET_RE.test(secret)) return notFound();
+    if (!UUID_RE.test(workflowId) || !SECRET_RE.test(secret)) return notFound();
 
     // 2. rate limit before auth/db — cheap rejection, over limit → 429
     let entry = hookHits.get(workflowId);
@@ -82,10 +81,10 @@ export async function POST(
     // 5. verify — every failure returns the identical 404. Row-miss / null-secret
     // still run a dummy compare to flatten timing.
     if (!wf || wf.webhook_secret === null) {
-        timingSafeEqual(DUMMY_SECRET, DUMMY_SECRET);
+        timingSafeEquals(DUMMY_SECRET, DUMMY_SECRET);
         return notFound();
     }
-    if (!secretEquals(secret, wf.webhook_secret)) return notFound();
+    if (!timingSafeEquals(secret, wf.webhook_secret)) return notFound();
     if (!wf.active) return notFound();
 
     // graph is untrusted jsonb — guard defensively before reading it
@@ -105,15 +104,6 @@ export async function POST(
     // the caller) is future work — today the webhook is always 202 fire-and-forget.
     void ingestEvent({ workflowId, nodeId, payload }).catch(() => {});
     return Response.json({ ok: true }, { status: 202 });
-}
-
-// length check first (timingSafeEqual throws on unequal-length buffers), then a
-// constant-time compare over the utf8 bytes.
-function secretEquals(provided: string, stored: string): boolean {
-    const a = Buffer.from(provided, "utf8");
-    const b = Buffer.from(stored, "utf8");
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
 }
 
 // Build the { method, contentType, query, body, receivedAt } envelope. body is

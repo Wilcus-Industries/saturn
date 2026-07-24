@@ -4,9 +4,9 @@
 import { db } from "@/lib/db";
 import { EXTENSION_EVENTS_BY_KEY } from "@/lib/integrations";
 import { hasUnresolvedVariable, substituteVariables } from "@/lib/integrations.server";
-import { variableIdFromNodeType, variableSentinel } from "@/lib/registry";
-import { executeWorkflowRun, UUID } from "@/lib/runner.server";
-import type { WorkflowGraph, WorkflowNode } from "@/lib/workflow";
+import { UUID_RE, variableIdFromNodeType, variableSentinel } from "@/lib/registry";
+import { executeWorkflowRun } from "@/lib/runner.server";
+import { STATIC_VALUE_TYPES, type WorkflowGraph, type WorkflowNode } from "@/lib/workflow";
 
 const MAX_SUBSCRIPTIONS = 500;
 const MAX_NODE_ID = 128;
@@ -32,9 +32,6 @@ export type IngestResult = {
     runId?: string | null;
     status?: string;
 };
-
-// value-node types whose output resolves without running the graph
-const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
 
 // an event node's effective config: the stored literal per descriptor field,
 // replaced by a statically-resolved value edge into the field's same-id port
@@ -147,7 +144,7 @@ export async function ingestEvent(input: {
     payload: unknown;
 }): Promise<IngestResult | { error: string }> {
     const { workflowId, nodeId, payload } = input;
-    if (typeof workflowId !== "string" || !UUID.test(workflowId))
+    if (typeof workflowId !== "string" || !UUID_RE.test(workflowId))
         return { error: "invalid workflowId" };
     if (typeof nodeId !== "string" || !nodeId || nodeId.length > MAX_NODE_ID)
         return { error: "invalid nodeId" };
@@ -191,10 +188,10 @@ export async function ingestEvent(input: {
 // bundles.
 const subscriptionsListeners = new Set<() => void>();
 
-// register a listener; returns its unsubscriber
-export function onSubscriptionsChanged(fn: () => void): () => void {
+// register a listener. No unregister: every listener is a transport registered
+// once per process boot and lives until the process dies.
+export function onSubscriptionsChanged(fn: () => void) {
     subscriptionsListeners.add(fn);
-    return () => subscriptionsListeners.delete(fn);
 }
 
 // fire-and-forget; no-op when no transport is running

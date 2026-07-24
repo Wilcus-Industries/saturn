@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import {Geist, Geist_Mono, Inter} from "next/font/google";
-import {GeistPixelSquare} from "geist/font/pixel";
+import {Geist, Geist_Mono} from "next/font/google";
 import {ORG_NAME, SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, GITHUB_URL, siteUrl} from "@/lib/seo";
 import "./globals.css";
 
@@ -13,11 +12,6 @@ const geistMono = Geist_Mono({
     variable: "--font-geist-mono",
     subsets: ["latin"],
 });
-
-const inter = Inter({
-    variable: "--font-inter",
-    subsets: ["latin"],
-})
 
 // og:image / twitter:image / icons / manifest links come from the file
 // conventions (app/opengraph-image.tsx, app/twitter-image.tsx, app/icon.png,
@@ -96,7 +90,7 @@ export default function RootLayout({
     return (
         <html
             lang="en"
-            className={`${geistSans.variable} ${geistMono.variable} ${GeistPixelSquare.variable} ${inter.variable} h-full antialiased`}>
+            className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
             <body className="min-h-full flex flex-col">
                 {children}
             </body>

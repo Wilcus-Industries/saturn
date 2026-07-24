@@ -2,14 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { MAX_ENTRIES_PER_KIND } from "@/lib/registry";
+import { MAX_ENTRIES_PER_KIND, UUID_RE } from "@/lib/registry";
 import { invalidateUserRegistry } from "@/lib/registry.server";
 import { destroySandbox, resetSandbox, stopSandboxNow } from "@/lib/sandbox.server";
 import { getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MAX_NAME = 60;
 const MAX_DESCRIPTION = 2000;
@@ -32,7 +30,7 @@ function requiredName(formData: FormData): string {
 function optionalId(formData: FormData): string | null {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) return null;
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
     return id;
 }
 
@@ -93,7 +91,7 @@ export async function deleteSandbox(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
 
     // ownership check before we touch any runtime resource
     const { rows } = await db.query(
@@ -123,7 +121,7 @@ export async function resetSandboxAction(formData: FormData): Promise<ActionResu
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) return { error: "Invalid id" };
+    if (!UUID_RE.test(id)) return { error: "Invalid id" };
 
     // ownership: the sandbox must exist, be a sandbox kind, and belong to the user
     const { rows } = await db.query(
@@ -142,7 +140,7 @@ export async function stopSandboxAction(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
 
     const { rows } = await db.query(
         "select id from registry_entry where id = $1 and user_id = $2 and kind = 'sandbox'",

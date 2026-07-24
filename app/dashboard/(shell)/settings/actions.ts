@@ -21,14 +21,13 @@ import {
     type McpTool,
     mergeTools,
     type RegistryKind,
+    UUID_RE,
 } from "@/lib/registry";
 import { deleteInstallationOwned } from "@/lib/githubApp.server";
 import { freshMcpToken, getMcpSecrets, invalidateUserRegistry } from "@/lib/registry.server";
 import { baseUrl, getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MAX_NAME = 60;
 const MAX_DESCRIPTION = 2000;
@@ -52,7 +51,7 @@ function requiredName(formData: FormData): string {
 function optionalId(formData: FormData): string | null {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) return null;
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
     return id;
 }
 
@@ -275,7 +274,7 @@ export async function discoverMcpTools(
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
     const entry = await getMcpSecrets(id, session.user.id);
     if (!entry) throw new Error("Not found");
 
@@ -383,7 +382,7 @@ export async function deleteRegistryEntry(formData: FormData) {
     const { session } = await requireUser();
 
     const id = String(formData.get("id") ?? "");
-    if (!UUID.test(id)) throw new Error("Invalid id");
+    if (!UUID_RE.test(id)) throw new Error("Invalid id");
 
     const { rowCount } = await db.query(
         "delete from registry_entry where id = $1 and user_id = $2",

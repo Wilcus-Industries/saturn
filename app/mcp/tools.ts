@@ -10,9 +10,9 @@ import { subscriptionsChanged } from "@/lib/events.server";
 import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
 import { EXTENSION_EVENTS, eventNodeKey } from "@/lib/integrations";
 import type { ConsoleLine } from "@/lib/interpreter";
-import { buildUserCatalog } from "@/lib/registry";
+import { buildUserCatalog, UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
-import { executeWorkflowRun, UUID } from "@/lib/runner.server";
+import { executeWorkflowRun } from "@/lib/runner.server";
 import { baseUrl, getActivationLevels, limitsFor } from "@/lib/subscription";
 import {
     CATALOG_BY_KEY,
@@ -245,7 +245,7 @@ const fail = (message: string): ToolResult => ({
 });
 
 const asId = (x: unknown): string | null =>
-    typeof x === "string" && UUID.test(x) ? x : null;
+    typeof x === "string" && UUID_RE.test(x) ? x : null;
 
 // catalog tool descriptions are for picking, not prompting — the full text
 // reaches the model at runtime via buildToolDefs, so first line capped

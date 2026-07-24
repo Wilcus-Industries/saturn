@@ -51,10 +51,7 @@ type TelegramUpdate = { update_id: number; message?: TelegramMessage };
 const fp = (token: string) => `…${token.slice(-4)}`;
 
 const pollers = new Map<string, TelegramPoller>();
-let pollTimer: NodeJS.Timeout | null = null;
 let refreshTimer: NodeJS.Timeout | null = null;
-let unsubscribe: (() => void) | null = null;
-let stopped = false;
 
 class TelegramPoller {
     token: string;
@@ -274,11 +271,10 @@ async function poll() {
 }
 
 export function startTelegram() {
-    stopped = false;
     // push invalidation from workflow mutations — debounced so designer
     // autosave bursts collapse to one re-poll
-    unsubscribe = onSubscriptionsChanged(() => {
-        if (stopped || refreshTimer) return;
+    onSubscriptionsChanged(() => {
+        if (refreshTimer) return;
         refreshTimer = setTimeout(() => {
             refreshTimer = null;
             void poll();
@@ -287,27 +283,8 @@ export function startTelegram() {
     // the interval poll stays as the reconciliation backstop
     const loop = async () => {
         await poll();
-        if (!stopped) {
-            pollTimer = setTimeout(loop, POLL_INTERVAL_MS);
-            pollTimer.unref();
-        }
+        setTimeout(loop, POLL_INTERVAL_MS).unref();
     };
     console.log(`[telegram] started (poll every ${POLL_INTERVAL_MS / 1000}s)`);
     void loop();
-}
-
-export function stopTelegram() {
-    stopped = true;
-    unsubscribe?.();
-    unsubscribe = null;
-    if (pollTimer) {
-        clearTimeout(pollTimer);
-        pollTimer = null;
-    }
-    if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
-    }
-    for (const poller of pollers.values()) poller.destroy();
-    pollers.clear();
 }

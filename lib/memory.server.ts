@@ -12,6 +12,7 @@ import type { AgentToolSpec } from "@/lib/agent.server";
 import { getCreditUsage, platformKey, recordUsage } from "@/lib/credits.server";
 import { db } from "@/lib/db";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
+import { UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import { SELF_HOSTED } from "@/lib/selfhost";
 import type { McpToolParam } from "@/lib/workflow";
@@ -24,8 +25,6 @@ const EMBED_DIMS = 1536;
 const EMBED_URL = "https://openrouter.ai/api/v1/embeddings";
 const EMBED_TIMEOUT_MS = 30_000;
 const MAX_QUERY = 1000; // search query length cap
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const [MEMORY_SEARCH, MEMORY_SAVE, MEMORY_FORGET] = MEMORY_TOOL_NAMES;
 
@@ -87,7 +86,7 @@ export async function executeMemoryTool(
     input: string,
     source: "designer" | "cron" | "manual" | "event",
 ): Promise<McpCallResult> {
-    if (typeof memoryId !== "string" || !UUID.test(memoryId)) return { error: "invalid memory id" };
+    if (typeof memoryId !== "string" || !UUID_RE.test(memoryId)) return { error: "invalid memory id" };
     if (typeof op !== "string" || !(MEMORY_TOOL_NAMES as readonly string[]).includes(op)) {
         return { error: "unknown memory operation" };
     }
@@ -196,7 +195,7 @@ async function memoryForget(
     args: Record<string, unknown>,
 ): Promise<McpCallResult> {
     const id = typeof args.id === "string" ? args.id : "";
-    if (!UUID.test(id)) return { error: "invalid memory item id" };
+    if (!UUID_RE.test(id)) return { error: "invalid memory item id" };
     // scoped by entry + user so an id from another store can't be forgotten here
     const { rowCount } = await db.query(
         "delete from memory_item where id = $1 and entry_id = $2 and user_id = $3",

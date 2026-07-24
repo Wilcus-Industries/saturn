@@ -15,7 +15,7 @@
 import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
 import { SELF_HOSTED } from "@/lib/selfhost";
-import { isPaidPlan, limitsFor, type ActivationLevel } from "@/lib/subscription";
+import { limitsFor, resolvePlans, type ActivationLevel } from "@/lib/subscription";
 
 // per-user usage cache — recordUsage increments the cached entry in place so
 // same-process turns stay exact; the TTL only bounds staleness of external
@@ -37,8 +37,8 @@ export type CreditUsage = {
 
 // tier + billing period + period spend for one user. Headless (no request
 // headers) so the designer action path and the cron runner resolve
-// identically; the tier branch mirrors getActivationLevels in
-// lib/subscription.ts.
+// identically; the tier itself comes from resolvePlans in lib/subscription.ts,
+// the same resolver the cron runner uses.
 export async function getCreditUsage(userId: string): Promise<CreditUsage> {
     // self-hosted: no credit system — report max with a zero allowance so the
     // key-selection paths skip platform-credit billing and use the platform key
@@ -50,36 +50,15 @@ export async function getCreditUsage(userId: string): Promise<CreditUsage> {
 }
 
 async function loadCreditUsage(userId: string): Promise<CreditUsage> {
-    const { rows } = await db.query<{
-        user_plan: string | null;
-        sub_plan: string | null;
-        period_start: Date | null;
-        period_end: Date | null;
-    }>(
-        `select u.plan as user_plan, s.plan as sub_plan,
-                s."periodStart" as period_start, s."periodEnd" as period_end
-           from "user" u
-           left join lateral (
-                 select plan, "periodStart", "periodEnd" from subscription
-                  where "referenceId" = u.id and status in ('active', 'trialing')
-                  order by case when plan = 'max' then 0 else 1 end
-                  limit 1
-                ) s on true
-          where u.id = $1`,
-        [userId],
-    );
-    const row = rows[0];
-    const level: ActivationLevel | null =
-        row?.sub_plan != null && isPaidPlan(row.sub_plan)
-            ? row.sub_plan
-            : row?.user_plan === "free"
-              ? "free"
-              : null;
+    // an unknown user id resolves to the not-activated shape
+    const { level, periodStart, periodEnd } = (await resolvePlans([userId])).get(userId) ?? {
+        level: null,
+        periodStart: null,
+        periodEnd: null,
+    };
     // level null (signed in, never activated) gets no credits — don't fall
     // through to limitsFor's null→free mapping here
     const allowance = level ? limitsFor(level).modelCredits : 0;
-    const periodStart = (row?.sub_plan != null && row.period_start) || null;
-    const periodEnd = (row?.sub_plan != null && row.period_end) || null;
     if (allowance === 0) return { level, allowance, used: 0, periodStart, periodEnd };
 
     // a live paid sub with a null periodStart (webhook not yet delivered) must

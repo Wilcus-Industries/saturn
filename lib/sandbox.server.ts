@@ -27,6 +27,7 @@ import {
     startContainer,
     stopContainer,
 } from "@/lib/podman.server";
+import { UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import { getActivationLevels, limitsFor } from "@/lib/subscription";
 import type { McpToolParam } from "@/lib/workflow";
@@ -42,14 +43,11 @@ const MAX_SANDBOX_WRITE_B64 = 96_000; // max base64 length of one sandbox_write_
 const REAPER_INTERVAL_MS = 60_000;
 const DISK_CHECK_TIMEOUT_MS = 15_000;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 const [SANDBOX_EXEC, SANDBOX_WRITE, SANDBOX_READ] = SANDBOX_TOOL_NAMES;
 
-// container and volume share the name — one persistent volume per sandbox,
-// one container recreated over it
-const containerName = (uuid: string) => `sb-${uuid}`;
-const volumeName = (uuid: string) => `sb-${uuid}`;
+// container and volume deliberately share one name — one persistent volume per
+// sandbox, one container recreated over it
+const sbName = (uuid: string) => `sb-${uuid}`;
 
 // in-process lifecycle state (single-process invariant):
 //   lastUsed   — container name → epoch ms of its last op (LRU eviction + reaper)
@@ -159,7 +157,7 @@ export async function executeSandboxTool(
     op: string,
     input: string,
 ): Promise<McpCallResult> {
-    if (typeof sandboxId !== "string" || !UUID.test(sandboxId)) {
+    if (typeof sandboxId !== "string" || !UUID_RE.test(sandboxId)) {
         return { error: "invalid sandbox id" };
     }
     if (typeof op !== "string" || !(SANDBOX_TOOL_NAMES as readonly string[]).includes(op)) {
@@ -242,7 +240,7 @@ async function sandboxExec(
     // The in-container `timeout` wrapper is the real wall-clock kill; the
     // socket timeout is only a backstop for an unresponsive container.
     const cmd = ["/usr/bin/timeout", "--signal=KILL", `${t}s`, "/bin/bash", "-lc", command];
-    const { exitCode, output, truncated } = await execTracked(containerName(uuid), cmd, {
+    const { exitCode, output, truncated } = await execTracked(sbName(uuid), cmd, {
         timeoutMs: t * 1000 + 10_000,
         maxOutput: MAX_SANDBOX_OUTPUT,
     });
@@ -293,7 +291,7 @@ async function sandboxWriteFile(
 
     const script = `mkdir -p '${dir}' && echo '${b64}' | base64 -d > '${path}'`;
     const { exitCode, output } = await execTracked(
-        containerName(uuid),
+        sbName(uuid),
         ["/bin/bash", "-c", script],
         { timeoutMs: 30_000, maxOutput: 4_000 },
     );
@@ -323,7 +321,7 @@ async function sandboxReadFile(
     // `--` so a path that (despite confinement) begins with '-' is never read
     // as a cat flag
     const { exitCode, output, truncated } = await execTracked(
-        containerName(uuid),
+        sbName(uuid),
         ["/bin/cat", "--", path],
         { timeoutMs: 30_000, maxOutput: MAX_SANDBOX_OUTPUT },
     );
@@ -417,7 +415,7 @@ async function ensureRunning(
     limits: TierLimits,
 ): Promise<McpCallResult | null> {
     return withEnsureLock(uuid, async () => {
-        const name = containerName(uuid);
+        const name = sbName(uuid);
         const state = await inspectContainer(name);
 
         if (state === null) {
@@ -431,11 +429,11 @@ async function ensureRunning(
             const booted = await withBootLock(async () => {
                 const noRoom = await makeRoom(name);
                 if (noRoom) return noRoom;
-                await createVolume(volumeName(uuid));
+                await createVolume(sbName(uuid));
                 await createContainer({
                     name,
                     image: SANDBOX_IMAGE,
-                    volumeName: volumeName(uuid),
+                    volumeName: sbName(uuid),
                     memoryBytes: limits.sandboxMemoryMb * 1024 * 1024,
                     cpus: limits.sandboxCpus,
                     pidsLimit: SANDBOX_PIDS_LIMIT,
@@ -517,7 +515,7 @@ async function makeRoom(selfName: string): Promise<McpCallResult | null> {
 async function refreshDisk(uuid: string): Promise<void> {
     try {
         const { output } = await execTracked(
-            containerName(uuid),
+            sbName(uuid),
             ["/usr/bin/du", "-sm", "/work"],
             { timeoutMs: DISK_CHECK_TIMEOUT_MS, maxOutput: 200 },
         );
@@ -552,7 +550,7 @@ export async function getSandboxStatuses(
     }
     for (const id of entryIds) {
         result.set(id, {
-            running: running.has(containerName(id)),
+            running: running.has(sbName(id)),
             diskMb: diskUsage.has(id) ? (diskUsage.get(id) ?? null) : null,
             configured: true,
         });
@@ -565,11 +563,11 @@ export async function getSandboxStatuses(
 // fully removes a sandbox (container + persistent volume) — for entry
 // deletion. Best-effort: every step is caught, never throws.
 export async function destroySandbox(uuid: string): Promise<void> {
-    const name = containerName(uuid);
+    const name = sbName(uuid);
     try {
         await stopContainer(name);
         await removeContainer(name);
-        await removeVolume(volumeName(uuid));
+        await removeVolume(sbName(uuid));
     } catch (err) {
         console.error("[sandbox] destroy failed", err);
     }
@@ -582,11 +580,11 @@ export async function destroySandbox(uuid: string): Promise<void> {
 // Unlike destroy, returns an {error?} value so the dashboard can surface a
 // failure to the user.
 export async function resetSandbox(uuid: string): Promise<{ error?: string }> {
-    const name = containerName(uuid);
+    const name = sbName(uuid);
     try {
         await stopContainer(name);
         await removeContainer(name);
-        await removeVolume(volumeName(uuid));
+        await removeVolume(sbName(uuid));
         lastUsed.delete(name);
         diskUsage.delete(uuid);
         return {};
@@ -599,8 +597,8 @@ export async function resetSandbox(uuid: string): Promise<{ error?: string }> {
 // stops a sandbox now (dashboard "stop" button) — best-effort, never throws.
 export async function stopSandboxNow(uuid: string): Promise<void> {
     try {
-        await stopContainer(containerName(uuid));
-        lastUsed.delete(containerName(uuid));
+        await stopContainer(sbName(uuid));
+        lastUsed.delete(sbName(uuid));
     } catch (err) {
         console.error("[sandbox] stop failed", err);
     }
@@ -610,9 +608,9 @@ export async function stopSandboxNow(uuid: string): Promise<void> {
 
 // idle reaper — stops sandboxes idle longer than SANDBOX_IDLE_STOP_MS. Started
 // from lib/background.server.ts on production boot alongside the scheduler /
-// gateway / telegram poller. Matches their start/stop shape: a 60s
-// setInterval (.unref()), guarded against double-start, no-op when podman
-// isn't configured.
+// gateway / telegram poller. Matches their start shape: a 60s setInterval
+// (.unref()), guarded against double-start, no-op when podman isn't
+// configured.
 let reaperTimer: NodeJS.Timeout | null = null;
 
 export function startSandboxReaper() {
@@ -620,13 +618,6 @@ export function startSandboxReaper() {
     reaperTimer = setInterval(() => void reapTick(), REAPER_INTERVAL_MS);
     reaperTimer.unref();
     console.log("[sandbox] idle reaper started");
-}
-
-export function stopSandboxReaper() {
-    if (reaperTimer) {
-        clearInterval(reaperTimer);
-        reaperTimer = null;
-    }
 }
 
 async function reapTick(): Promise<void> {

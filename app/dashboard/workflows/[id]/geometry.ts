@@ -313,37 +313,13 @@ export function grabOffsetY(entry: CatalogEntry): number {
     return HEADER_H / 2;
 }
 
-// centroid of the anchors this node's outputs connect to; null when the node
-// feeds nothing. Target anchors are resolved statically (no graph passed on),
-// so this never recurses — chip/model outputs only ever feed agent nodes,
-// whose ports don't depend on the source position.
-function outputTargetCentroid(
-    node: WorkflowNode,
-    graph: WorkflowGraph,
-    byKey: Record<string, CatalogEntry>,
-): { x: number; y: number } | null {
-    let sx = 0;
-    let sy = 0;
-    let n = 0;
-    for (const e of graph.edges) {
-        if (e.from.nodeId !== node.id) continue;
-        const tn = graph.nodes.find((x) => x.id === e.to.nodeId);
-        if (!tn) continue;
-        const te = byKey[tn.type];
-        if (!te) continue;
-        const p = portPosition(tn, te, e.to.portId);
-        sx += p.x;
-        sy += p.y;
-        n += 1;
-    }
-    return n ? { x: sx / n, y: sy / n } : null;
-}
-
 // centroid of the anchors a single port connects to — for an input port, the
-// source outputs feeding it; for an output port, the target inputs it feeds.
-// Peer anchors are resolved statically (no graph passed on) so this never
-// recurses, like outputTargetCentroid. Used by the event circle, whose
-// outputs each pivot toward their own connection.
+// source outputs feeding it; for an output port, the target inputs it feeds;
+// null when the port connects to nothing. Peer anchors are resolved statically
+// (no graph passed on), so this never recurses — chip/model outputs only ever
+// feed agent nodes, whose ports don't depend on the source position. Used by
+// every shape whose port pivots toward what it connects to (model circle,
+// grant chip, literal/variable box, event circle).
 function portPeerCentroid(
     node: WorkflowNode,
     portId: string,
@@ -362,7 +338,7 @@ function portPeerCentroid(
         if (!pn) continue;
         const pe = byKey[pn.type];
         if (!pe) continue;
-        const p = portPosition(pn, pe, peer.portId);
+        const p = portGeometry(pn, pe, peer.portId);
         sx += p.x;
         sy += p.y;
         n += 1;
@@ -395,7 +371,7 @@ export function portGeometry(
         const cy = node.y + r;
         if (entry.inputs.some((p) => p.id === portId))
             return { x: node.x, y: cy, nx: -1, ny: 0 };
-        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        const target = graph && byKey ? portPeerCentroid(node, portId, false, graph, byKey) : null;
         if (!target) return { x: node.x + MODEL_D, y: cy, nx: 1, ny: 0 };
         const vx = target.x - cx;
         const vy = target.y - cy;
@@ -453,7 +429,7 @@ export function portGeometry(
         const cy = node.y + half;
         if (entry.inputs.some((p) => p.id === portId))
             return { x: node.x, y: cy, nx: -1, ny: 0 };
-        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        const target = graph && byKey ? portPeerCentroid(node, portId, false, graph, byKey) : null;
         if (!target) return { x: node.x + size, y: cy, nx: 1, ny: 0 };
         const vx = target.x - cx;
         const vy = target.y - cy;
@@ -476,7 +452,7 @@ export function portGeometry(
         const cy = node.y + h / 2;
         if (entry.inputs.some((p) => p.id === portId))
             return { x: node.x, y: cy, nx: -1, ny: 0 };
-        const target = graph && byKey ? outputTargetCentroid(node, graph, byKey) : null;
+        const target = graph && byKey ? portPeerCentroid(node, portId, false, graph, byKey) : null;
         if (!target) return { x: node.x + w, y: cy, nx: 1, ny: 0 };
         const vx = target.x - cx;
         const vy = target.y - cy;
@@ -519,17 +495,4 @@ export function portGeometry(
 
     const outputRow = entry.outputs.findIndex((p) => p.id === portId);
     return { x: node.x + rectWidth(entry), y: rowY(Math.max(outputRow, 0)), nx: 1, ny: 0 };
-}
-
-// position-only view of portGeometry — used where the normal is irrelevant
-// (canvas rotated-marker offset, output-centroid resolution)
-export function portPosition(
-    node: WorkflowNode,
-    entry: CatalogEntry,
-    portId: string,
-    graph?: WorkflowGraph,
-    byKey?: Record<string, CatalogEntry>,
-): { x: number; y: number } {
-    const g = portGeometry(node, entry, portId, graph, byKey);
-    return { x: g.x, y: g.y };
 }

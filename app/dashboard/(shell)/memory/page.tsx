@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { countMemoryItems, MAX_MEMORY_ITEMS } from "@/lib/memory.server";
 import { getUserRegistry } from "@/lib/registry.server";
 import { getSessionCached } from "@/lib/subscription";
-import DeleteMemoryButton from "./deleteMemoryButton";
+import ConfirmButton from "@/app/dashboard/confirmButton";
+import { deleteMemoryStore } from "./actions";
 import MemoryModal from "./memoryModal";
 
 // persistent agent-memory stores; session check lives here, not the layout
@@ -73,7 +74,7 @@ export default async function Memory() {
                                 </Link>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
                                     <MemoryModal entry={entry} />
-                                    <DeleteMemoryButton id={entry.id} />
+                                    <ConfirmButton action={deleteMemoryStore} fields={{ id: entry.id }} />
                                 </div>
                             </div>
                         </div>

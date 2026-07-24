@@ -4,7 +4,7 @@ import { platformKey } from "@/lib/credits.server";
 import { db } from "@/lib/db";
 import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
 import { hasOpenrouterKey, listOpenrouterModels } from "@/lib/openrouter.server";
-import { buildUserCatalog } from "@/lib/registry";
+import { buildUserCatalog, UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
 import { SELF_HOSTED } from "@/lib/selfhost";
 import { baseUrl, getActivation, getSessionCached, limitsFor } from "@/lib/subscription";
@@ -14,12 +14,10 @@ import Designer, { type GithubLink } from "./designer";
 // lives outside the (shell) route group on purpose — the designer takes over
 // the full screen without the dashboard sidebar. session check lives here,
 // not the layout.
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export default async function WorkflowDesigner({ params }: PageProps<"/dashboard/workflows/[id]">) {
     const { id } = await params;
     // pre-validate before querying — junk ids would throw pg 22P02, not miss
-    if (!UUID.test(id)) notFound();
+    if (!UUID_RE.test(id)) notFound();
 
     const requestHeaders = await headers();
     const session = await getSessionCached();
@@ -32,7 +30,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
     // workflow row rides the same Promise.all so the page pays one round trip
     const [{ rows }, registry, keyed, level, installations] = await Promise.all([
         db.query(
-            "select id, name, emoji, description, cron, graph, webhook_secret from workflow where id = $1 and user_id = $2",
+            "select id, name, emoji, description, graph, webhook_secret from workflow where id = $1 and user_id = $2",
             [id, session.user.id],
         ),
         getUserRegistry(session.user.id),

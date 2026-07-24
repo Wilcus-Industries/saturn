@@ -8,9 +8,10 @@
 //
 // Zero outbound fetches: nothing payload-derived shapes a request. Never logs
 // the secret or full payloads.
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
 
 import { githubWebhookConfigured, handleGithubDelivery } from "@/lib/githubApp.server";
+import { timingSafeEquals } from "@/lib/timingSafe.server";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,5 @@ function verifySignature(rawBody: string, secret: string, header: string | null)
     const provided = header.slice(prefix.length);
     if (!/^[0-9a-f]+$/i.test(provided)) return false;
     const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    return a.length === b.length && timingSafeEqual(a, b);
+    return timingSafeEquals(provided, expected);
 }

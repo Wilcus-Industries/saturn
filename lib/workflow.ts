@@ -143,7 +143,6 @@ export type WorkflowRow = {
     name: string;
     emoji: string;
     description: string;
-    cron: string;
     graph: WorkflowGraph;
     active: boolean; // gates scheduled runs only; manual/test runs ignore it
     created_at: Date;
@@ -595,7 +594,7 @@ function findPort(
     graph: WorkflowGraph,
     ref: PortRef,
     dir: "inputs" | "outputs",
-    byKey: Record<string, CatalogEntry> = CATALOG_BY_KEY,
+    byKey: Record<string, CatalogEntry>,
 ): PortSpec | null {
     const node = graph.nodes.find((n) => n.id === ref.nodeId);
     if (!node) return null;
@@ -624,7 +623,7 @@ export function canConnect(
     graph: WorkflowGraph,
     from: PortRef,
     to: PortRef,
-    byKey: Record<string, CatalogEntry> = CATALOG_BY_KEY,
+    byKey: Record<string, CatalogEntry>,
 ): boolean {
     if (from.nodeId === to.nodeId) return false;
 
@@ -662,6 +661,12 @@ export type ValidationIssue = {
     nodeId?: string;
     edgeId?: string;
 };
+
+// node types whose value output getEventSubscriptions can resolve statically
+// (from config.value) when reading event-node config before any run — every
+// other source is dynamic and resolves to blank. Shared with events.server.ts
+// so the validator's warning and the resolver stay in lockstep.
+export const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
 
 // deep validation for graphs authored without the designer's UI guardrails
 // (the MCP server's validate_graph/save_graph tools). Assumes the graph
@@ -927,7 +932,6 @@ export function validateGraphStrict(
     // event config is read statically by the always-on listener before any run
     // (getEventSubscriptions), so only variable/string/number sources can feed
     // an event config port — a dynamic source silently resolves to blank
-    const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
     for (const edge of graph.edges) {
         if (edge.kind !== "value") continue;
         const toNode = nodeById.get(edge.to.nodeId);
@@ -959,7 +963,7 @@ export function edgesToReplace(
     graph: WorkflowGraph,
     from: PortRef,
     to: PortRef,
-    byKey: Record<string, CatalogEntry> = CATALOG_BY_KEY,
+    byKey: Record<string, CatalogEntry>,
 ): string[] {
     const kind = findPort(graph, from, "outputs", byKey)?.kind;
     const toPort = findPort(graph, to, "inputs", byKey);
