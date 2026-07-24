@@ -68,6 +68,19 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
         setQ("");
     }
 
+    // dot centers as track fractions — every dot centered in its flex-1 cell
+    const anchors = REASONING_LEVELS.map((_, i, a) => (i + 0.5) / a.length);
+
+    function effortFromPointer(e: React.PointerEvent<HTMLDivElement>) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const t = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+        let best = 0;
+        anchors.forEach((a, i) => {
+            if (Math.abs(t - a) < Math.abs(t - anchors[best])) best = i;
+        });
+        setReasoning(REASONING_LEVELS[best]);
+    }
+
     return (
         <form
             className={"agent-enter-late mx-auto flex w-full max-w-2xl flex-col gap-2 pb-2"}
@@ -231,7 +244,7 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                                     role={"dialog"}
                                     aria-label={"Reasoning effort"}
                                     className={
-                                        "absolute bottom-full left-0 z-20 mb-2 w-64 border " +
+                                        "absolute bottom-full left-0 z-20 mb-2 w-52 border " +
                                         "border-foreground/15 bg-background p-3 " +
                                         "shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)]"
                                     }
@@ -250,13 +263,27 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                                         <span>faster</span>
                                         <span>smarter</span>
                                     </div>
-                                    {/* stop buttons carry the interaction; thumb + dots are paint */}
-                                    <div className={"relative mt-1.5 flex h-6 items-center"}>
+                                    {/* stop buttons carry click + keyboard; the container adds
+                                        pointer-drag scrubbing (capture rides the down target) */}
+                                    <div
+                                        className={"relative mt-1.5 flex h-6 touch-none items-center"}
+                                        onPointerDown={(e) => {
+                                            // capture keeps the scrub alive when the pointer
+                                            // leaves the track; invalid ids must not kill the tap
+                                            try {
+                                                e.currentTarget.setPointerCapture(e.pointerId);
+                                            } catch {}
+                                            effortFromPointer(e);
+                                        }}
+                                        onPointerMove={(e) => {
+                                            if (e.buttons & 1) effortFromPointer(e);
+                                        }}
+                                    >
                                         <div
                                             aria-hidden
                                             className={"absolute inset-x-0 h-4 rounded-full bg-foreground/10"}
                                         />
-                                        {REASONING_LEVELS.map((r, i) => {
+                                        {REASONING_LEVELS.map((r) => {
                                             const active = r === reasoning;
                                             return (
                                                 <button
@@ -268,12 +295,7 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                                                     onClick={() => setReasoning(r)}
                                                     className={
                                                         "relative flex h-6 flex-1 cursor-pointer " +
-                                                        "items-center " +
-                                                        (i === 0
-                                                            ? "justify-start"
-                                                            : i === REASONING_LEVELS.length - 1
-                                                              ? "justify-end"
-                                                              : "justify-center")
+                                                        "items-center justify-center"
                                                     }
                                                 >
                                                     <span
