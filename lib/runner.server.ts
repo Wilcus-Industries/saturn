@@ -11,6 +11,8 @@ import {
     MAX_GRANTED_SKILLS,
     MAX_GRANTED_TOOLS,
     type McpCallResult,
+    MODEL_ID,
+    toReasoningParam,
 } from "@/lib/agent";
 import { type AgentToolSpec, chatComplete } from "@/lib/agent.server";
 import { cronMatches } from "@/lib/cron";
@@ -21,12 +23,10 @@ import {
     describeImage,
     runWorkflow,
 } from "@/lib/interpreter";
-import { getCreditUsage, platformKey, recordUsage } from "@/lib/credits.server";
+import { recordUsage, selectModelApiKey } from "@/lib/credits.server";
 import { executeIntegration } from "@/lib/integrations.server";
 import { executeMemoryTool, memoryToolSpecs } from "@/lib/memory.server";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
-import { getOpenrouterKey } from "@/lib/openrouter.server";
-import { SELF_HOSTED } from "@/lib/selfhost";
 import { buildUserCatalog, canCallTool } from "@/lib/registry";
 import { freshMcpToken, getMcpSecrets, getUserRegistry } from "@/lib/registry.server";
 import { executeSandboxTool, sandboxToolSpecs } from "@/lib/sandbox.server";
@@ -36,11 +36,9 @@ import { CATALOG_BY_KEY, type CatalogEntry, missingEntry, type WorkflowGraph } f
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MAX_TOOL_INPUT = 65_536;
-const MODEL_ID = /^[\w.:/-]{1,128}$/;
 const MAX_SYSTEM_PROMPT = 8192;
 const MAX_MODEL_CONTENT = 20_000; // model output returned per turn
 const MAX_IMAGE_DATA_URL = 4_194_304; // generated-image data URL (~3 MB decoded)
-const REASONING_MODES = new Set(["off", "low", "medium", "high"]);
 
 // executes one MCP tool call for a workflow run. Returns errors as values
 // (not throws) so consoles and run logs can render them.
@@ -193,51 +191,15 @@ export async function executeAgentTurn(
         system += `\n\n## Sandbox: ${row.name}${row.description ? `\n${row.description}` : ""}\nA persistent Linux sandbox (Debian: bash, Node 22, python3, pip, git, curl). Files under /work persist across runs ($HOME is /work); everything else resets. The rootfs is read-only: never try to install runtimes or system packages (no apt, no nvm — they fail or get OOM-killed); small installs go into /work via \`pip install --user\` or \`npm install\` in a /work project dir. Commands run via sandbox_exec time out per plan tier. The sandbox is a container with its own resource limits: free/nproc/df report the HOST, not the sandbox — for the sandbox's real limits read /sys/fs/cgroup/memory.max (bytes), /sys/fs/cgroup/cpu.max (quota period), and /sys/fs/cgroup/pids.max.`;
         specs.unshift(...sandboxToolSpecs(req.sandboxId));
     }
-    // key selection: platform key while credits remain, else BYOK fallback.
-    // The check-then-call-then-record sequence can overshoot the allowance by
-    // ~one in-flight turn (bounded by max_tokens) — see lib/credits.server.ts.
-    let apiKey: string | null = null;
-    let platformBilled = false;
-    if (SELF_HOSTED) {
-        // single owner, no credits/BYOK: the server-wide platform key funds
-        // every call and nothing is metered (recordUsage also no-ops).
-        apiKey = platformKey();
-        if (!apiKey) {
-            return {
-                error: "model calls need an OpenRouter key: set PLATFORM_OPENROUTER_KEY on the server",
-            };
-        }
-    } else {
-        const credits = await getCreditUsage(userId);
-        if (credits.allowance > 0 && credits.used < credits.allowance && platformKey()) {
-            apiKey = platformKey();
-            platformBilled = true;
-        } else {
-            apiKey = await getOpenrouterKey(userId);
-        }
-        if (!apiKey) {
-            return {
-                error:
-                    credits.allowance > 0
-                        ? "out of built-in model credits for now — add an OpenRouter key in settings to keep running"
-                        : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
-            };
-        }
-    }
+    // key selection: platform key while credits remain, else BYOK fallback
+    // (shared with the Agent-page chat via lib/credits.server.ts).
+    const key = await selectModelApiKey(userId);
+    if ("error" in key) return { error: key.error };
+    const { apiKey, platformBilled } = key;
 
-    // allowlist the reasoning mode; drop it for image output (single-turn,
-    // reasoning not applicable) and map to OpenRouter's reasoning param
-    let reasoningMode =
-        typeof req.reasoning === "string" && REASONING_MODES.has(req.reasoning)
-            ? req.reasoning
-            : undefined;
-    if (req.outputImage === true) reasoningMode = undefined;
-    const reasoning =
-        reasoningMode === "off"
-            ? ({ enabled: false } as const)
-            : reasoningMode
-              ? { effort: reasoningMode }
-              : undefined;
+    // drop reasoning for image output (single-turn, not applicable); otherwise
+    // allowlist the mode → OpenRouter's reasoning param
+    const reasoning = req.outputImage === true ? undefined : toReasoningParam(req.reasoning);
 
     try {
         const { content, toolCalls, images, usage } = await chatComplete(apiKey, {

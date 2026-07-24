@@ -1,10 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { deleteMemoryStore } from "./actions";
 
-// two-step inline confirm: first click arms, second submits; disarms after 3s
-export default function DeleteMemoryButton({ id }: { id: string }) {
+// two-step inline confirm: first click arms, second submits the form (with a
+// hidden `id`); disarms after 3s. Shared by the shell's delete buttons —
+// pass the delete server action and, optionally, the labels.
+export default function ConfirmButton({
+    id,
+    action,
+    label = "delete",
+    confirm = "confirm?",
+    title,
+}: {
+    id: string;
+    action: (formData: FormData) => void | Promise<void>;
+    label?: string;
+    confirm?: string;
+    title?: string;
+}) {
     const [armed, setArmed] = useState(false);
 
     useEffect(() => {
@@ -20,20 +33,21 @@ export default function DeleteMemoryButton({ id }: { id: string }) {
                 onClick={() => setArmed(true)}
                 className={"font-mono text-sm text-gray-400 hover:text-red-500"}
             >
-                delete
+                {label}
             </button>
         );
     }
 
     return (
-        <form action={deleteMemoryStore}>
+        <form action={action}>
             <input type={"hidden"} name={"id"} value={id} />
             <button
                 type={"submit"}
+                title={title}
                 className={`border border-red-500 px-2 font-mono text-sm transition-colors
                     duration-200 hover:bg-red-600 hover:text-white`}
             >
-                confirm?
+                {confirm}
             </button>
         </form>
     );

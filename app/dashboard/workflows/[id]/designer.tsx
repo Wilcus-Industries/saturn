@@ -25,7 +25,6 @@ import {
     type ValidationIssue,
     validateGraphStrict,
     type WorkflowGraph,
-    type WorkflowNode,
     type WorkflowRow,
 } from "@/lib/workflow";
 import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";

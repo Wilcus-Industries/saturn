@@ -2,46 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
+import {
+    type ActionResult,
+    countKind,
+    MAX_DESCRIPTION,
+    optionalId,
+    requiredName,
+    toError,
+    UUID,
+} from "@/lib/formActions.server";
 import { MAX_ENTRIES_PER_KIND } from "@/lib/registry";
 import { invalidateUserRegistry } from "@/lib/registry.server";
 import { getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
 // actions are public POST endpoints — every one re-checks the session itself
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const MAX_NAME = 60;
-const MAX_DESCRIPTION = 2000;
-
-// expected failures come back as a value the modal renders inline; a thrown
-// error would only reach Next's generic error page (message redacted in prod)
-type ActionResult = { error: string } | undefined;
-
-function toError(err: unknown): { error: string } {
-    return { error: err instanceof Error ? err.message : "Something went wrong" };
-}
-
-function requiredName(formData: FormData): string {
-    const name = String(formData.get("name") ?? "").trim();
-    if (!name || name.length > MAX_NAME) throw new Error("Name is required (max 60 chars)");
-    return name;
-}
-
-// optional id field: present + valid uuid → update, absent → insert
-function optionalId(formData: FormData): string | null {
-    const id = String(formData.get("id") ?? "").trim();
-    if (!id) return null;
-    if (!UUID.test(id)) throw new Error("Invalid id");
-    return id;
-}
-
-async function countMemoryStores(userId: string): Promise<number> {
-    const { rows } = await db.query<{ count: string }>(
-        "select count(*) from registry_entry where user_id = $1 and kind = 'memory'",
-        [userId],
-    );
-    return Number(rows[0].count);
-}
 
 export async function saveMemoryStore(formData: FormData): Promise<ActionResult> {
     const { requestHeaders, session } = await requireUser();
@@ -64,7 +38,7 @@ export async function saveMemoryStore(formData: FormData): Promise<ActionResult>
         } else {
             // tier cap on new stores; MAX_ENTRIES_PER_KIND is the absolute backstop
             const cap = limitsFor(await getActivation(requestHeaders)).memoryStores;
-            const count = await countMemoryStores(session.user.id);
+            const count = await countKind(session.user.id, "memory");
             if (count >= cap) {
                 throw new Error(
                     `Your plan allows ${cap} memory store${cap === 1 ? "" : "s"} — upgrade to add more`,

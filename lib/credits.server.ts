@@ -14,6 +14,7 @@
 // next turn hard-stops.
 import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
+import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { SELF_HOSTED } from "@/lib/selfhost";
 import { isPaidPlan, limitsFor, type ActivationLevel } from "@/lib/subscription";
 
@@ -91,6 +92,39 @@ async function loadCreditUsage(userId: string): Promise<CreditUsage> {
         [userId, since],
     );
     return { level, allowance, used: sum.rows[0]?.used ?? 0, periodStart, periodEnd };
+}
+
+// pick the OpenRouter key that funds one model call and whether platform
+// credits pay for it (so the caller knows to debit the ledger). Single source
+// of truth for executeAgentTurn (workflow agents) and the Agent-page chat —
+// keep them from drifting. The check-then-call-then-record sequence is
+// non-transactional; concurrent turns can overshoot the allowance by ~one turn.
+export async function selectModelApiKey(
+    userId: string,
+): Promise<{ apiKey: string; platformBilled: boolean } | { error: string }> {
+    // self-hosted: single owner, no credits/BYOK — the server-wide platform
+    // key funds every call and nothing is metered (recordUsage also no-ops).
+    if (SELF_HOSTED) {
+        const apiKey = platformKey();
+        if (!apiKey) {
+            return {
+                error: "model calls need an OpenRouter key: set PLATFORM_OPENROUTER_KEY on the server",
+            };
+        }
+        return { apiKey, platformBilled: false };
+    }
+    const credits = await getCreditUsage(userId);
+    if (credits.allowance > 0 && credits.used < credits.allowance && platformKey()) {
+        return { apiKey: platformKey() as string, platformBilled: true };
+    }
+    const byok = await getOpenrouterKey(userId);
+    if (byok) return { apiKey: byok, platformBilled: false };
+    return {
+        error:
+            credits.allowance > 0
+                ? "out of built-in model credits for now — add an OpenRouter key in settings to keep running"
+                : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
+    };
 }
 
 // debit one platform-billed turn. Never throws — a failed insert must not

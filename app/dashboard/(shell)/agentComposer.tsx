@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FaArrowUp, FaChevronDown } from "react-icons/fa6";
+import { FaArrowUp, FaChevronDown, FaStop } from "react-icons/fa6";
 import ModelLogo from "@/app/dashboard/workflows/[id]/modelLogo";
 import type { OpenrouterModel } from "@/lib/openrouter.server";
 
@@ -23,8 +23,19 @@ const REASONING_LEVELS = ["off", "low", "medium", "high"] as const;
 // (the logo already says who made it); list rows keep the full name
 const shortName = (name: string) => name.replace(/^[^:]+:\s*/, "");
 
-// visual-only composer — submit clears the box, model wiring comes later
-export default function AgentComposer({ models }: { models: OpenrouterModel[] }) {
+// composer for the Agent chat — owns the model + reasoning selectors and hands
+// the message text up via onSend; the parent (agentChat.tsx) owns the transcript
+export default function AgentComposer({
+    models,
+    onSend,
+    streaming,
+    onStop,
+}: {
+    models: OpenrouterModel[];
+    onSend: (text: string, model: string, reasoning: string) => void;
+    streaming: boolean;
+    onStop: () => void;
+}) {
     const [value, setValue] = useState("");
     const [model, setModel] = useState(DEFAULT_MODEL);
     const [reasoning, setReasoning] = useState("medium");
@@ -72,7 +83,8 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
     }
 
     function submit() {
-        if (empty) return;
+        if (empty || streaming) return;
+        onSend(value.trim(), model, reasoning);
         setValue("");
         const el = textareaRef.current;
         if (el) el.style.height = "auto";
@@ -131,18 +143,32 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                         }
                     }}
                 />
-                <button
-                    type={"submit"}
-                    disabled={empty}
-                    aria-label={"Send message"}
-                    className={
-                        "shrink-0 border border-foreground/15 p-2 text-sm transition-opacity " +
-                        "hover:bg-foreground hover:text-background disabled:opacity-40 " +
-                        "disabled:hover:bg-transparent disabled:hover:text-current"
-                    }
-                >
-                    <FaArrowUp />
-                </button>
+                {streaming ? (
+                    <button
+                        type={"button"}
+                        onClick={onStop}
+                        aria-label={"Stop generating"}
+                        className={
+                            "shrink-0 border border-foreground/15 p-2 text-sm transition-colors " +
+                            "hover:bg-foreground hover:text-background"
+                        }
+                    >
+                        <FaStop />
+                    </button>
+                ) : (
+                    <button
+                        type={"submit"}
+                        disabled={empty}
+                        aria-label={"Send message"}
+                        className={
+                            "shrink-0 border border-foreground/15 p-2 text-sm transition-opacity " +
+                            "hover:bg-foreground hover:text-background disabled:opacity-40 " +
+                            "disabled:hover:bg-transparent disabled:hover:text-current"
+                        }
+                    >
+                        <FaArrowUp />
+                    </button>
+                )}
             </div>
 
             <div ref={pickersRef} className={"relative flex items-center"}>
@@ -156,7 +182,7 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                         setEffortOpen(false);
                     }}
                     className={
-                        "group flex cursor-pointer items-center gap-1.5 py-1 px-1 font-mono " +
+                        "flex cursor-pointer items-center gap-1.5 py-1 px-1 font-mono " +
                         "text-xs text-gray-400 transition-colors hover:text-foreground " +
                         (open ? "text-foreground" : "")
                     }
@@ -323,8 +349,7 @@ export default function AgentComposer({ models }: { models: OpenrouterModel[] })
                                                             "rounded-full transition-all " +
                                                             (active
                                                                 ? "h-4 w-3 bg-foreground/80"
-                                                                : "h-1.5 w-1.5 bg-foreground/30 " +
-                                                                  "group-hover:bg-foreground/50")
+                                                                : "h-1.5 w-1.5 bg-foreground/30")
                                                         }
                                                     />
                                                 </button>

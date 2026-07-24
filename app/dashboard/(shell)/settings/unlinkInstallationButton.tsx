@@ -3,10 +3,10 @@
 import { useActionState, useEffect, useState } from "react";
 import { unlinkGithubInstallation } from "./actions";
 
-// two-step inline confirm (mirrors DeleteEntryButton): first click arms, second
-// submits; disarms after 3s. Unlinks a GitHub App installation row. Uses
-// useActionState so the action's { error } result surfaces inline instead of
-// hitting Next's generic error page.
+// two-step inline confirm (like ConfirmButton): first click arms, second
+// submits; disarms after 3s. Unlinks a GitHub App installation row. Kept
+// separate because it uses useActionState so the action's { error } result
+// surfaces inline instead of hitting Next's generic error page.
 export default function UnlinkInstallationButton({ installationId }: { installationId: number }) {
     const [armed, setArmed] = useState(false);
     const [state, action] = useActionState<{ error?: string }, FormData>(

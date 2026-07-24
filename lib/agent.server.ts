@@ -35,6 +35,31 @@ type WireMessage =
       }
     | { role: "tool"; tool_call_id: string; content: string };
 
+type Usage = { costUsd: number; promptTokens: number; completionTokens: number };
+
+// narrow unknown to a plain object (not array/null) — used all over the
+// defensive response parsing below
+const asRecord = (x: unknown): Record<string, unknown> | null =>
+    typeof x === "object" && x !== null && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
+
+// usage accounting from `usage: {include: true}`; a missing/odd usage object
+// just means no ledger record
+function parseUsage(rawUsage: Record<string, unknown> | null): Usage | undefined {
+    if (typeof rawUsage?.cost !== "number") return undefined;
+    return {
+        costUsd: rawUsage.cost,
+        promptTokens: typeof rawUsage.prompt_tokens === "number" ? rawUsage.prompt_tokens : 0,
+        completionTokens: typeof rawUsage.completion_tokens === "number" ? rawUsage.completion_tokens : 0,
+    };
+}
+
+// user-renderable error from a non-2xx OpenRouter response body
+const modelError = (body: unknown, status: number): Error => {
+    const err = asRecord(asRecord(body)?.error);
+    const message = typeof err?.message === "string" ? err.message : `HTTP ${status}`;
+    return new Error(`model call failed: ${message}`);
+};
+
 // {type:"object", properties, required} from the stored param spec; manual
 // tools (no discovered params) accept any object
 function toParameters(params: McpToolParam[] | undefined): object {
@@ -158,19 +183,10 @@ export async function chatComplete(
     });
 
     const body: unknown = await res.json().catch(() => null);
-    const record = (x: unknown): Record<string, unknown> | null =>
-        typeof x === "object" && x !== null && !Array.isArray(x)
-            ? (x as Record<string, unknown>)
-            : null;
+    if (!res.ok) throw modelError(body, res.status);
 
-    if (!res.ok) {
-        const err = record(record(body)?.error);
-        const message = typeof err?.message === "string" ? err.message : `HTTP ${res.status}`;
-        throw new Error(`model call failed: ${message}`);
-    }
-
-    const choices = record(body)?.choices;
-    const message = record(Array.isArray(choices) ? record(choices[0])?.message : null);
+    const choices = asRecord(body)?.choices;
+    const message = asRecord(Array.isArray(choices) ? asRecord(choices[0])?.message : null);
     if (!message) throw new Error("model call failed: malformed response");
 
     const content = typeof message.content === "string" ? message.content : "";
@@ -179,7 +195,7 @@ export async function chatComplete(
     const images: string[] = [];
     if (Array.isArray(message.images)) {
         for (const raw of message.images as unknown[]) {
-            const url = record(record(raw)?.image_url)?.url;
+            const url = asRecord(asRecord(raw)?.image_url)?.url;
             if (typeof url === "string" && url.startsWith("data:image/")) images.push(url);
         }
     }
@@ -197,20 +213,94 @@ export async function chatComplete(
             });
         }
     }
-    // usage accounting (requested via usage: {include: true}); parsed
-    // defensively — a missing/odd usage object just means no ledger record
-    const rawUsage = record(record(body)?.usage);
-    const usage =
-        typeof rawUsage?.cost === "number"
-            ? {
-                  costUsd: rawUsage.cost,
-                  promptTokens:
-                      typeof rawUsage.prompt_tokens === "number" ? rawUsage.prompt_tokens : 0,
-                  completionTokens:
-                      typeof rawUsage.completion_tokens === "number"
-                          ? rawUsage.completion_tokens
-                          : 0,
-              }
-            : undefined;
+    const usage = parseUsage(asRecord(asRecord(body)?.usage));
     return { content, toolCalls, images, ...(usage ? { usage } : {}) };
+}
+
+// streaming sibling of chatComplete for the Agent-page chat: tool-free,
+// single-turn, and it surfaces reasoning tokens (which chatComplete discards).
+// Yields incremental { reasoning } / { content } deltas as they arrive and
+// returns the final usage accounting (present when OpenRouter reported cost).
+// Throws Error("model call failed: …") on a non-2xx response, same shape as
+// chatComplete. The caller owns metering + key selection.
+export async function* streamChat(
+    apiKey: string,
+    req: {
+        model: string;
+        system: string;
+        messages: { role: "user" | "assistant"; content: string }[];
+        reasoning?: { enabled: false } | { effort: string };
+        signal?: AbortSignal;
+    },
+): AsyncGenerator<
+    { reasoning: string } | { content: string },
+    { usage?: { costUsd: number; promptTokens: number; completionTokens: number } }
+> {
+    const wire = [
+        { role: "system" as const, content: req.system },
+        ...req.messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
+    const res = await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model: req.model,
+            messages: wire,
+            max_tokens: MAX_COMPLETION_TOKENS,
+            stream: true,
+            usage: { include: true }, // rides the final SSE chunk for the ledger
+            ...(req.reasoning ? { reasoning: req.reasoning } : {}),
+        }),
+        signal: req.signal,
+    });
+
+    if (!res.ok || !res.body) {
+        const body: unknown = await res.json().catch(() => null);
+        throw modelError(body, res.status);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let usage: Usage | undefined;
+
+    // SSE frames are newline-delimited; a chunk can split a line, so keep the
+    // trailing partial in `buffer` and only parse complete lines.
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line || line.startsWith(":")) continue; // keep-alive comment
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (data === "[DONE]") continue;
+            let json: unknown;
+            try {
+                json = JSON.parse(data);
+            } catch {
+                continue; // partial/garbled frame — skip
+            }
+            const obj = asRecord(json);
+            const choices = obj?.choices;
+            const delta = asRecord(Array.isArray(choices) ? asRecord(choices[0])?.delta : null);
+            if (delta) {
+                if (typeof delta.reasoning === "string" && delta.reasoning) {
+                    yield { reasoning: delta.reasoning };
+                }
+                if (typeof delta.content === "string" && delta.content) {
+                    yield { content: delta.content };
+                }
+            }
+            const parsed = parseUsage(asRecord(obj?.usage));
+            if (parsed) usage = parsed;
+        }
+    }
+    return { usage };
 }

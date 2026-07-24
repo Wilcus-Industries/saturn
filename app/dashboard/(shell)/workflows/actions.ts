@@ -3,20 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { type ActionResult, toError, UUID } from "@/lib/formActions.server";
 import { subscriptionsChanged } from "@/lib/events.server";
 import { getActivation, limitsFor, requireUser } from "@/lib/subscription";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 // actions are public POST endpoints — every one re-checks the session itself
-
-// expected failures come back as a value the modal renders inline; a thrown
-// error would only reach Next's generic error page (message redacted in prod)
-type ActionResult = { error: string } | undefined;
-
-function toError(err: unknown): { error: string } {
-    return { error: err instanceof Error ? err.message : "Something went wrong" };
-}
 
 // shared by create and update — the modal submits the same fields. The
 // schedule now lives in a "scheduled to run" node in the graph, not here.

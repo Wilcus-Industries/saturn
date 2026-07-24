@@ -435,6 +435,23 @@ export default memo(function Node({
         );
     };
 
+    // the single value-output marker for the non-rectangular shapes
+    // (model/chip/literal/variable): the branch's right-edge default unless a
+    // rotated chip/model supplied parsedOutAnchor. The event branch's
+    // multi-anchor at() differs and stays separate.
+    const outMarker = (out: PortSpec | undefined, fx: number, fy: number) => {
+        if (!out) return null;
+        const [ax, ay] = parsedOutAnchor ?? [fx, fy];
+        return (
+            <span
+                className={"absolute flex"}
+                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
+            >
+                {port(out, "out", "")}
+            </span>
+        );
+    };
+
     // model nodes render as a circle (MODEL_D 54, h-6 name strip =
     // MODEL_LABEL_H 24) — the single value output anchors on the circle's
     // right-edge midpoint per geometry.ts. Nodes spawned from a per-model
@@ -480,18 +497,7 @@ export default memo(function Node({
                 {/* the port hangs off the borderless outer box, so its anchor
                     is node.x/node.y exactly — inside the bordered circle it
                     would drift by the border width, off geometry.ts's anchor */}
-                {output &&
-                    (() => {
-                        const [ax, ay] = parsedOutAnchor ?? [MODEL_D, MODEL_D / 2];
-                        return (
-                            <span
-                                className={"absolute flex"}
-                                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-                            >
-                                {port(output, "out", "")}
-                            </span>
-                        );
-                    })()}
+                {outMarker(output, MODEL_D, MODEL_D / 2)}
                 <div
                     style={{ width: MODEL_D }}
                     className={"flex h-6 items-center justify-center"}
@@ -720,18 +726,7 @@ export default memo(function Node({
                 </div>
                 {/* port on the borderless outer box — see the model branch.
                     Chips carry border-2, so nesting it would skew 2px */}
-                {output &&
-                    (() => {
-                        const [ax, ay] = parsedOutAnchor ?? [size, size / 2];
-                        return (
-                            <span
-                                className={"absolute flex"}
-                                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-                            >
-                                {port(output, "out", "")}
-                            </span>
-                        );
-                    })()}
+                {outMarker(output, size, size / 2)}
                 <div className={"flex h-6 items-center justify-center"}>
                     <span
                         className={
@@ -829,18 +824,7 @@ export default memo(function Node({
                     )}
                 </div>
                 {/* port on the borderless outer box — see the model branch */}
-                {output &&
-                    (() => {
-                        const [ax, ay] = parsedOutAnchor ?? [width, height / 2];
-                        return (
-                            <span
-                                className={"absolute flex"}
-                                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-                            >
-                                {port(output, "out", "")}
-                            </span>
-                        );
-                    })()}
+                {outMarker(output, width, height / 2)}
             </div>
         );
     }
@@ -936,18 +920,7 @@ export default memo(function Node({
                     <span className={"truncate leading-[18px]"}>{entry.label}</span>
                 </div>
                 {/* port on the borderless outer box — see the model branch */}
-                {output &&
-                    (() => {
-                        const [ax, ay] = parsedOutAnchor ?? [width, height / 2];
-                        return (
-                            <span
-                                className={"absolute flex"}
-                                style={{ left: ax, top: ay, transform: "translate(-50%, -50%)" }}
-                            >
-                                {port(output, "out", "")}
-                            </span>
-                        );
-                    })()}
+                {outMarker(output, width, height / 2)}
             </div>
         );
     }
@@ -1396,7 +1369,7 @@ export default memo(function Node({
                                 value={node.config[field.id] ?? ""}
                                 disabled={overridden}
                                 disabledTitle={overridden ? "set by connected edge" : undefined}
-                                dynStr={field.id === "reasoning" ? reasoningOptions : outputOptions}
+                                dynStr={""}
                                 fontClass={"text-xs"}
                                 highlight={varHighlight}
                                 onChange={(value) =>

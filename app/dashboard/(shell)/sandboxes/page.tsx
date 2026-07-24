@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { getUserRegistry } from "@/lib/registry.server";
 import { getSandboxStatuses } from "@/lib/sandbox.server";
 import { getActivation, getSessionCached, limitsFor } from "@/lib/subscription";
-import DeleteSandboxButton from "./deleteSandboxButton";
+import ConfirmButton from "@/app/dashboard/confirmButton";
+import { deleteSandbox } from "./actions";
 import SandboxControls from "./sandboxControls";
 import SandboxModal from "./sandboxModal";
 
@@ -104,7 +105,11 @@ export default async function Sandboxes() {
                                 </span>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
                                     <SandboxModal entry={entry} />
-                                    <DeleteSandboxButton id={entry.id} />
+                                    <ConfirmButton
+                                        id={entry.id}
+                                        action={deleteSandbox}
+                                        title={"deletes the environment and all its files"}
+                                    />
                                 </div>
                             </div>
 
