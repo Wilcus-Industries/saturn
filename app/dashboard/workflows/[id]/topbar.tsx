@@ -101,36 +101,47 @@ export default function Topbar({
                 </span>
             </Link>
 
-            <span className={"ml-auto flex items-center gap-2"}>
-                {/* test event runner — pick which event node to fire, then run
-                    it through the client-side interpreter (see interpreter.ts).
-                    The run button turns into a stop button while running (an
-                    in-flight MCP call finishes, then the run halts). */}
-                <select
-                    value={selectedEventId}
-                    onChange={(e) => onSelectEvent(e.target.value)}
-                    disabled={running || events.length === 0}
-                    aria-label={"event to test"}
-                    className={
-                        "max-w-40 shrink-0 truncate border border-foreground/15 bg-background px-2 py-0.5 text-xs text-gray-400 disabled:opacity-50"
-                    }
-                >
-                    {events.length === 0 ? (
-                        <option value={""}>no events</option>
-                    ) : (
-                        events.map((ev) => (
+            <span className={"ml-auto flex items-center gap-2 text-xs"}>
+                {/* test event runner — a workflow holds one event node, so its
+                    label renders as static text next to the run button (a
+                    select only appears for legacy multi-event graphs). The run
+                    button turns into a stop button while running (an in-flight
+                    MCP call finishes, then the run halts). */}
+                {events.length === 1 && (
+                    <span
+                        title={"event fired by a test run"}
+                        className={"max-w-40 truncate text-gray-400"}
+                    >
+                        <span aria-hidden className={"text-amber-500"}>
+                            ●{" "}
+                        </span>
+                        {events[0].label}
+                    </span>
+                )}
+                {events.length > 1 && (
+                    <select
+                        value={selectedEventId}
+                        onChange={(e) => onSelectEvent(e.target.value)}
+                        disabled={running}
+                        aria-label={"event to test"}
+                        className={
+                            "max-w-40 shrink-0 truncate rounded-full border border-foreground/15 bg-background px-2 py-0.5 text-gray-400 disabled:opacity-50"
+                        }
+                    >
+                        {events.map((ev) => (
                             <option key={ev.id} value={ev.id}>
                                 {ev.label}
                             </option>
-                        ))
-                    )}
-                </select>
+                        ))}
+                    </select>
+                )}
                 {running ? (
                     <button
                         type={"button"}
                         onClick={onStop}
-                        className={`border border-red-500 px-2 py-0.5 text-red-600 transition-colors
-                            duration-200 hover:bg-red-600 hover:text-white dark:text-red-400`}
+                        className={`shrink-0 rounded-full border border-red-500 px-3 py-0.5 text-red-600
+                            transition-colors duration-200 hover:bg-red-600 hover:text-white
+                            dark:text-red-400`}
                     >
                         ■ stop
                     </button>
@@ -140,15 +151,15 @@ export default function Topbar({
                         onClick={onRun}
                         disabled={events.length === 0}
                         title={events.length === 0 ? "add an event node to run" : "test this event"}
-                        className={`border border-green-500 px-2 py-0.5 text-green-600 transition-colors
-                            duration-200 hover:bg-green-600 hover:text-white disabled:cursor-not-allowed
-                            disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-green-600
-                            dark:text-green-400`}
+                        className={`shrink-0 rounded-full border border-green-500 px-3 py-0.5 text-green-600
+                            transition-colors duration-200 hover:bg-green-600 hover:text-white
+                            disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent
+                            disabled:hover:text-green-600 dark:text-green-400`}
                     >
                         ▶ run
                     </button>
                 )}
-                <DeleteWorkflowButton id={workflowId} />
+                <DeleteWorkflowButton id={workflowId} sizeClass={"text-xs"} />
             </span>
 
             {/* validation summary badge — red errors win, else amber warnings,
@@ -161,7 +172,7 @@ export default function Topbar({
                         setPanelAnchor((cur) => (cur ? null : { x: r.left, y: r.bottom + 4 }));
                     }}
                     title={"validation issues"}
-                    className={`shrink-0 border px-2 py-0.5 text-xs transition-colors duration-200 ${
+                    className={`shrink-0 rounded-full border px-2 py-0.5 text-xs transition-colors duration-200 ${
                         errorCount > 0
                             ? "border-red-500/60 text-red-600 hover:bg-red-500/10 dark:text-red-400"
                             : "border-amber-500/60 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400"
