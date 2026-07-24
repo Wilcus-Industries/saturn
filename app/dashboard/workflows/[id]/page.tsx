@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { agentPrefs } from "@/app/dashboard/agentPrefs";
 import { platformKey } from "@/lib/credits.server";
 import { db } from "@/lib/db";
 import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
@@ -83,6 +84,7 @@ export default async function WorkflowDesigner({ params }: PageProps<"/dashboard
             userCatalog={userCatalog}
             variables={variables}
             openrouterModels={openrouterModels}
+            agentPrefs={await agentPrefs()}
             cronFloorMinutes={limitsFor(level).cronFloorMinutes}
             selfHosted={SELF_HOSTED}
             githubLink={githubLink}

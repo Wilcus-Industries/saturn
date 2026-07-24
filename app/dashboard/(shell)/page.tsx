@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { agentPrefs } from "@/app/dashboard/agentPrefs";
 import { listOpenrouterModels } from "@/lib/openrouter.server";
 import { getSessionCached } from "@/lib/subscription";
 import AgentChat from "./agentChat";
@@ -16,5 +17,6 @@ export default async function Dashboard() {
     // enforces funding (credits/BYOK), so the list stays ungated for now.
     const models = await listOpenrouterModels();
 
-    return <AgentChat models={models} />;
+    // the model + effort they picked last, so the composer opens on it
+    return <AgentChat models={models} prefs={await agentPrefs()} />;
 }

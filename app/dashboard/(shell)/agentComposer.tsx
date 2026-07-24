@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FaArrowUp, FaChevronDown, FaStop } from "react-icons/fa6";
+// type-only imports — compile-erased, safe in a client component
+import type { AgentPrefs } from "@/app/dashboard/agentPrefs";
 import ModelLogo from "@/app/dashboard/workflows/[id]/modelLogo";
 import type { OpenrouterModel } from "@/lib/openrouter.server";
 
@@ -14,10 +16,17 @@ const FALLBACK_MODELS: OpenrouterModel[] = [
 ];
 
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
+const DEFAULT_EFFORT = "medium";
 const MAX_LISTED = 120;
 
 // mirrors the agent node's reasoning select (executeAgentTurn allowlist)
 const REASONING_LEVELS = ["off", "low", "medium", "high"] as const;
+
+// last pick, remembered across reloads and the dashboard ⇄ designer handoff —
+// read back server-side by app/dashboard/agentPrefs.ts, which owns these names
+const remember = (name: string, value: string) => {
+    document.cookie = `${name}=${value}; path=/; max-age=31536000`;
+};
 
 // OpenRouter names read "Author: Model" — the trigger chip drops the author
 // (the logo already says who made it); list rows keep the full name
@@ -27,18 +36,21 @@ const shortName = (name: string) => name.replace(/^[^:]+:\s*/, "");
 // the message text up via onSend; the parent (agentChat.tsx) owns the transcript
 export default function AgentComposer({
     models,
+    prefs,
     onSend,
     streaming,
     onStop,
 }: {
     models: OpenrouterModel[];
+    // the saved pick, read from cookies server-side (undefined = never picked)
+    prefs?: AgentPrefs;
     onSend: (text: string, model: string, reasoning: string) => void;
     streaming: boolean;
     onStop: () => void;
 }) {
     const [value, setValue] = useState("");
-    const [model, setModel] = useState(DEFAULT_MODEL);
-    const [reasoning, setReasoning] = useState("medium");
+    const [model, setModel] = useState(prefs?.model ?? DEFAULT_MODEL);
+    const [reasoning, setReasoning] = useState(prefs?.reasoning ?? DEFAULT_EFFORT);
     const [open, setOpen] = useState(false);
     const [effortOpen, setEffortOpen] = useState(false);
     const [q, setQ] = useState("");
@@ -92,8 +104,17 @@ export default function AgentComposer({
 
     function pick(id: string) {
         setModel(id);
+        remember("agentModel", id);
         setOpen(false);
         setQ("");
+    }
+
+    // the drag scrub calls this on every pointermove — skip the no-op so a
+    // single drag writes one cookie per stop crossed, not one per frame
+    function chooseEffort(next: string) {
+        if (next === reasoning) return;
+        setReasoning(next);
+        remember("agentEffort", next);
     }
 
     // dot centers as track fractions — every dot centered in its flex-1 cell
@@ -106,7 +127,7 @@ export default function AgentComposer({
         anchors.forEach((a, i) => {
             if (Math.abs(t - a) < Math.abs(t - anchors[best])) best = i;
         });
-        setReasoning(REASONING_LEVELS[best]);
+        chooseEffort(REASONING_LEVELS[best]);
     }
 
     return (
@@ -337,7 +358,7 @@ export default function AgentComposer({
                                                     title={r}
                                                     aria-label={`effort: ${r}`}
                                                     aria-pressed={active}
-                                                    onClick={() => setReasoning(r)}
+                                                    onClick={() => chooseEffort(r)}
                                                     className={
                                                         "relative flex h-6 flex-1 cursor-pointer " +
                                                         "items-center justify-center"

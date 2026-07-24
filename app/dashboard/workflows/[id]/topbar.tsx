@@ -23,6 +23,8 @@ export default function Topbar({
     onRun,
     onStop,
     running,
+    agentOpen,
+    onToggleAgent,
 }: {
     workflowId: string;
     emoji: string;
@@ -42,6 +44,9 @@ export default function Topbar({
     onRun: () => void;
     onStop: () => void;
     running: boolean;
+    // the docked Saturn Agent panel (designer-owned state)
+    agentOpen: boolean;
+    onToggleAgent: () => void;
 }) {
     const [frame, setFrame] = useState(0);
     // the issues panel's anchor (null = closed); set to the badge's bottom-left
@@ -102,6 +107,21 @@ export default function Topbar({
             </Link>
 
             <span className={"ml-auto flex items-center gap-2 text-xs"}>
+                {/* docks the Saturn Agent chat beside the canvas */}
+                <button
+                    type={"button"}
+                    onClick={onToggleAgent}
+                    aria-pressed={agentOpen}
+                    title={"saturn agent"}
+                    className={`shrink-0 rounded-full border px-2 py-0.5 transition-colors duration-200 sm:px-3 ${
+                        agentOpen
+                            ? "border-cyan-500 bg-cyan-500/15 text-cyan-600 dark:text-cyan-400"
+                            : "border-foreground/15 text-gray-400 hover:border-foreground/40 hover:text-foreground"
+                    }`}
+                >
+                    <span aria-hidden>✳ </span>agent
+                </button>
+
                 {/* test event runner — a workflow holds one event node, so its
                     label renders as static text next to the run button (a
                     select only appears for legacy multi-event graphs). The run

@@ -21,6 +21,7 @@ import {
     edgesToReplace,
     entryStyles,
     isGithubEventKey,
+    isWorkflowGraph,
     missingEntry,
     type ValidationIssue,
     validateGraphStrict,
@@ -31,7 +32,10 @@ import { type ConsoleLine, runWorkflow } from "@/lib/interpreter";
 import { sampleEventPayload } from "@/lib/integrations";
 // type-only import — compile-erased, safe in a client component
 import type { OpenrouterModel } from "@/lib/openrouter.server";
+import { takeHandoff } from "@/app/dashboard/(shell)/agentChatStore";
+import type { AgentPrefs } from "@/app/dashboard/agentPrefs";
 import { callAgentModel, callIntegration, callMcpTool, callMemoryTool, callSandboxTool, saveWorkflow } from "./actions";
+import AgentPanel from "./agentPanel";
 import Canvas, { type CanvasHandle, type PendingDrag } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
@@ -112,6 +116,7 @@ export default function Designer({
     userCatalog,
     variables,
     openrouterModels,
+    agentPrefs,
     cronFloorMinutes,
     selfHosted,
     githubLink,
@@ -123,6 +128,8 @@ export default function Designer({
     variables: VariableRow[];
     // null = no credits and no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
+    // last model + effort picked in the agent composer (cookie-backed)
+    agentPrefs: AgentPrefs;
     // tightest schedule interval the owner's tier allows — caps the cron picker
     cronFloorMinutes: number;
     // single-user mode — flips the empty-models hint to the server-key message
@@ -234,6 +241,34 @@ export default function Designer({
     useEffect(() => () => {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     }, []);
+
+    // the embedded Saturn Agent panel. Open state and width are never persisted
+    // — they die with the page, like the console.
+    const [agentOpen, setAgentOpen] = useState(false);
+    // arriving from the dashboard chat's "open in designer" chip: the
+    // conversation itself lives in module state (agentChatStore), still
+    // streaming if the turn hadn't finished — all that crosses is the intent to
+    // show it here. An effect, not a lazy useState initializer: reading an
+    // external store during render would desync hydration.
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot read of an external store; a lazy initializer would desync hydration
+        if (takeHandoff(workflow.id)) setAgentOpen(true);
+    }, [workflow.id]);
+
+    // the agent saved a graph for THIS workflow server-side: adopt it as one
+    // undo step and mark it saved (the server already persisted it, so the
+    // autosave must not immediately write it back). Unsaved canvas edits are
+    // clobbered — Cmd+Z recovers them. Stable: the memoized Node never sees it,
+    // but AgentChat's `apply` callback depends on it.
+    const handleAgentGraph = useCallback(
+        (graph: unknown) => {
+            if (!isWorkflowGraph(graph)) return;
+            dispatch({ type: "replaceGraph", graph });
+            setSavedJson(JSON.stringify(graph));
+            notify("agent updated the graph");
+        },
+        [notify],
+    );
 
     // arrow-key nudge coalescing: a burst of arrow presses moves the selection
     // one grid cell each via TRANSIENT moveNodes (same action a live drag uses
@@ -960,6 +995,8 @@ export default function Designer({
                 onRun={runGraph}
                 onStop={stopRun}
                 running={running}
+                agentOpen={agentOpen}
+                onToggleAgent={() => setAgentOpen((o) => !o)}
             />
             <div className={"flex min-h-0 flex-1"}>
                 <Toolbox
@@ -1002,6 +1039,15 @@ export default function Designer({
                     onOpenSystem={openSystem}
                     onVarDrag={handleVarBoxDrag}
                 />
+                {agentOpen && (
+                    <AgentPanel
+                        workflowId={workflow.id}
+                        models={openrouterModels ?? []}
+                        prefs={agentPrefs}
+                        onGraph={handleAgentGraph}
+                        onClose={() => setAgentOpen(false)}
+                    />
+                )}
             </div>
 
             {consoleLines !== null && (

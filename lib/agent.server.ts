@@ -26,7 +26,9 @@ type WireToolCall = {
     function?: { name?: string; arguments?: string };
 };
 
-type WireMessage =
+// exported for the Agent-page chat orchestrator (lib/agentChat.server.ts),
+// which builds its own tool transcripts against streamChat
+export type WireMessage =
     | { role: "system" | "user"; content: string }
     | {
           role: "assistant";
@@ -217,29 +219,32 @@ export async function chatComplete(
     return { content, toolCalls, images, ...(usage ? { usage } : {}) };
 }
 
-// streaming sibling of chatComplete for the Agent-page chat: tool-free,
-// single-turn, and it surfaces reasoning tokens (which chatComplete discards).
-// Yields incremental { reasoning } / { content } deltas as they arrive and
-// returns the final usage accounting (present when OpenRouter reported cost).
+// streaming sibling of chatComplete for the Agent-page chat: surfaces
+// reasoning tokens (which chatComplete discards) and takes wire-shaped
+// messages + tool defs directly — the caller owns the multi-turn loop, tool
+// dispatch, metering and key selection. Yields incremental { reasoning } /
+// { content } deltas as they arrive and returns the final usage accounting
+// (present when OpenRouter reported cost) plus any accumulated tool calls.
 // Throws Error("model call failed: …") on a non-2xx response, same shape as
-// chatComplete. The caller owns metering + key selection.
+// chatComplete.
 export async function* streamChat(
     apiKey: string,
     req: {
         model: string;
         system: string;
-        messages: { role: "user" | "assistant"; content: string }[];
+        messages: WireMessage[];
+        tools?: WireToolDef[];
         reasoning?: { enabled: false } | { effort: string };
         signal?: AbortSignal;
     },
 ): AsyncGenerator<
     { reasoning: string } | { content: string },
-    { usage?: { costUsd: number; promptTokens: number; completionTokens: number } }
+    {
+        usage?: { costUsd: number; promptTokens: number; completionTokens: number };
+        toolCalls: { id: string; name: string; arguments: string }[];
+    }
 > {
-    const wire = [
-        { role: "system" as const, content: req.system },
-        ...req.messages.map((m) => ({ role: m.role, content: m.content })),
-    ];
+    const wire: WireMessage[] = [{ role: "system", content: req.system }, ...req.messages];
     const res = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: {
@@ -252,6 +257,7 @@ export async function* streamChat(
             max_tokens: MAX_COMPLETION_TOKENS,
             stream: true,
             usage: { include: true }, // rides the final SSE chunk for the ledger
+            ...(req.tools?.length ? { tools: req.tools } : {}),
             ...(req.reasoning ? { reasoning: req.reasoning } : {}),
         }),
         signal: req.signal,
@@ -266,6 +272,9 @@ export async function* streamChat(
     const decoder = new TextDecoder();
     let buffer = "";
     let usage: Usage | undefined;
+    // tool calls arrive as fragments keyed by `index` — the provider splits the
+    // arguments JSON across frames, so every field concatenates in arrival order
+    const calls = new Map<number, { id: string; name: string; arguments: string }>();
 
     // SSE frames are newline-delimited; a chunk can split a line, so keep the
     // trailing partial in `buffer` and only parse complete lines.
@@ -297,10 +306,27 @@ export async function* streamChat(
                 if (typeof delta.content === "string" && delta.content) {
                     yield { content: delta.content };
                 }
+                if (Array.isArray(delta.tool_calls)) {
+                    for (const raw of delta.tool_calls as unknown[]) {
+                        const c = asRecord(raw);
+                        if (!c) continue;
+                        const index = typeof c.index === "number" ? c.index : 0;
+                        const slot = calls.get(index) ?? { id: "", name: "", arguments: "" };
+                        if (!slot.id && typeof c.id === "string") slot.id = c.id;
+                        const fn = asRecord(c.function);
+                        if (typeof fn?.name === "string") slot.name += fn.name;
+                        if (typeof fn?.arguments === "string") slot.arguments += fn.arguments;
+                        calls.set(index, slot);
+                    }
+                }
             }
             const parsed = parseUsage(asRecord(obj?.usage));
             if (parsed) usage = parsed;
         }
     }
-    return { usage };
+    const toolCalls = [...calls.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, c]) => ({ ...c, id: c.id || crypto.randomUUID() }))
+        .filter((c) => c.name);
+    return { usage, toolCalls };
 }
