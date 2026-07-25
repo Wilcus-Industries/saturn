@@ -1,4 +1,7 @@
 mod agent;
+mod events;
+mod gateway;
+mod github;
 mod http;
 mod integrations;
 mod interpreter;
@@ -9,6 +12,7 @@ mod registry;
 mod runner;
 mod secrets;
 mod store;
+mod telegram;
 
 use std::collections::HashMap;
 
@@ -49,6 +53,7 @@ fn test_run(app: AppHandle, store: State<Store>, workflow_id: String) -> Result<
             &wf,
             RunTrigger::Manual,
             None,
+            None,
         ) {
             eprintln!("[run] {err}");
         }
@@ -71,6 +76,19 @@ fn has_openrouter_key() -> bool {
 #[tauri::command]
 fn set_openrouter_key(value: Option<String>, clear: bool) -> Result<(), String> {
     secrets::set(&KEYCHAIN, &Secret::OpenRouterKey, value.as_deref(), clear)
+}
+
+/// The GitHub poller's PAT, same write-only convention. Optional — without one
+/// the poller still works on public repos, at the 60 req/hr unauthenticated
+/// budget instead of 5,000.
+#[tauri::command]
+fn has_github_pat() -> bool {
+    secrets::has(&KEYCHAIN, &Secret::GithubPat)
+}
+
+#[tauri::command]
+fn set_github_pat(value: Option<String>, clear: bool) -> Result<(), String> {
+    secrets::set(&KEYCHAIN, &Secret::GithubPat, value.as_deref(), clear)
 }
 
 // --- registry --------------------------------------------------------------
@@ -205,7 +223,18 @@ fn main() {
             // db path follows tauri.conf.json's identifier and cannot drift from it.
             let db = app.path().app_data_dir()?.join("saturn.db");
             app.manage(Store::open(&db)?);
+            // The four background loops. Each one reads `Store` out of managed
+            // state, so all four must be started after `manage`. No supervisor:
+            // a task that dies dies alone — which is already the isolation a
+            // supervisor would buy — and each loop retries internally.
+            //
+            // Nothing here is tied to a window. Closing the window must not stop
+            // the scheduler or drop a Gateway socket (Phase H makes close hide to
+            // the tray); these tasks belong to the app process and outlive it.
             runner::start_scheduler(app.handle().clone());
+            gateway::start_gateway(app.handle().clone());
+            telegram::start(app.handle().clone());
+            github::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -214,6 +243,8 @@ fn main() {
             test_run,
             has_openrouter_key,
             set_openrouter_key,
+            has_github_pat,
+            set_github_pat,
             list_registry,
             save_mcp_server,
             save_skill,

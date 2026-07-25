@@ -13,7 +13,7 @@
 //! (the visual builder never restricts both), and it accepts only the grammar
 //! that builder emits. A crate would silently disagree on exactly that rule.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::channel;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -429,6 +429,10 @@ pub fn execute_run(
     wf: &Workflow,
     trigger: RunTrigger,
     entry_node_ids: Option<Vec<String>>,
+    // node id → the trigger payload JSON that node's value port hands the graph.
+    // Only the event path seeds this; cron and manual runs pass None, and an
+    // event node with no entry here evaluates to "" exactly as before.
+    event_payloads: Option<HashMap<String, String>>,
 ) -> Result<String, String> {
     let graph: Graph = serde_json::from_value(wf.graph.clone())
         .map_err(|e| format!("workflow graph is malformed: {e}"))?;
@@ -466,7 +470,14 @@ pub fn execute_run(
     // blocking client must not be built on a tokio worker.
     let panicked = std::thread::scope(|scope| {
         let worker = scope.spawn(move || {
-            run_workflow(&graph, entry_node_ids.as_deref(), None, Some(&catalog), &tx, effects);
+            run_workflow(
+                &graph,
+                entry_node_ids.as_deref(),
+                event_payloads.as_ref(),
+                Some(&catalog),
+                &tx,
+                effects,
+            );
         });
         for line in rx {
             let capped = crate::interpreter::utf16_prefix(&line.text, MAX_LOG_LINE_CHARS);
@@ -563,7 +574,8 @@ pub fn run_due_workflows(
             // one thread per claimed workflow: a slow HTTP node must not stall
             // its siblings or the next tick
             running.push(scope.spawn(move || {
-                let _ = execute_run(app.as_ref(), &store, vault, &wf, RunTrigger::Cron, Some(ids));
+                let _ =
+                    execute_run(app.as_ref(), &store, vault, &wf, RunTrigger::Cron, Some(ids), None);
             }));
         }
         let ran = running.len();
@@ -729,7 +741,7 @@ mod tests {
             ],
         });
         let wf = store.create_workflow("bad scheme", graph).unwrap();
-        execute_run(None, &store, &vault, &wf, RunTrigger::Manual, None).unwrap();
+        execute_run(None, &store, &vault, &wf, RunTrigger::Manual, None, None).unwrap();
 
         let run = store.latest_run(&wf.id).unwrap().unwrap();
         assert_eq!(run.status, "error");
@@ -750,7 +762,7 @@ mod tests {
 
     fn run_log(store: &Store, vault: &dyn Vault, graph: Value) -> Vec<String> {
         let wf = store.create_workflow("wiring", graph).unwrap();
-        execute_run(None, store, vault, &wf, RunTrigger::Manual, None).unwrap();
+        execute_run(None, store, vault, &wf, RunTrigger::Manual, None, None).unwrap();
         store
             .latest_run(&wf.id)
             .unwrap()

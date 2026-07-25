@@ -65,8 +65,6 @@ fn uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-// Event arrives with the ingress transports (Phase E).
-#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub enum RunTrigger {
     Cron,
@@ -191,6 +189,15 @@ impl Store {
              values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![wf.id, wf.name, wf.emoji, wf.description, wf.graph, wf.active, wf.created_at, wf.updated_at],
         )?;
+        // The subscription feed is derived from these rows, so every workflow
+        // write invalidates it and wakes the transports. It lives here rather
+        // than at the call sites because a Phase F IPC command or a Phase G MCP
+        // tool that forgets it leaves a deleted event node delivering, and a
+        // saved bot token invisible, for a full minute. The connection guard
+        // above is already dropped — `subscriptions_changed` takes a different
+        // lock, and holding both in one order here and the other order in
+        // `get_event_subscriptions` is a deadlock.
+        crate::events::subscriptions_changed();
         Ok(wf)
     }
 
@@ -228,11 +235,18 @@ impl Store {
     /// made session advisory locks unusable) buys nothing here.
     pub fn claim_workflow(&self, id: &str, guard_secs: i64) -> Result<bool> {
         let now = now();
+        // guard 0 is the event path, and it means "no cooldown whatsoever" —
+        // lib/events.server.ts's claim UPDATE carried no time predicate at all.
+        // `now - 0` is not the same thing: it refuses the claim whenever
+        // last_run_at sits in the FUTURE, so one NTP step backwards (a laptop
+        // waking on a new network) silently drops every Discord/Telegram
+        // delivery as "inactive" until wall clock catches up.
+        let cutoff = if guard_secs <= 0 { i64::MAX } else { now - guard_secs * 1000 };
         let changed = self.0.lock().unwrap().execute(
             "update workflow set last_run_at = ?2
               where id = ?1 and active = 1
                 and (last_run_at is null or last_run_at <= ?3)",
-            params![id, now, now - guard_secs * 1000],
+            params![id, now, cutoff],
         )?;
         Ok(changed == 1)
     }
@@ -336,6 +350,32 @@ mod tests {
             store.claim_workflow(&wf.id, 50).unwrap(),
             "the next minute's tick was swallowed by a re-stamped last_run_at"
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The event path claims with guard 0, which must mean "no cooldown at all"
+    /// — the TypeScript's claim UPDATE had no time predicate. Computing
+    /// `now - 0` instead refuses every claim while `last_run_at` sits in the
+    /// future, so one NTP step backwards on a waking laptop silently drops
+    /// every Discord/Telegram delivery as "inactive".
+    #[test]
+    fn a_zero_guard_claim_survives_a_clock_step_backwards() {
+        let dir = std::env::temp_dir().join(format!("saturn-skew-{}", uuid()));
+        let store = Store::open(&dir.join("saturn.db")).unwrap();
+        let wf = store.create_workflow("mention", serde_json::json!({})).unwrap();
+        // the clock jumped back 10 minutes after the last run stamped it
+        let future = now() + 600_000;
+        store
+            .0
+            .lock()
+            .unwrap()
+            .execute("update workflow set last_run_at = ?2 where id = ?1", params![wf.id, future])
+            .unwrap();
+
+        assert!(store.claim_workflow(&wf.id, 0).unwrap(), "an event delivery was dropped");
+        // the cron guard is unchanged: it still suppresses inside its window
+        assert!(!store.claim_workflow(&wf.id, 50).unwrap());
 
         std::fs::remove_dir_all(&dir).ok();
     }

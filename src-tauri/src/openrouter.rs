@@ -618,10 +618,24 @@ pub fn stream_chat(
         reasoning: to_reasoning_param(req.reasoning),
     };
 
-    // no total timeout: reqwest's blocking timeout covers reading the body too,
-    // so any value at all would cut a long generation off mid-stream. The
-    // caller's `cancel` flag is the stop, as the AbortSignal was in TypeScript.
-    let client = Client::builder().timeout(None).build().map_err(|e| e.to_string())?;
+    // reqwest's blocking timeout covers reading the body too, so this cannot be
+    // the ~60s of a single request or it would cut a long generation off
+    // mid-stream. But it must not be `None` either: a blocking `read` on a
+    // black-holed TLS connection — the laptop changing networks mid-generation —
+    // never returns, and nothing downstream can interrupt it. The `cancel` flag
+    // is only checked *between* reads, and `read_timeout` is not exposed on the
+    // blocking builder. That wedged thread is joined by `run_due_workflows`'s
+    // `thread::scope`, which the scheduler awaits, so one dead socket silently
+    // stops every cron in the app until relaunch.
+    //
+    // 600s is `RUN_TIMEOUT_MS` from lib/runner.server.ts:220 — the whole-run
+    // bound the TypeScript had and the port dropped. A single model call that
+    // outlives it is already pathological.
+    const STREAM_DEADLINE: Duration = Duration::from_secs(600);
+    let client = Client::builder()
+        .timeout(STREAM_DEADLINE)
+        .build()
+        .map_err(|e| e.to_string())?;
     let mut res = client
         .post(OPENROUTER_URL)
         .bearer_auth(api_key)

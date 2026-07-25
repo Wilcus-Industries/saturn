@@ -895,6 +895,10 @@ pub fn save_variable(
                 // write-only: blank keeps, clear erases, filled overwrites
                 secrets::set(vault, &Secret::Variable(&id), Some(value), clear_value)?;
             }
+            // AFTER the Keychain write, not before: a variable can be an event
+            // node's bot token, and waking the transports while the old value is
+            // still stored would just re-cache the old token for another minute.
+            crate::events::subscriptions_changed();
             Ok(id)
         }
         None => {
@@ -913,6 +917,7 @@ pub fn save_variable(
             if secret {
                 secrets::set(vault, &Secret::Variable(&id), Some(value), false)?;
             }
+            crate::events::subscriptions_changed();
             Ok(id)
         }
     }
@@ -984,6 +989,13 @@ pub fn delete_entry(store: &Store, vault: &dyn Vault, id: &str) -> Result<bool, 
         removed
     };
     secrets::delete_entry_secrets(vault, id)?;
+    // unconditional rather than kind-checked: a deleted *variable* unsubscribes
+    // every event node that used it as a bot token, and re-reading the row to
+    // learn the kind after deleting it is not possible. A spurious wake after an
+    // MCP/skill/memory delete costs one feed scan.
+    if removed > 0 {
+        crate::events::subscriptions_changed();
+    }
     Ok(removed > 0)
 }
 

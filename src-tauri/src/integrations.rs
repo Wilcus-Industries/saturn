@@ -49,7 +49,7 @@ fn is_snowflake(s: &str) -> bool {
 /// `/^\d{1,20}:[A-Za-z0-9_-]{25,64}$/` — the Telegram bot token rides in the
 /// URL *path* (api.telegram.org/bot<token>/<method>), so the charset (no "/",
 /// "?", "#", "%") is what keeps untrusted config from shaping the target.
-fn is_telegram_token(s: &str) -> bool {
+pub(crate) fn is_telegram_token(s: &str) -> bool {
     let Some((digits, rest)) = s.split_once(':') else {
         return false;
     };
@@ -408,7 +408,7 @@ fn telegram_config(config: &HashMap<String, String>) -> Result<(String, String),
     Ok((token.to_string(), chat.to_string()))
 }
 
-fn telegram_url(token: &str, method: &str) -> Url {
+pub(crate) fn telegram_url(token: &str, method: &str) -> Url {
     // safe to unwrap: the base is a literal, `token` passed is_telegram_token
     // (no "/", "?", "#" or "%") and `method` is a caller literal
     Url::parse(&format!("https://api.telegram.org/bot{token}/{method}"))

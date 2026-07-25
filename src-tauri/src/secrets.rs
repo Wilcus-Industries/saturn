@@ -35,6 +35,9 @@ pub const SERVICE: &str = "com.wilcus.saturn";
 /// as permanent as `SERVICE` itself.
 ///
 /// - `openrouter-key`   — the single BYOK OpenRouter key (was `user_secret`)
+/// - `github-pat`       — the single fine-grained read-only PAT the GitHub
+///   poller authenticates with. Like the OpenRouter key it belongs to the app,
+///   not to a registry entry, so `delete_entry_secrets` must never sweep it.
 /// - `mcp-token:<uuid>` — a registry entry's manual bearer token (`auth_token`)
 /// - `mcp-oauth:<uuid>` — that entry's whole `McpOauth` set, as JSON
 /// - `variable:<uuid>`  — a *secret* variable's plaintext value
@@ -49,6 +52,7 @@ pub const SERVICE: &str = "com.wilcus.saturn";
 /// it. See `registry::get_user_registry`.
 pub enum Secret<'a> {
     OpenRouterKey,
+    GithubPat,
     McpToken(&'a str),
     McpOauth(&'a str),
     Variable(&'a str),
@@ -58,6 +62,8 @@ impl Secret<'_> {
     pub fn account(&self) -> String {
         match self {
             Secret::OpenRouterKey => "openrouter-key".to_string(),
+            // must stay exactly this string — github.rs shipped reading it
+            Secret::GithubPat => "github-pat".to_string(),
             Secret::McpToken(id) => format!("mcp-token:{id}"),
             Secret::McpOauth(id) => format!("mcp-oauth:{id}"),
             Secret::Variable(id) => format!("variable:{id}"),
