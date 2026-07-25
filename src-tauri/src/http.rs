@@ -98,21 +98,42 @@ fn ip_blocked(ip: IpAddr) -> bool {
     }
 }
 
-/// https-only, no localhost/.local, no private or special-use address — and for
-/// a hostname, every address it resolves to must pass too (a public name can
-/// point at 169.254.169.254). Called on the start URL and on every redirect hop.
+/// The http-request node's URL policy: scheme only. Private addresses, plain
+/// http and localhost are all permitted, because on a single-user desktop app
+/// the graph is the user's own and the node's whole point is reaching things
+/// like Ollama on 11434, a NAS, or Home Assistant. The hosted product blocked
+/// them because the URL arrived from an untrusted tenant's graph; that threat
+/// model is gone with the tenancy.
+///
+/// Still called on every redirect hop: a 302 must not be able to walk the
+/// request off http(s) entirely (file:, data:, ftp:).
+fn parse_request_url(raw: &str) -> Result<Url, String> {
+    let url = Url::parse(raw).map_err(|_| "Invalid server URL".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("Server URL must be http or https".into());
+    }
+    Ok(url)
+}
+
+/// The strict egress guard: https-only, no localhost/.local, no private or
+/// special-use address — and for a hostname, every address it resolves to must
+/// pass too (a public name can point at 169.254.169.254).
+///
+/// Not used by the http-request node (see `parse_request_url`). This is for
+/// Phase D's MCP client, where the server URL *and* every endpoint derived from
+/// the server's own discovery metadata are attacker-influenceable — the one
+/// place the hosted threat model survives into the desktop app.
+///
+/// Residual when Phase D wires it up: the name is resolved and its addresses
+/// checked here, then reqwest re-resolves at connect time, so a rebinding
+/// server can answer differently the second time. The TypeScript conceded this
+/// as unavoidable; in reqwest it is closable with
+/// `ClientBuilder::resolve(host, addr)` pinning the address validated here.
+/// Build the pin from `url.port_or_known_default()`, not the 443 used below for
+/// the lookup.
+#[allow(dead_code)]
 fn assert_public_https_url(raw: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "Invalid server URL".to_string())?;
-
-    // Test-only escape hatch so the sender can be driven against a spawned
-    // loopback server. #[cfg(test)] strips it from every shipped binary, and it
-    // whitelists 127.0.0.1 ONLY — a redirect to any other private address is
-    // still rejected, which is what the re-validation test asserts.
-    #[cfg(test)]
-    if url.host_str() == Some("127.0.0.1") && matches!(url.scheme(), "http" | "https") {
-        return Ok(url);
-    }
-
     if url.scheme() != "https" {
         return Err("Server URL must be https".into());
     }
@@ -258,7 +279,7 @@ fn send_inner(config: &HashMap<String, String>) -> Result<String, String> {
         if remaining.is_zero() {
             return Err("timed out".into());
         }
-        let url = assert_public_https_url(&current)?;
+        let url = parse_request_url(&current)?;
         let verb = Method::from_bytes(cur_method.as_bytes()).map_err(|_| "unsupported method")?;
         let mut req = client
             .request(verb, url.clone())
@@ -413,7 +434,8 @@ mod tests {
         for public in ["1.1.1.1", "8.8.8.8", "172.32.0.1", "192.167.255.255", "2606:4700::1111"] {
             assert!(!ip_blocked(public.parse().unwrap()), "{public} must be allowed");
         }
-        // the guard itself, on literal hosts (no resolver involved)
+        // the strict guard itself, on literal hosts (no resolver involved).
+        // Phase D's MCP client is its consumer; nothing calls it today.
         assert!(assert_public_https_url("https://1.1.1.1/x").is_ok());
         assert!(assert_public_https_url("https://10.0.0.1/x").is_err());
         assert!(assert_public_https_url("https://[::1]/x").is_err());
@@ -421,6 +443,25 @@ mod tests {
         assert!(assert_public_https_url("https://localhost/x").is_err());
         assert!(assert_public_https_url("https://foo.local/x").is_err());
         assert!(assert_public_https_url("not a url").is_err());
+    }
+
+    /// The http-request node reaches the local network on purpose, so the only
+    /// thing its URL policy still refuses is a non-http scheme — including on a
+    /// redirect hop, which is the case that matters.
+    #[test]
+    fn request_urls_are_scheme_checked_and_otherwise_local_friendly() {
+        for ok in [
+            "http://localhost:11434/api/generate", // ollama
+            "http://192.168.1.50/",                // NAS
+            "https://homeassistant.local:8123/",
+            "http://127.0.0.1:3000/x",
+            "https://example.com/x",
+        ] {
+            assert!(parse_request_url(ok).is_ok(), "{ok} must be allowed");
+        }
+        for bad in ["file:///etc/passwd", "ftp://example.com/x", "data:text/plain,hi", "not a url"] {
+            assert!(parse_request_url(bad).is_err(), "{bad} must be refused");
+        }
     }
 
     #[test]
@@ -462,12 +503,12 @@ mod tests {
     fn redirect_hops_are_revalidated() {
         let port = spawn_test_server(vec![concat!(
             "HTTP/1.1 302 Found\r\n",
-            "location: https://10.0.0.1/internal\r\n",
+            "location: file:///etc/passwd\r\n",
             "content-length: 0\r\n",
             "connection: close\r\n\r\n"
         )]);
         let err = send(&cfg(&[("url", &format!("http://127.0.0.1:{port}/"))])).unwrap_err();
-        assert_eq!(err, "http request: Server URL must be a public host");
+        assert_eq!(err, "http request: Server URL must be http or https");
     }
 
     /// A relative Location still resolves against the current hop, and the

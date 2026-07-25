@@ -369,14 +369,14 @@ mod tests {
             "nodes": [
                 { "id": "s", "type": "schedule", "x": 0, "y": 0, "config": { "cron": "* * * * *" } },
                 { "id": "h", "type": "integration:http-request", "x": 0, "y": 0,
-                  "config": { "url": "https://169.254.169.254/latest/meta-data" } },
+                  "config": { "url": "file:///etc/passwd" } },
             ],
             "edges": [
                 { "id": "e1", "from": { "nodeId": "s", "portId": "out" },
                   "to": { "nodeId": "h", "portId": "in" }, "kind": "flow" },
             ],
         });
-        let wf = store.create_workflow("ssrf", graph).unwrap();
+        let wf = store.create_workflow("bad scheme", graph).unwrap();
         execute_run(None, &store, &wf, RunTrigger::Manual, None).unwrap();
 
         let run = store.latest_run(&wf.id).unwrap().unwrap();
@@ -390,7 +390,7 @@ mod tests {
         assert!(
             // the sender's message keeps the node label prefix the TypeScript
             // added on top of executeIntegration's own prefix
-            texts.contains(&"http request: http request: Server URL must be a public host"),
+            texts.contains(&"http request: http request: Server URL must be http or https"),
             "{texts:?}",
         );
         std::fs::remove_dir_all(&dir).ok();
