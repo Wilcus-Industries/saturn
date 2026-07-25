@@ -4,8 +4,10 @@
 //! No hook trait: the TypeScript routed every side effect through RunHooks
 //! because the same interpreter ran in the designer (server actions) and on the
 //! server (direct calls). Here there is one process and one implementation, so
-//! effects are plain function calls. The only thing that genuinely varies is
-//! where console lines go — that is the `Sender<ConsoleLine>`.
+//! effects are plain function calls. What varies is where console lines go (the
+//! `Sender<ConsoleLine>`) and, for `run_inner` only, the integration sender —
+//! the golden-fixture oracle in `interpreter/fixtures.rs` stubs it exactly as
+//! `fixtures/run.mjs` does, which is what makes this port checkable at all.
 //!
 //! The walk is SYNCHRONOUS. It recurses (fan-out today, loop bodies and agent
 //! turns in Phase C), and async recursion in Rust means Box::pin at every
@@ -14,8 +16,10 @@
 //! constructed on a runtime worker thread. See runner::execute_run.
 //!
 //! Phase B implements three node types: schedule (an event entry point),
-//! integration:http-request, print. Every other catalogued type aborts the run
-//! naming itself — never a silent no-op.
+//! integration:http-request, print. Every other *catalogued* type aborts the run
+//! naming itself — never a silent no-op. A type that is not in the catalog at
+//! all is a different thing (a graph from a newer build, a deleted registry
+//! chip): the TypeScript warns and walks on, and so does this.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Sender;
@@ -160,11 +164,20 @@ struct Run<'a> {
     graph: &'a Graph,
     tx: &'a Sender<ConsoleLine>,
     nodes: HashMap<&'a str, &'a Node>,
+    /// trigger payload per event node, read off its `payload` port
+    event_payloads: Option<&'a HashMap<String, String>>,
+    /// the one injected effect: the golden fixtures stub it (fixtures/run.mjs
+    /// `callIntegration`), production sends for real
+    send: fn(&HashMap<String, String>) -> Result<String, String>,
     steps: u32,
     integration_calls: u32,
     /// "nodeId:portId" -> output, for nodes whose value ports are only readable
     /// after their flow step ran (the http node's `response`).
     results: HashMap<String, String>,
+    /// every value computed on every output port, in evaluation order — the
+    /// designer's extract-path picker samples these, and it is the half of the
+    /// golden fixtures that pins evaluation order and the memo
+    values: Vec<(String, String, String)>,
 }
 
 impl<'a> Run<'a> {
@@ -233,6 +246,8 @@ impl<'a> Run<'a> {
         }
         let value = self.compute_output(node_id, port_id, &key, ctx)?;
         ctx.memo.insert(key, value.clone());
+        self.values
+            .push((node_id.to_string(), port_id.to_string(), value.clone()));
         Ok(value)
     }
 
@@ -256,11 +271,25 @@ impl<'a> Run<'a> {
     }
 
     fn compute_uncycled(&mut self, node: &'a Node, port_id: &str, key: &str) -> Result<String, Abort> {
-        let entry = CATALOG.get(&node.node_type);
-        // read-style integration actions stash their result under the declared
-        // value output when their flow step runs
-        if entry.is_some_and(|e| e.category == "integration") {
-            return match self.results.get(key) {
+        // a node type that is not in the catalog at all (a deleted registry
+        // entry, a graph from a newer build) is not an error — it evaluates to ""
+        let Some(entry) = CATALOG.get(&node.node_type) else {
+            self.warn(format!(
+                "cannot evaluate output \"{port_id}\" of {} — using \"\"",
+                self.label(node)
+            ));
+            return Ok(String::new());
+        };
+        match entry.category.as_str() {
+            // event nodes carry the trigger payload on their sole value output
+            "events" => Ok(self
+                .event_payloads
+                .and_then(|m| m.get(&node.id))
+                .cloned()
+                .unwrap_or_default()),
+            // read-style integration actions stash their result under the
+            // declared value output when their flow step runs
+            "integration" => match self.results.get(key) {
                 Some(v) => Ok(v.clone()),
                 None => {
                     self.warn(format!(
@@ -269,9 +298,9 @@ impl<'a> Run<'a> {
                     ));
                     Ok(String::new())
                 }
-            };
+            },
+            _ => Err(self.unimplemented(node)),
         }
-        Err(self.unimplemented(node))
     }
 
     /// dispatch a flow output: nothing, one chain, or a fan-out
@@ -324,6 +353,12 @@ impl<'a> Run<'a> {
                     Some("integration") => {
                         self.exec_integration(node, &mut ctx)?;
                         Some("out")
+                    }
+                    // uncatalogued type: nothing to run and no flow semantics to
+                    // guess at, so the chain ends — the run itself is fine
+                    None => {
+                        self.warn(format!("\"{}\" skipped", self.label(node)));
+                        None
                     }
                     _ => return Err(self.unimplemented(node)),
                 },
@@ -412,7 +447,7 @@ impl<'a> Run<'a> {
         if provider != "http-request" {
             return Err(self.unimplemented(node));
         }
-        let text = match crate::http::send(&config) {
+        let text = match (self.send)(&config) {
             Ok(text) => text,
             Err(err) => return Err(self.fail(format!("{}: {err}", entry.label))),
         };
@@ -425,7 +460,8 @@ impl<'a> Run<'a> {
             )),
         );
         if let Some(port) = value_out {
-            self.results.insert(format!("{}:{port}", node.id), text);
+            self.results.insert(format!("{}:{port}", node.id), text.clone());
+            self.values.push((node.id.clone(), port, text));
         }
         Ok(())
     }
@@ -436,13 +472,31 @@ impl<'a> Run<'a> {
 /// minute); None fires every event-category node, which is what a manual/test
 /// run does.
 pub fn run_workflow(graph: &Graph, entry_node_ids: Option<&[String]>, tx: &Sender<ConsoleLine>) {
+    // no trigger carries a payload yet (cron and manual are the only ones), and
+    // the real sender is the only effect production injects
+    run_inner(graph, entry_node_ids, None, tx, crate::http::send);
+}
+
+/// `run_workflow` plus the two seams the golden-fixture oracle drives: seeded
+/// event payloads and a stubbed integration sender. Returns the value stream
+/// (nodeId, portId, text) in evaluation order.
+fn run_inner(
+    graph: &Graph,
+    entry_node_ids: Option<&[String]>,
+    event_payloads: Option<&HashMap<String, String>>,
+    tx: &Sender<ConsoleLine>,
+    send: fn(&HashMap<String, String>) -> Result<String, String>,
+) -> Vec<(String, String, String)> {
     let mut run = Run {
         graph,
         tx,
         nodes: graph.nodes.iter().map(|n| (n.id.as_str(), n)).collect(),
+        event_payloads,
+        send,
         steps: 0,
         integration_calls: 0,
         results: HashMap::new(),
+        values: Vec::new(),
     };
 
     let entries: Vec<&Node> = match entry_node_ids {
@@ -461,7 +515,7 @@ pub fn run_workflow(graph: &Graph, entry_node_ids: Option<&[String]>, tx: &Sende
             Kind::Error,
             "no event node — add a 'scheduled to run' block from the toolbox".into(),
         );
-        return;
+        return run.values;
     }
 
     run.emit(Kind::Info, "▶ run started".into());
@@ -469,11 +523,15 @@ pub fn run_workflow(graph: &Graph, entry_node_ids: Option<&[String]>, tx: &Sende
     for entry in entries {
         if run.exec_from(&entry.id, "out", &HashSet::new()).is_err() {
             run.emit(Kind::Error, "run aborted".into());
-            return;
+            return run.values;
         }
     }
     run.emit(Kind::Info, format!("run finished ({} steps)", run.steps));
+    run.values
 }
+
+#[cfg(test)]
+mod fixtures;
 
 #[cfg(test)]
 mod tests {

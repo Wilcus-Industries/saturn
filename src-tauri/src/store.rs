@@ -261,15 +261,17 @@ impl Store {
         Ok(id)
     }
 
+    /// Deliberately does NOT touch `workflow.last_run_at`. That column is the
+    /// claim ledger, not a completion record: `claim_workflow`'s guard window is
+    /// measured from it, so stamping it again here would push the next eligible
+    /// claim to finish+guard instead of claim+guard, and any run outlasting
+    /// (interval - guard) would silently swallow the following tick. The
+    /// TypeScript wrote it in the two claim UPDATEs only (acf6fc6
+    /// lib/runner.server.ts:277, lib/events.server.ts:217).
     pub fn finish_run(&self, id: &str, status: RunStatus, error: &str, log: &[Value]) -> Result<()> {
-        let conn = self.0.lock().unwrap();
-        conn.execute(
+        self.0.lock().unwrap().execute(
             "update workflow_run set status = ?2, error = ?3, log = ?4, finished_at = ?5 where id = ?1",
             params![id, status.as_str(), error, Value::from(log.to_vec()), now()],
-        )?;
-        conn.execute(
-            "update workflow set last_run_at = ?2 where id = (select workflow_id from workflow_run where id = ?1)",
-            params![id, now()],
         )?;
         Ok(())
     }
@@ -285,6 +287,97 @@ pub fn vec_blob(v: &[f32]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A long run must not eat the next tick. `last_run_at` is the claim ledger
+    /// and `claim_workflow`'s guard is measured from it, so if `finish_run` were
+    /// to re-stamp it at completion, any run outlasting (interval - guard) — 10s
+    /// on a `* * * * *` schedule — would make the following minute a silent
+    /// no-op. `run_due_workflows` only logs when due > 0, so it would look
+    /// exactly like ordinary guard suppression.
+    #[test]
+    fn finish_run_leaves_the_claim_stamp_alone() {
+        let dir = std::env::temp_dir().join(format!("saturn-restamp-{}", uuid()));
+        let store = Store::open(&dir.join("saturn.db")).unwrap();
+        let wf = store.create_workflow("every minute", serde_json::json!({})).unwrap();
+
+        // minute N: the tick claims it
+        assert!(store.claim_workflow(&wf.id, 50).unwrap());
+        // …60s ago, i.e. the claim belongs to the previous minute's tick
+        let claimed_at = now() - 60_000;
+        {
+            let conn = store.0.lock().unwrap();
+            conn.execute("update workflow set last_run_at = ?2 where id = ?1", params![wf.id, claimed_at])
+                .unwrap();
+        }
+        // that run took ~60s and finishes now
+        let run = store.insert_run(&wf.id, RunTrigger::Cron).unwrap();
+        store.finish_run(&run, RunStatus::Success, "", &[]).unwrap();
+
+        let stamp: i64 = store
+            .0
+            .lock()
+            .unwrap()
+            .query_row("select last_run_at from workflow where id = ?1", [&wf.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stamp, claimed_at, "finish_run must not move the claim stamp");
+        // minute N+1's tick: the claim is a full minute past the stamp, so it takes
+        assert!(
+            store.claim_workflow(&wf.id, 50).unwrap(),
+            "the next minute's tick was swallowed by a re-stamped last_run_at"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The existing round_trip vec0 assertion only has two rows in the partition,
+    /// so `k` never has to *choose*: a nearest/farthest inversion inside vec0 would
+    /// still return both rows and the explicit `order by distance` would hide it.
+    /// Five rows and k=2 make the selection observable.
+    #[test]
+    fn vec0_knn_selects_the_nearest_not_the_farthest() {
+        let dir = std::env::temp_dir().join(format!("saturn-knn-{}", uuid()));
+        let store = Store::open(&dir.join("saturn.db")).unwrap();
+        let conn = store.0.lock().unwrap();
+
+        let axis = |x: f32, y: f32| {
+            let mut v = vec![0.0f32; 1536];
+            v[0] = x;
+            v[1] = y;
+            v
+        };
+        let mut ins = conn
+            .prepare("insert into memory_item (embedding, entry_id, content, created_at) values (?1, ?2, ?3, ?4)")
+            .unwrap();
+        // cosine distance from (1,0): 0, ~0.005, ~0.106, ~0.293, 1
+        for (name, v) in [
+            ("d0-exact", axis(1.0, 0.0)),
+            ("d1-near", axis(1.0, 0.1)),
+            ("d2", axis(1.0, 0.5)),
+            ("d3", axis(1.0, 1.0)),
+            ("d4-orthogonal", axis(0.0, 1.0)),
+        ] {
+            ins.execute(params![vec_blob(&v), "store-a", name, now()]).unwrap();
+        }
+        drop(ins);
+
+        let mut q = conn
+            .prepare("select content, distance from memory_item where embedding match ?1 and entry_id = ?2 and k = 2")
+            .unwrap();
+        let hits: Vec<(String, f64)> = q
+            .query_map(params![vec_blob(&axis(1.0, 0.0)), "store-a"], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(hits.len(), 2);
+        // no `order by` on purpose — vec0 must emit ascending distance itself
+        assert_eq!(hits[0].0, "d0-exact", "k picked the wrong rows: {hits:?}");
+        assert_eq!(hits[1].0, "d1-near", "k picked the wrong rows: {hits:?}");
+        assert!(hits[0].1 <= hits[1].1, "distance is not ascending: {hits:?}");
+
+        drop(q);
+        drop(conn);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn round_trip() {
@@ -317,11 +410,12 @@ mod tests {
         assert_eq!((status.as_str(), error.as_str()), ("error", "boom"));
         assert_eq!(log_back[0]["text"], "hello");
         assert!(finished.is_some());
-        // finish_run stamps the workflow, and the cascade is armed
+        // this run was never claimed, so nothing has stamped the workflow — only
+        // claim_workflow writes last_run_at (see finish_run's doc comment)
         let stamped: Option<i64> = conn
             .query_row("select last_run_at from workflow where id = ?1", [&wf.id], |r| r.get(0))
             .unwrap();
-        assert!(stamped.is_some());
+        assert!(stamped.is_none());
         conn.execute("delete from workflow where id = ?1", [&wf.id]).unwrap();
         let orphans: i64 = conn
             .query_row("select count(*) from workflow_run", [], |r| r.get(0))

@@ -82,3 +82,10 @@ deliberately and nothing else should.
 Console text embeds node **labels** from `catalog.json` (`"print"`,
 `"send webhook"`, `"agent"`). Renaming a catalog label changes these files.
 That is intended: the label is part of the observable behaviour.
+
+Only the first 17 catalog entries are authored in `catalog.json`. The
+`integration:*` / `event:*` tail is **derived** from the provider descriptors in
+`lib/integrations.ts` — `"send webhook"` above is one of them, and touching a
+descriptor there is what silently rots the JSON. Regenerate with
+`node scripts/gen-catalog.mjs`; `npm run lint` runs its `--check` mode first and
+fails on drift.

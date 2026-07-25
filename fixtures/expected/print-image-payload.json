@@ -1,0 +1,45 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "image",
+      "text": "data:image/png;base64,QUJD"
+    },
+    {
+      "kind": "print",
+      "text": "caption"
+    },
+    {
+      "kind": "image",
+      "text": "data:image/png;base64,QUJD"
+    },
+    {
+      "kind": "image",
+      "text": "data:image/png;base64,QUJD"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (3 steps)"
+    }
+  ],
+  "values": [
+    [
+      "hook",
+      "payload",
+      "data:image/png;base64,QUJD"
+    ],
+    [
+      "hook",
+      "payload",
+      "data:image/png;base64,QUJD"
+    ],
+    [
+      "hook",
+      "payload",
+      "data:image/png;base64,QUJD"
+    ]
+  ]
+}

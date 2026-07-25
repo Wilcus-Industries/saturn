@@ -1,0 +1,49 @@
+{
+  "graph": {
+    "nodes": [
+      { "id": "hook", "type": "event:webhook", "x": 0, "y": 0, "config": {} },
+      { "id": "p1", "type": "print", "x": 60, "y": 0, "config": { "message": "ignored" } },
+      { "id": "p2", "type": "print", "x": 120, "y": 0, "config": { "message": "caption" } },
+      { "id": "p3", "type": "print", "x": 180, "y": 0, "config": {} }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": { "nodeId": "hook", "portId": "payload" },
+        "to": { "nodeId": "p1", "portId": "message" },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": { "nodeId": "hook", "portId": "payload" },
+        "to": { "nodeId": "p2", "portId": "value" },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": { "nodeId": "hook", "portId": "payload" },
+        "to": { "nodeId": "p3", "portId": "value" },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": { "nodeId": "hook", "portId": "out" },
+        "to": { "nodeId": "p1", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": { "nodeId": "p1", "portId": "out" },
+        "to": { "nodeId": "p2", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e5",
+        "from": { "nodeId": "p2", "portId": "out" },
+        "to": { "nodeId": "p3", "portId": "in" },
+        "kind": "flow"
+      }
+    ]
+  },
+  "eventPayloads": { "hook": "data:image/png;base64,QUJD" }
+}
