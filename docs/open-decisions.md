@@ -403,5 +403,22 @@ server holding `TOOL_DEFS` itself — is deleted on the same terms.)
 Consequence for §3.1: `openrouter::stream_chat` and its SSE decoder stay cold. The
 plan expected Phase F to warm them; it cannot.
 
+**The cost estimate this was deferred on is stale.** The plan sized Phase G at
+"1,288 LOC / 35 tools, mechanical but not an afternoon". Phases D–F have since
+built nearly every operation those tools wrap — `list_workflows`, `get_workflow`,
+`save_workflow`, `list_runs`, `list_registry`, the four `save_*`,
+`list_memory_items`, `execute_run` — so the tool layer itself is now mostly JSON
+schemas and a dispatch match over commands that already exist.
+
+The one piece genuinely unported is **deep graph validation**. `validateGraphStrict`
+in `lib/workflow.ts` produces the per-node error and warning messages;
+`src-tauri/src/workflow.rs` is only the save-time shape-and-caps gate and says so
+in its own header. The agent's system prompt leans on `validate_graph` hard
+("prefer validate_graph before save_graph"), and it is the same code the
+designer's issues panel renders — so the port has to agree with the TypeScript
+exactly, or the two disagree about the same graph. That, not the 35 wrappers, is
+what Phase G actually costs. It is also the largest remaining consumer of
+`lib/workflow.ts`, so it bears on §1.5.
+
 `agentPrefs` (the composer's last model + effort, in cookies) goes with it — no
 cookies under static export, and nothing left to remember until the chat returns.
