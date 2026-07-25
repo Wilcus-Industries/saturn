@@ -107,7 +107,10 @@ fn send(req: RequestBuilder, label: &str, ok: &str) -> Result<String, String> {
         if e.is_timeout() {
             format!("{label} failed: timed out")
         } else {
-            format!("{label} failed: {e}")
+            // NOT `{e}`: reqwest's Display appends the request URL, and the
+            // Telegram bot token rides in that URL's path. This string is
+            // persisted in workflow_run.log. See `http::net_error`.
+            format!("{label} failed: {}", crate::http::net_error(e))
         }
     })?;
     finish(res, label, ok)
@@ -326,7 +329,7 @@ fn read_discord_messages(config: &HashMap<String, String>, _msg: &str) -> Result
             if e.is_timeout() {
                 "discord read failed: timed out".to_string()
             } else {
-                format!("discord read failed: {e}")
+                format!("discord read failed: {}", crate::http::net_error(e))
             }
         })?;
     if !res.status().is_success() {

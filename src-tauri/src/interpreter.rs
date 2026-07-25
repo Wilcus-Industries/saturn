@@ -178,18 +178,28 @@ struct EvalCtx {
     stack: HashSet<String>,
 }
 
+/// (providerId, merged config, resolved message) — `executeIntegration`'s three
+/// arguments. The message is separate from the config because that is how the
+/// TypeScript passed it, and every sender but http-request reads it.
+pub(crate) type SendFn<'a> =
+    &'a (dyn Fn(&str, &HashMap<String, String>, &str) -> Result<String, String> + Sync);
+pub(crate) type ModelFn<'a> = &'a (dyn Fn(&agent::Request) -> agent::Turn + Sync);
+/// The first argument routes an agent's granted-tool call to the local memory
+/// store instead of an MCP server.
+pub(crate) type ToolFn<'a> = &'a (dyn Fn(bool, &str, &str, &str) -> Result<String, String> + Sync);
+
 /// The injected effects: the golden fixtures stub all three exactly as
-/// `fixtures/run.mjs` does, production wires the real ones. `tool`'s first
-/// argument routes an agent's granted-tool call to the local memory store
-/// instead of an MCP server.
+/// `fixtures/run.mjs` does, production wires the real clients in `runner.rs`.
+///
+/// Trait objects rather than `fn` pointers because the production wirings carry
+/// state a bare function cannot reach — the SQLite store, the Keychain vault and
+/// the resolved registry. `+ Sync` so `Effects` can cross into the run thread;
+/// `Copy` so it can be handed to `agent::run_loop` while `self` stays borrowed.
 #[derive(Clone, Copy)]
-struct Effects {
-    /// (providerId, merged config, resolved message) — `executeIntegration`'s
-    /// three arguments. The message is separate from the config because that is
-    /// how the TypeScript passed it, and every sender but http-request reads it.
-    send: fn(&str, &HashMap<String, String>, &str) -> Result<String, String>,
-    model: fn(&agent::Request) -> agent::Turn,
-    tool: fn(bool, &str, &str, &str) -> Result<String, String>,
+pub(crate) struct Effects<'a> {
+    pub send: SendFn<'a>,
+    pub model: ModelFn<'a>,
+    pub tool: ToolFn<'a>,
 }
 
 struct Run<'a> {
@@ -200,10 +210,10 @@ struct Run<'a> {
     event_payloads: Option<&'a HashMap<String, String>>,
     /// the user's registry entries (mcp / skill / memory / variable chips),
     /// overlaid on the static catalog exactly as `byKey` was built in the
-    /// TypeScript. None until Phase D reads `registry_entry` — a chip then
-    /// resolves as deleted, which is the safe direction.
+    /// TypeScript. None means "no registry read" — every chip then resolves as
+    /// deleted, which is the safe direction.
     registry: Option<&'a HashMap<String, CatalogEntry>>,
-    effects: Effects,
+    effects: Effects<'a>,
     steps: u32,
     integration_calls: u32,
     /// agent-initiated tool calls, budgeted across the whole run
@@ -940,26 +950,14 @@ impl<'a> Run<'a> {
 /// Walks `graph`, streaming console lines into `tx` as they are produced.
 /// `entry_node_ids` is what a cron tick passes (the schedule nodes matching this
 /// minute); None fires every event-category node, which is what a manual/test
-/// run does.
-pub fn run_workflow(graph: &Graph, entry_node_ids: Option<&[String]>, tx: &Sender<ConsoleLine>) {
-    // no trigger carries a payload yet (cron and manual are the only ones), and
-    // the registry + the two agent effects are Phase D's to wire. The `lookup`
-    // is Phase D's too: until the Keychain read lands every `{{var:…}}` stays
-    // literal, which each sender's own validator then rejects.
-    let effects = Effects {
-        send: |provider, config, message| {
-            crate::integrations::execute(provider, config, message, &|_| None)
-        },
-        model: agent::unavailable_turn,
-        tool: agent::unavailable_tool,
-    };
-    run_inner(graph, entry_node_ids, None, None, tx, effects);
-}
-
-/// `run_workflow` plus the seams the golden-fixture oracle drives: seeded event
-/// payloads, the user registry and stubbed effects. Returns the value stream
-/// (nodeId, portId, text) in evaluation order.
-fn run_inner(
+/// run does. Returns the value stream (nodeId, portId, text) in evaluation
+/// order, which is the half of the golden fixtures that pins the memo.
+///
+/// Every seam the golden-fixture oracle drives is a parameter — seeded event
+/// payloads, the user registry, the three effects — so production and the
+/// fixtures reach exactly the same code with different wirings. `runner.rs`
+/// builds the production ones.
+pub(crate) fn run_workflow(
     graph: &Graph,
     entry_node_ids: Option<&[String]>,
     event_payloads: Option<&HashMap<String, String>>,
@@ -1059,10 +1057,27 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// `send` is the REAL sender — `integration_nodes_reach_their_sender` is the
+    /// test that would have caught Phase C's unwired-module bug, and stubbing it
+    /// here would blind it. The model and tool effects need a store and a vault,
+    /// so their production wiring is proved in `runner`'s tests instead; no case
+    /// in this module has an agent node, and these refuse loudly if one appears.
     fn drain(graph: serde_json::Value) -> Vec<(Kind, String)> {
         let graph: Graph = serde_json::from_value(graph).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        run_workflow(&graph, None, &tx);
+        let send = |provider: &str, config: &HashMap<String, String>, message: &str| {
+            crate::integrations::execute(provider, config, message, &|_| None)
+        };
+        let model = |_: &agent::Request| agent::Turn::Failed("no model in these cases".into());
+        let tool = |_, _: &str, _: &str, _: &str| Err("no tool call in these cases".to_string());
+        run_workflow(
+            &graph,
+            None,
+            None,
+            None,
+            &tx,
+            Effects { send: &send, model: &model, tool: &tool },
+        );
         drop(tx);
         rx.into_iter().map(|l| (l.kind, l.text)).collect()
     }

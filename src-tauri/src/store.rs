@@ -161,6 +161,19 @@ impl Store {
         Ok(Store(Arc::new(Mutex::new(conn))))
     }
 
+    /// The one connection, for modules that own their own tables. `registry` and
+    /// `memory` keep their SQL next to the code that gives it meaning rather than
+    /// growing this file into a grab-bag of every query in the app; what they
+    /// still must share is the *connection*, because SQLite is single-writer and
+    /// a second one would take the write lock against the first.
+    ///
+    /// Hold the guard for as short a span as possible — it serializes every
+    /// reader in the process, and an embedding round trip inside one would stall
+    /// the scheduler for the length of a network call.
+    pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.0.lock().unwrap()
+    }
+
     pub fn create_workflow(&self, name: &str, graph: Value) -> Result<Workflow> {
         let wf = Workflow {
             id: uuid(),
@@ -277,9 +290,7 @@ impl Store {
     }
 }
 
-/// sqlite-vec wants f32 vectors as a little-endian blob. Callers arrive with the
-/// embedding port in Phase D.
-#[allow(dead_code)]
+/// sqlite-vec wants f32 vectors as a little-endian blob.
 pub fn vec_blob(v: &[f32]) -> Vec<u8> {
     v.iter().flat_map(|f| f.to_le_bytes()).collect()
 }

@@ -22,3 +22,11 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # `cfg_select!` — still unstable on rustc 1.94. Revisit when that stabilizes.
 rusqlite = { version = "0.39", features = ["bundled", "serde_json"] }
 sqlite-vec = "0.1.9"
+# Keychain, keyed off the bundle identifier. apple-native only — the linux/windows
+# backends would pull dbus and the windows crates for a macOS-only v1.
+keyring = { version = "3", features = ["apple-native"] }
+# PKCE: a 32-byte verifier, base64url, and its SHA-256 challenge. All three are
+# node:crypto one-liners in lib/mcp.ts with no Rust stdlib equivalent.
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"

@@ -2,14 +2,15 @@
 //! from lib/agent.ts and the two variable-sentinel helpers from lib/registry.ts
 //! that the interpreter's chip handling needs.
 //!
-//! GRAPH SEMANTICS ONLY. The model turn and the tool call are injected as `fn`
-//! pointers: the golden fixtures wire the deterministic stubs from
-//! `fixtures/run.mjs`, production wires `unavailable_*` until Phase D lands the
-//! OpenRouter and MCP clients. That split is the whole reason this file is
-//! checkable — the loop, the caps and the grant resolution are exercised for
-//! real against the frozen transcripts, with nothing on the network.
+//! GRAPH SEMANTICS ONLY. The model turn and the tool call are injected: the
+//! golden fixtures wire the deterministic stubs from `fixtures/run.mjs`,
+//! production wires `runner::execute_agent_turn` and `runner::execute_tool`.
+//! That split is the whole reason this file is checkable — the loop, the caps
+//! and the grant resolution are exercised for real against the frozen
+//! transcripts, with nothing on the network.
 
-use crate::interpreter::{truncate, utf16_prefix, Kind};
+use crate::interpreter::{truncate, utf16_prefix, Kind, ModelFn, ToolFn};
+use crate::openrouter::{AgentMessage, ToolCall};
 
 pub const MAX_AGENT_TURNS: u32 = 8; // LLM calls per agent loop
 pub const MAX_AGENT_MESSAGES: usize = 60; // transcript length cap per model call
@@ -40,25 +41,33 @@ pub struct ToolRef {
     pub exclude: Vec<String>,
 }
 
-/// A model-requested tool call, decoded back to registry terms. The wire-format
-/// call id has no graph-observable effect (a transcript message is opaque to the
-/// fixtures), so Phase D adds it with the OpenRouter client that needs it.
-pub struct ToolCall {
-    pub entry_id: String,
-    pub tool_name: String,
-    pub arguments: String,
+/// The transcript's `role` and `content`. `AgentMessage` is an enum because the
+/// wire form differs per role (an assistant message carries `tool_calls`, a tool
+/// message a `tool_call_id`); these two projections are what the TypeScript's
+/// discriminated union gave for free.
+///
+/// `cfg(test)` because the fixture oracle is their only reader: the loop only
+/// ever appends, and the wire encoder matches on the enum directly.
+#[cfg(test)]
+pub fn role(m: &AgentMessage) -> &'static str {
+    match m {
+        AgentMessage::User { .. } => "user",
+        AgentMessage::Assistant { .. } => "assistant",
+        AgentMessage::Tool { .. } => "tool",
+    }
 }
 
-// The model-call payload. Everything below is built and budgeted for real here,
-// but only the fixture stub reads it back — production's `unavailable_turn`
-// never looks. Drop the three allows with the Phase D OpenRouter client.
-#[allow(dead_code)]
-pub struct Message {
-    pub role: &'static str, // "user" | "assistant" | "tool"
-    pub content: String,
+#[cfg(test)]
+pub fn content(m: &AgentMessage) -> &str {
+    match m {
+        AgentMessage::User { content }
+        | AgentMessage::Assistant { content, .. }
+        | AgentMessage::Tool { content, .. } => content,
+    }
 }
 
-#[allow(dead_code)]
+// The model-call payload — `CallAgentRequest` in lib/interpreter.ts. Built here,
+// validated and resolved against the registry by `runner::execute_agent_turn`.
 pub struct Request {
     pub model: String,
     pub system: String,
@@ -67,14 +76,13 @@ pub struct Request {
     /// the attached memory store, if any — its three tools are prepended
     /// server-side, and a tool call naming it routes to the local store
     pub memory_id: Option<String>,
-    pub messages: Vec<Message>,
+    pub messages: Vec<AgentMessage>,
     pub output_image: bool,
     /// raw mode from the agent node ("off"|"low"|"medium"|"high"); the model
     /// client allowlists it
     pub reasoning: Option<String>,
 }
 
-#[allow(dead_code)]
 pub enum Turn {
     Reply {
         content: String,
@@ -83,14 +91,6 @@ pub enum Turn {
         image: Option<String>,
     },
     Failed(String),
-}
-
-pub fn unavailable_turn(_: &Request) -> Turn {
-    Turn::Failed("model calls land in Phase D".into())
-}
-
-pub fn unavailable_tool(_: bool, _: &str, _: &str, _: &str) -> Result<String, String> {
-    Err("tool calls land in Phase D".into())
 }
 
 /// "[image · image/png · 154 KB]" — log-safe stand-in for a data URL.
@@ -144,19 +144,12 @@ pub fn memory_id_from_node_type(node_type: &str) -> Option<String> {
         .then(|| node_type[7..].to_string())
 }
 
-fn is_uuid(s: &str) -> bool {
-    let b = s.as_bytes();
-    b.len() == 36
-        && b.iter().enumerate().all(|(i, c)| match i {
-            8 | 13 | 18 | 23 => *c == b'-',
-            _ => c.is_ascii_hexdigit(),
-        })
-}
-
 /// A secret variable box evaluates to this opaque sentinel; the plaintext
 /// substitutes only in `integrations::execute`, so it never enters a log.
 pub fn variable_id_from_node_type(node_type: &str) -> Option<&str> {
-    node_type.strip_prefix("variable:").filter(|id| is_uuid(id))
+    node_type
+        .strip_prefix("variable:")
+        .filter(|id| crate::registry::is_uuid(id))
 }
 
 pub fn variable_sentinel(id: &str) -> String {
@@ -202,14 +195,13 @@ pub fn run_loop(
     user_text: &str,
     mcp_calls: &mut u32,
     emit: &mut dyn FnMut(Kind, String),
-    call_model: fn(&Request) -> Turn,
-    call_tool: fn(bool, &str, &str, &str) -> Result<String, String>,
+    call_model: ModelFn,
+    call_tool: ToolFn,
 ) -> Result<String, String> {
     if req.model.is_empty() {
         return Err("agent: no model set".into());
     }
-    req.messages.push(Message {
-        role: "user",
+    req.messages.push(AgentMessage::User {
         content: if user_text.is_empty() { "(no input)".into() } else { user_text.into() },
     });
     let mut content = String::new();
@@ -243,7 +235,11 @@ pub fn run_loop(
             emit(Kind::Info, truncate(&format!("agent → {shown}")));
             return Ok(content);
         }
-        req.messages.push(Message { role: "assistant", content: content.clone() });
+        // the assistant message must carry this turn's calls: OpenRouter rejects
+        // the next turn if a `tool` message answers an id the transcript never
+        // shows the assistant making
+        req.messages
+            .push(AgentMessage::Assistant { content: content.clone(), tool_calls: calls.clone() });
         for call in &calls {
             // memory tools ride the same wire as MCP tools; the decoded call's
             // entryId is the store id, so route to the local store instead
@@ -267,8 +263,8 @@ pub fn run_loop(
                     text
                 }
             };
-            req.messages.push(Message {
-                role: "tool",
+            req.messages.push(AgentMessage::Tool {
+                tool_call_id: call.id.clone(),
                 content: match utf16_prefix(&text, MAX_MODEL_RESULT_CHARS) {
                     Some(cut) => format!("{cut}… (truncated)"),
                     None => text,
@@ -345,6 +341,7 @@ mod tests {
         Turn::Reply {
             content: "thinking".into(),
             tool_calls: vec![ToolCall {
+                id: "call_1".into(),
                 entry_id: "e".into(),
                 tool_name: "t".into(),
                 arguments: "{}".into(),
@@ -368,8 +365,8 @@ mod tests {
             "go",
             &mut calls,
             &mut |k, t| lines.push((k, t)),
-            always_calls_a_tool,
-            ok_tool,
+            &always_calls_a_tool,
+            &ok_tool,
         );
         assert_eq!(content.unwrap(), "thinking");
         assert_eq!(calls, MAX_AGENT_TURNS); // one tool call per turn, all eight
@@ -379,7 +376,7 @@ mod tests {
 
         // an earlier agent node in the same run having spent the budget
         let (mut req, mut calls) = (request("m"), MAX_AGENT_MCP_CALLS);
-        let err = run_loop(&mut req, "go", &mut calls, &mut |_, _| {}, always_calls_a_tool, ok_tool);
+        let err = run_loop(&mut req, "go", &mut calls, &mut |_, _| {}, &always_calls_a_tool, &ok_tool);
         assert_eq!(
             err.unwrap_err(),
             format!("agent MCP call limit ({MAX_AGENT_MCP_CALLS}) exceeded for one run")
@@ -387,7 +384,7 @@ mod tests {
 
         // a blank model is refused before any turn, so nothing is emitted
         let mut req = request("");
-        let err = run_loop(&mut req, "go", &mut 0, &mut |_, _| {}, always_calls_a_tool, ok_tool);
+        let err = run_loop(&mut req, "go", &mut 0, &mut |_, _| {}, &always_calls_a_tool, &ok_tool);
         assert_eq!(err.unwrap_err(), "agent: no model set");
         assert!(req.messages.is_empty());
     }

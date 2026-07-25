@@ -81,7 +81,7 @@ fn v4_blocked(ip: Ipv4Addr) -> bool {
     })
 }
 
-fn ip_blocked(ip: IpAddr) -> bool {
+pub(crate) fn ip_blocked(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => v4_blocked(v4),
         // an IPv4-mapped literal (::ffff:127.0.0.1) must answer to the v4 rules
@@ -115,24 +115,18 @@ fn parse_request_url(raw: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-/// The strict egress guard: https-only, no localhost/.local, no private or
-/// special-use address — and for a hostname, every address it resolves to must
-/// pass too (a public name can point at 169.254.169.254).
+/// `assertHttpsUrlShape` — the **synchronous** half of the egress guard:
+/// https-only, no localhost/.local, no literal private or special-use address,
+/// and no name resolution at all.
 ///
-/// Not used by the http-request node (see `parse_request_url`). This is for
-/// Phase D's MCP client, where the server URL *and* every endpoint derived from
-/// the server's own discovery metadata are attacker-influenceable — the one
-/// place the hosted threat model survives into the desktop app.
+/// It is a separate function because the TypeScript deliberately used only this
+/// half when *saving* an MCP server: a save must not block on DNS, and a host
+/// that happens not to resolve right now must still be storable. Resolution is
+/// the fetch path's job, where it has to happen again anyway.
 ///
-/// Residual when Phase D wires it up: the name is resolved and its addresses
-/// checked here, then reqwest re-resolves at connect time, so a rebinding
-/// server can answer differently the second time. The TypeScript conceded this
-/// as unavoidable; in reqwest it is closable with
-/// `ClientBuilder::resolve(host, addr)` pinning the address validated here.
-/// Build the pin from `url.port_or_known_default()`, not the 443 used below for
-/// the lookup.
-#[allow(dead_code)]
-fn assert_public_https_url(raw: &str) -> Result<Url, String> {
+/// `Ok(None)` means "shape is fine, this is a name that still needs resolving";
+/// `Ok(Some(url))` means a literal address that has already been cleared.
+pub(crate) fn assert_https_url_shape(raw: &str) -> Result<Option<Url>, String> {
     let url = Url::parse(raw).map_err(|_| "Invalid server URL".to_string())?;
     if url.scheme() != "https" {
         return Err("Server URL must be https".into());
@@ -153,9 +147,35 @@ fn assert_public_https_url(raw: &str) -> Result<Url, String> {
         return if ip_blocked(ip) {
             Err("Server URL must be a public host".into())
         } else {
-            Ok(url)
+            Ok(Some(url))
         };
     }
+    Ok(None)
+}
+
+/// The strict egress guard: the shape check above, plus — for a hostname —
+/// every address it resolves to (a public name can point at 169.254.169.254).
+///
+/// Not used by the http-request node (see `parse_request_url`). This is the MCP
+/// client's guard, where the server URL *and* every endpoint derived from the
+/// server's own discovery metadata are attacker-influenceable — the one place
+/// the hosted threat model survives into the desktop app.
+///
+/// Residual: the name is resolved and its addresses checked here, then reqwest
+/// re-resolves at connect time, so a rebinding server can answer differently the
+/// second time. The TypeScript conceded this as unavoidable; `mcp.rs` closes it
+/// by pinning the addresses validated here with `ClientBuilder::resolve_to_addrs`
+/// against `url.port_or_known_default()`, not the 443 used below for the lookup.
+pub(crate) fn assert_public_https_url(raw: &str) -> Result<Url, String> {
+    let url = match assert_https_url_shape(raw)? {
+        Some(literal) => return Ok(literal),
+        None => Url::parse(raw).map_err(|_| "Invalid server URL".to_string())?,
+    };
+    let host = url.host_str().unwrap_or_default().to_lowercase();
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(&host);
     let addrs: Vec<_> = (bare, 443u16)
         .to_socket_addrs()
         .map_err(|_| "Could not resolve server host".to_string())?
@@ -217,6 +237,19 @@ fn parse_headers(raw: &str) -> Result<BTreeMap<String, String>, String> {
 }
 
 // --- the sender ------------------------------------------------------------
+
+/// A transport failure, rendered WITHOUT the request URL.
+///
+/// `reqwest::Error`'s Display appends ` for url (<full url>)`; `fetch` in the
+/// TypeScript threw a bare "fetch failed". That difference is a secret leak, not
+/// cosmetics: every one of these strings ends up in `workflow_run.error` and the
+/// persisted `workflow_run.log`, and the URL routinely carries a secret — a
+/// Telegram bot token rides in the path, and `{{var:…}}` substitutes plaintext
+/// into an http node's query string before the request is built. Every
+/// `req.send()` in this crate goes through here.
+pub fn net_error(e: reqwest::Error) -> String {
+    e.without_url().to_string()
+}
 
 /// One outbound HTTP request. Non-2xx responses are data (the user branches on
 /// `status` with an if node), not errors. Never panics; errors come back as
@@ -294,7 +327,7 @@ fn send_inner(config: &HashMap<String, String>) -> Result<String, String> {
             if e.is_timeout() {
                 "timed out".to_string()
             } else {
-                e.to_string()
+                net_error(e)
             }
         })?;
 
@@ -438,8 +471,8 @@ mod tests {
         for public in ["1.1.1.1", "8.8.8.8", "172.32.0.1", "192.167.255.255", "2606:4700::1111"] {
             assert!(!ip_blocked(public.parse().unwrap()), "{public} must be allowed");
         }
-        // the strict guard itself, on literal hosts (no resolver involved).
-        // Phase D's MCP client is its consumer; nothing calls it today.
+        // the strict guard itself, on literal hosts (no resolver involved) —
+        // the MCP client calls it on the server URL and on every redirect hop.
         assert!(assert_public_https_url("https://1.1.1.1/x").is_ok());
         assert!(assert_public_https_url("https://10.0.0.1/x").is_err());
         assert!(assert_public_https_url("https://[::1]/x").is_err());
@@ -447,6 +480,22 @@ mod tests {
         assert!(assert_public_https_url("https://localhost/x").is_err());
         assert!(assert_public_https_url("https://foo.local/x").is_err());
         assert!(assert_public_https_url("not a url").is_err());
+
+        // the sync half refuses every shape the full guard does, and answers
+        // None for a name rather than resolving it — that None is what lets
+        // saving an MCP server stay off the resolver.
+        for bad in [
+            "https://10.0.0.1/x",
+            "https://[::1]/x",
+            "http://1.1.1.1/x",
+            "https://localhost/x",
+            "https://foo.local/x",
+            "not a url",
+        ] {
+            assert!(assert_https_url_shape(bad).is_err(), "{bad} must be refused");
+        }
+        assert!(assert_https_url_shape("https://1.1.1.1/x").unwrap().is_some());
+        assert!(assert_https_url_shape("https://example.com/x").unwrap().is_none());
     }
 
     /// The http-request node reaches the local network on purpose, so the only
@@ -521,6 +570,20 @@ mod tests {
         assert_eq!(err, "http request: Server URL must be http or https");
     }
 
+    /// A transport failure must not echo the request URL back into the run log:
+    /// `{{var:…}}` substitutes plaintext into the url field before the request
+    /// is built, so reqwest's default Display would persist the user's API key
+    /// in `workflow_run.error`. Guards `net_error` at every send site.
+    #[test]
+    fn a_failed_request_never_echoes_the_url() {
+        // bind then drop -> a port with nothing listening (connection refused)
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}/v1?api_key=sk-SUPER-SECRET");
+        let err = send(&cfg(&[("url", &url)])).unwrap_err();
+        assert!(!err.contains("sk-SUPER-SECRET"), "the run log leaked the url: {err}");
+        assert!(!err.contains(&url), "{err}");
+    }
+
     /// A relative Location still resolves against the current hop, and the
     /// second hop is a normal request.
     #[test]
@@ -535,3 +598,4 @@ mod tests {
         assert_eq!(v["body"], "final");
     }
 }
+

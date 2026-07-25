@@ -17,8 +17,9 @@ use std::sync::mpsc::channel;
 
 use serde_json::{json, Value};
 
-use super::{run_inner, CatalogEntry, Effects, CATALOG};
-use crate::agent::{Request, ToolCall, Turn};
+use super::{run_workflow, CatalogEntry, Effects, CATALOG};
+use crate::agent::{content, role, Request, Turn};
+use crate::openrouter::ToolCall;
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures");
 // run.mjs elides long arrays so a 10k-step case is not a 400 KB expected file
@@ -111,9 +112,12 @@ fn stub_model(req: &Request) -> Turn {
     if req.model == "stub-error" {
         return Turn::Failed("stub model failure".into());
     }
-    let first = &req.messages[0].content;
-    let fresh = req.messages.last().is_some_and(|m| m.role == "user");
+    let first = content(&req.messages[0]);
+    let fresh = req.messages.last().is_some_and(|m| role(m) == "user");
     let call = |i: usize| ToolCall {
+        // the wire call id never reaches the frozen transcripts (a message
+        // serializes as `{}` there) — a fixed one keeps the stub deterministic
+        id: format!("call_{i}"),
         entry_id: req
             .tools
             .first()
@@ -147,7 +151,7 @@ fn stub_model(req: &Request) -> Turn {
     let shape: Vec<String> = req
         .messages
         .iter()
-        .map(|m| format!("{}:{}", m.role, m.content.encode_utf16().count()))
+        .map(|m| format!("{}:{}", role(m), content(m).encode_utf16().count()))
         .collect();
     Turn::Reply {
         content: format!("agent[{}]({})", shape.join(","), digest(&canon_request(req))),
@@ -316,13 +320,13 @@ fn golden_fixtures() {
         });
 
         let (tx, rx) = channel();
-        let values = run_inner(
+        let values = run_workflow(
             &graph,
             entry_ids.as_deref(),
             payloads.as_ref(),
             Some(&registry),
             &tx,
-            Effects { send: stub_send, model: stub_model, tool: stub_tool },
+            Effects { send: &stub_send, model: &stub_model, tool: &stub_tool },
         );
         drop(tx);
         let console: Vec<Value> = rx.into_iter().map(|l| json!(l)).collect();
