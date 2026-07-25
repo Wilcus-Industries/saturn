@@ -478,12 +478,79 @@ export default function Canvas({
         ? varDrag.hoverKey.slice(varDrag.hoverKey.indexOf(":") + 1)
         : "";
 
-    // connected value inputs, for the per-node overridden-config lookup
-    const valueTargets = new Set(
-        graph.edges
-            .filter((e) => e.kind === "value")
-            .map((e) => `${e.to.nodeId}:${e.to.portId}`),
-    );
+    // per-node props derived purely from the graph + catalog: the overridden
+    // config fields, the dynamicOptions strings, and the rotated output anchor
+    // (a portGeometry call per node — per PORT for event circles). None of it
+    // depends on `view`, so it lives in a memo instead of the render body,
+    // where every pan/zoom/marquee frame re-ran the lot.
+    const nodeProps = useMemo(() => {
+        // connected value inputs, for the per-node overridden-config lookup
+        const valueTargets = new Set(
+            graph.edges
+                .filter((e) => e.kind === "value")
+                .map((e) => `${e.to.nodeId}:${e.to.portId}`),
+        );
+        const props = new Map<
+            string,
+            {
+                entry: CatalogEntry;
+                overriddenIds: string;
+                outputOptions: string;
+                reasoningOptions: string;
+                outAnchor: string;
+            }
+        >();
+        for (const node of graph.nodes) {
+            const entry = byKey[node.type];
+            if (!entry) continue;
+            // config fields whose port is connected (dimmed as
+            // overridden); a joined string so Node's memo can compare
+            const overriddenIds =
+                entry.config
+                    ?.filter(
+                        (f) =>
+                            f.overriddenBy !== undefined &&
+                            valueTargets.has(`${node.id}:${f.overriddenBy}`),
+                    )
+                    .map((f) => f.id)
+                    .join(",") ?? "";
+            const outputOptions = entry.config?.some((f) => f.id === "output" && f.dynamicOptions)
+                ? agentOutputOptions(graph, node, modelModalities)
+                : "";
+            const reasoningOptions = entry.config?.some(
+                (f) => f.id === "reasoning" && f.dynamicOptions,
+            )
+                ? agentReasoningOptions(graph, node, modelReasoning)
+                : "";
+            // chip/model output anchor, rotated toward the agent it
+            // feeds — a "lx,ly" local offset so Node's memo can compare
+            // it as a string (matches the edge anchor from geometry).
+            // Event circles (schedule) pivot their flow output, so they
+            // carry a "portId=lx,ly;…" map instead of a single pair.
+            let outAnchor = "";
+            if (
+                isModelEntry(entry) ||
+                isChipEntry(entry) ||
+                isLiteralEntry(entry) ||
+                isVariableEntry(entry)
+            ) {
+                const out = entry.outputs[0];
+                if (out) {
+                    const p = portGeometry(node, entry, out.id, graph, byKey);
+                    outAnchor = `${p.x - node.x},${p.y - node.y}`;
+                }
+            } else if (isEventEntry(entry)) {
+                outAnchor = [...entry.inputs, ...entry.outputs]
+                    .map((p) => {
+                        const pos = portGeometry(node, entry, p.id, graph, byKey);
+                        return `${p.id}=${pos.x - node.x},${pos.y - node.y}`;
+                    })
+                    .join(";");
+            }
+            props.set(node.id, { entry, overriddenIds, outputOptions, reasoningOptions, outAnchor });
+        }
+        return props;
+    }, [graph, byKey, modelModalities, modelReasoning]);
 
     // honest port highlighting: for each node, the comma-joined ids of the ports
     // that would legally accept the current drag ("-" when none). Computed once
@@ -542,54 +609,10 @@ export default function Canvas({
                     onDelete={onDeleteEdge}
                 />
                 {graph.nodes.map((node) => {
-                    const entry = byKey[node.type];
-                    if (!entry) return null;
-                    // config fields whose port is connected (dimmed as
-                    // overridden); a joined string so Node's memo can compare
-                    const overriddenIds =
-                        entry.config
-                            ?.filter(
-                                (f) =>
-                                    f.overriddenBy !== undefined &&
-                                    valueTargets.has(`${node.id}:${f.overriddenBy}`),
-                            )
-                            .map((f) => f.id)
-                            .join(",") ?? "";
-                    const outputOptions = entry.config?.some(
-                        (f) => f.id === "output" && f.dynamicOptions,
-                    )
-                        ? agentOutputOptions(graph, node, modelModalities)
-                        : "";
-                    const reasoningOptions = entry.config?.some(
-                        (f) => f.id === "reasoning" && f.dynamicOptions,
-                    )
-                        ? agentReasoningOptions(graph, node, modelReasoning)
-                        : "";
-                    // chip/model output anchor, rotated toward the agent it
-                    // feeds — a "lx,ly" local offset so Node's memo can compare
-                    // it as a string (matches the edge anchor from geometry).
-                    // Event circles (schedule) pivot their flow output, so they
-                    // carry a "portId=lx,ly;…" map instead of a single pair.
-                    let outAnchor = "";
-                    if (
-                        isModelEntry(entry) ||
-                        isChipEntry(entry) ||
-                        isLiteralEntry(entry) ||
-                        isVariableEntry(entry)
-                    ) {
-                        const out = entry.outputs[0];
-                        if (out) {
-                            const p = portGeometry(node, entry, out.id, graph, byKey);
-                            outAnchor = `${p.x - node.x},${p.y - node.y}`;
-                        }
-                    } else if (isEventEntry(entry)) {
-                        outAnchor = [...entry.inputs, ...entry.outputs]
-                            .map((p) => {
-                                const pos = portGeometry(node, entry, p.id, graph, byKey);
-                                return `${p.id}=${pos.x - node.x},${pos.y - node.y}`;
-                            })
-                            .join(";");
-                    }
+                    const derived = nodeProps.get(node.id);
+                    if (!derived) return null; // no catalog entry — nothing to draw
+                    const { entry, overriddenIds, outputOptions, reasoningOptions, outAnchor } =
+                        derived;
                     return (
                         <Node
                             key={node.id}

@@ -5,13 +5,23 @@ import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
 import type { McpTool, RegistryEntryRow } from "@/lib/registry";
 
-// per-user registry rows (no secrets — getMcpSecrets stays uncached). The TTL
-// backstops mutation paths that miss invalidateUserRegistry; settings actions
-// and the MCP OAuth callback invalidate explicitly.
+// per-user registry rows (no secrets). The TTL backstops mutation paths that
+// miss invalidateUserRegistry; settings actions and the MCP OAuth callback
+// invalidate explicitly.
 const registryCache = createTtlCache<RegistryEntryRow[]>(60_000);
+
+// one MCP entry WITH its credentials, keyed userId:entryId — server-only, and
+// nothing cached here is ever handed to a client (see getMcpSecrets). Short TTL
+// because the row carries rotating OAuth tokens: freshMcpToken drops its key
+// after a refresh, and any registry mutation clears the whole (small) cache via
+// invalidateUserRegistry.
+// ponytail: whole-cache clear on any registry mutation, since createTtlCache
+// has no prefix delete; per-user eviction if MCP entries ever get chatty.
+const mcpSecretsCache = createTtlCache<McpSecretsRow | null>(30_000, 200);
 
 export function invalidateUserRegistry(userId: string) {
     registryCache.delete(userId);
+    mcpSecretsCache.clear();
 }
 
 export async function getUserRegistry(userId: string): Promise<RegistryEntryRow[]> {
@@ -44,12 +54,16 @@ export type McpSecretsRow = {
 // full credentials for one MCP entry — for server-side MCP calls only;
 // nothing from this row may be returned to the client
 export async function getMcpSecrets(id: string, userId: string): Promise<McpSecretsRow | null> {
-    const { rows } = await db.query(
-        `select id, server_url, auth_token, tools, oauth
-         from registry_entry where id = $1 and user_id = $2 and kind = 'mcp'`,
-        [id, userId],
-    );
-    return (rows[0] as McpSecretsRow) ?? null;
+    // key includes the user id and the SQL still filters on it, so a cached row
+    // can only ever be served back to the same user
+    return mcpSecretsCache.getOrLoad(`${userId}:${id}`, async () => {
+        const { rows } = await db.query(
+            `select id, server_url, auth_token, tools, oauth
+             from registry_entry where id = $1 and user_id = $2 and kind = 'mcp'`,
+            [id, userId],
+        );
+        return (rows[0] as McpSecretsRow) ?? null;
+    });
 }
 
 // secret values for variable entries (kind 'variable', value in auth_token) —
@@ -103,6 +117,9 @@ export async function freshMcpToken(
             "update registry_entry set oauth = $1, updated_at = now() where id = $2 and user_id = $3",
             [JSON.stringify(oauth), entry.id, userId],
         );
+        // the refresh token may have rotated — a cached copy of the old row
+        // would retry the refresh with a now-invalid token
+        mcpSecretsCache.delete(`${userId}:${entry.id}`);
     }
     return { token: oauth.accessToken, oauth };
 }

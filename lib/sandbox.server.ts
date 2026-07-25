@@ -27,9 +27,10 @@ import {
     startContainer,
     stopContainer,
 } from "@/lib/podman.server";
+import { createTtlCache } from "@/lib/cache.server";
 import { UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
-import { getActivationLevels, limitsFor } from "@/lib/subscription";
+import { type ActivationLevel, getActivationLevels, limitsFor } from "@/lib/subscription";
 import type { McpToolParam } from "@/lib/workflow";
 import { posix } from "node:path";
 
@@ -42,6 +43,7 @@ const SANDBOX_PIDS_LIMIT = 256; // fork-bomb guard, same for every tier
 const MAX_SANDBOX_WRITE_B64 = 96_000; // max base64 length of one sandbox_write_file argv (well under Linux MAX_ARG_STRLEN ~128KB)
 const REAPER_INTERVAL_MS = 60_000;
 const DISK_CHECK_TIMEOUT_MS = 15_000;
+const DISK_REFRESH_MIN_MS = 30_000; // min gap between `du -sm /work` sweeps per sandbox
 
 const [SANDBOX_EXEC, SANDBOX_WRITE, SANDBOX_READ] = SANDBOX_TOOL_NAMES;
 
@@ -60,6 +62,15 @@ const sbName = (uuid: string) => `sb-${uuid}`;
 const lastUsed = new Map<string, number>();
 const diskUsage = new Map<string, number>();
 const inFlight = new Map<string, number>();
+// sandbox uuid → epoch ms of its last `du` sweep (throttle, see refreshDisk)
+const lastDiskCheck = new Map<string, number>();
+
+// tier level per user — getActivationLevels is a DB round trip and this file
+// asks for it on EVERY sandbox tool call.
+// ponytail: 60s TTL, no invalidation hook — sandbox limits are already loose
+// about tier changes (a running container keeps the limits it was created
+// with until reset). Upgrade path: cache inside getActivationLevels itself.
+const levelCache = createTtlCache<ActivationLevel | null>(60_000);
 
 function isBusy(name: string): boolean {
     return (inFlight.get(name) ?? 0) > 0;
@@ -188,7 +199,10 @@ export async function executeSandboxTool(
 
     // 3. tier quotas (memory/cpu/disk/exec-timeout) — headless resolver, same
     // as the cron runner; a not-activated user maps to free limits.
-    const level = (await getActivationLevels([userId])).get(userId) ?? null;
+    const level = await levelCache.getOrLoad(
+        userId,
+        async () => (await getActivationLevels([userId])).get(userId) ?? null,
+    );
     const limits = limitsFor(level);
 
     try {
@@ -211,6 +225,9 @@ export async function executeSandboxTool(
         if (op === SANDBOX_WRITE) return await sandboxWriteFile(sandboxId, args);
         return await sandboxReadFile(sandboxId, args);
     } catch (err) {
+        // forget the "known running" stamp: whatever failed may well be the
+        // container being gone, and ensureRunning must re-inspect next time
+        lastUsed.delete(sbName(sandboxId));
         // PodmanError carries a user-renderable message; anything else falls
         // back generic. Never throw out of a tool call.
         return { error: err instanceof Error ? err.message : "sandbox operation failed" };
@@ -416,7 +433,14 @@ async function ensureRunning(
 ): Promise<McpCallResult | null> {
     return withEnsureLock(uuid, async () => {
         const name = sbName(uuid);
-        const state = await inspectContainer(name);
+        // a stamped lastUsed means we started this container and nothing has
+        // stopped it since (every stop path — reaper, makeRoom eviction, stop/
+        // reset/destroy — deletes the stamp), so skip the inspect round trip.
+        // ponytail: trusts our own bookkeeping; a container that dies out from
+        // under us (host reboot, podman restart) fails one tool call, whose
+        // catch in executeSandboxTool drops the stamp so the next call
+        // re-inspects and restarts. Upgrade path: subscribe to libpod events.
+        const state = lastUsed.has(name) ? { running: true } : await inspectContainer(name);
 
         if (state === null) {
             // first use: image must be present, then make room, create, start
@@ -508,11 +532,20 @@ async function makeRoom(selfName: string): Promise<McpCallResult | null> {
 // refreshes the advisory disk-usage map after a write/exec. Fire-and-forget
 // semantics: a failure just leaves the stale value.
 //
+// `du -sm /work` is a full filesystem walk plus 3 libpod round trips, i.e. it
+// doubles the cost of every op, so it runs at most once per
+// DISK_REFRESH_MIN_MS per sandbox. The quota it feeds is advisory either way:
+// the pre-op check in executeSandboxTool still refuses further ops once the
+// figure goes over the tier cap, just up to DISK_REFRESH_MIN_MS later.
+//
 // Accepted tradeoff: a single exec can overshoot the quota before this
 // post-check records it — recovery is a dashboard reset. (v2 alternative: when
 // over quota, still permit read-only / rm-only ops so the agent can free space
 // itself instead of forcing a reset.)
 async function refreshDisk(uuid: string): Promise<void> {
+    const now = Date.now();
+    if (now - (lastDiskCheck.get(uuid) ?? 0) < DISK_REFRESH_MIN_MS) return;
+    lastDiskCheck.set(uuid, now);
     try {
         const { output } = await execTracked(
             sbName(uuid),
@@ -573,6 +606,7 @@ export async function destroySandbox(uuid: string): Promise<void> {
     }
     lastUsed.delete(name);
     diskUsage.delete(uuid);
+    lastDiskCheck.delete(uuid);
 }
 
 // wipes a sandbox back to empty: removes the container AND its volume (the
@@ -587,6 +621,7 @@ export async function resetSandbox(uuid: string): Promise<{ error?: string }> {
         await removeVolume(sbName(uuid));
         lastUsed.delete(name);
         diskUsage.delete(uuid);
+        lastDiskCheck.delete(uuid); // fresh volume — measure again on next op
         return {};
     } catch (err) {
         console.error("[sandbox] reset failed", err);
