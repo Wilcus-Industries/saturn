@@ -30,6 +30,7 @@ pub(crate) mod js;
 use crate::agent;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::LazyLock;
 
@@ -214,6 +215,9 @@ struct Run<'a> {
     /// deleted, which is the safe direction.
     registry: Option<&'a HashMap<String, CatalogEntry>>,
     effects: Effects<'a>,
+    /// the designer's stop button, i.e. the TypeScript's `AbortSignal`. None for
+    /// a cron or event run — nothing can press it.
+    cancel: Option<&'a AtomicBool>,
     steps: u32,
     integration_calls: u32,
     /// agent-initiated tool calls, budgeted across the whole run
@@ -256,6 +260,10 @@ impl<'a> Run<'a> {
     fn fail(&self, text: String) -> Abort {
         self.emit(Kind::Error, text);
         Abort
+    }
+
+    fn stopped(&self) -> bool {
+        self.cancel.is_some_and(|c| c.load(Ordering::Relaxed))
     }
 
     /// `byKey`: the user's registry entries over the static catalog.
@@ -548,7 +556,7 @@ impl<'a> Run<'a> {
         // once no concurrent chain is left, a partially-arrived await is provably
         // dead (an upstream `if` diverged past it) — warn and reset so a later
         // loop iteration starts a fresh barrier
-        if self.fan_out_depth == 0 && !self.branch_failed {
+        if self.fan_out_depth == 0 && !self.branch_failed && !self.stopped() {
             for (id, arrived) in std::mem::take(&mut self.arrivals) {
                 let expected = self.expected_arrivals(&id);
                 self.warn(format!("await never completed ({arrived}/{expected} branches)"));
@@ -569,6 +577,9 @@ impl<'a> Run<'a> {
     fn exec_chain(&mut self, start: &'a Node, mut visited: HashSet<String>) -> Result<(), Abort> {
         let mut current = Some(start);
         while let Some(node) = current {
+            if self.stopped() {
+                return Err(self.fail("run stopped".into()));
+            }
             // a sibling branch already failed and printed the error; this branch
             // only notices once it has suspended (see `suspended`)
             if self.branch_failed && self.suspended {
@@ -870,6 +881,7 @@ impl<'a> Run<'a> {
             },
             model,
             tool,
+            self.cancel,
         );
         self.suspended = true; // every model turn is a suspension point
         let result = match result {
@@ -964,6 +976,7 @@ pub(crate) fn run_workflow(
     registry: Option<&HashMap<String, CatalogEntry>>,
     tx: &Sender<ConsoleLine>,
     effects: Effects,
+    cancel: Option<&AtomicBool>,
 ) -> Vec<(String, String, String)> {
     let mut run = Run {
         graph,
@@ -972,6 +985,7 @@ pub(crate) fn run_workflow(
         event_payloads,
         registry,
         effects,
+        cancel,
         steps: 0,
         integration_calls: 0,
         agent_mcp_calls: 0,
@@ -1013,7 +1027,10 @@ pub(crate) fn run_workflow(
         aborted |= run.exec_from(&entry.id, "out", &HashSet::new()).is_err();
     }
     if aborted {
-        run.emit(Kind::Error, "run aborted".into());
+        // a user stop already printed "run stopped" — skip the extra line
+        if !run.stopped() {
+            run.emit(Kind::Error, "run aborted".into());
+        }
         return run.values;
     }
     run.emit(Kind::Info, format!("run finished ({} steps)", run.steps));
@@ -1077,6 +1094,7 @@ mod tests {
             None,
             &tx,
             Effects { send: &send, model: &model, tool: &tool },
+            None,
         );
         drop(tx);
         rx.into_iter().map(|l| (l.kind, l.text)).collect()
@@ -1084,6 +1102,53 @@ mod tests {
 
     fn node(id: &str, ty: &str, config: serde_json::Value) -> serde_json::Value {
         json!({ "id": id, "type": ty, "x": 0, "y": 0, "config": config })
+    }
+
+    /// The designer's stop button. Three things have to hold together or the
+    /// console reads wrong: the walk stops at a step boundary rather than
+    /// running to completion, the line is "run stopped", and the generic
+    /// "run aborted" line is suppressed — a user who pressed stop must not be
+    /// shown two errors, one of which looks like a crash.
+    #[test]
+    fn a_stopped_run_says_so_once_and_walks_no_further() {
+        let graph: Graph = serde_json::from_value(json!({
+            "nodes": [
+                node("s", "schedule", json!({ "cron": "* * * * *" })),
+                node("a", "print", json!({})),
+                node("b", "print", json!({})),
+            ],
+            "edges": [
+                edge(("s", "out"), ("a", "in"), "flow"),
+                edge(("a", "out"), ("b", "in"), "flow"),
+            ],
+        }))
+        .unwrap();
+        let send = |_: &str, _: &HashMap<String, String>, _: &str| Ok(String::new());
+        let model = |_: &agent::Request| agent::Turn::Failed("unused".into());
+        let tool = |_, _: &str, _: &str, _: &str| Err("unused".to_string());
+        let effects = Effects { send: &send, model: &model, tool: &tool };
+
+        let stop = AtomicBool::new(true);
+        let (tx, rx) = std::sync::mpsc::channel();
+        run_workflow(&graph, None, None, None, &tx, effects, Some(&stop));
+        drop(tx);
+        let lines: Vec<(Kind, String)> = rx.into_iter().map(|l| (l.kind, l.text)).collect();
+        assert_eq!(
+            lines,
+            vec![
+                (Kind::Info, "▶ run started".to_string()),
+                (Kind::Error, "run stopped".to_string()),
+            ],
+            "a stopped run must not walk on, and must not also print \"run aborted\""
+        );
+
+        // the same graph, unstopped, walks both prints — otherwise the check
+        // above could be passing for the wrong reason
+        let (tx, rx) = std::sync::mpsc::channel();
+        run_workflow(&graph, None, None, None, &tx, effects, None);
+        drop(tx);
+        let texts: Vec<String> = rx.into_iter().map(|l| l.text).collect();
+        assert_eq!(texts.last().unwrap(), "run finished (2 steps)");
     }
 
     fn edge(from: (&str, &str), to: (&str, &str), kind: &str) -> serde_json::Value {

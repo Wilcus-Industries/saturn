@@ -2,12 +2,18 @@
 
 import { useState } from "react";
 import ModalShell from "@/app/dashboard/modalShell";
+import { call } from "@/lib/ipc";
 import type { RegistryEntryRow } from "@/lib/registry";
-import { saveMcpServer } from "./actions";
 import ToolListEditor from "./toolListEditor";
 
 // add ("+ add server") or edit ("edit") trigger + modal for one MCP server
-export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
+export default function McpEntryModal({
+    entry,
+    onSaved,
+}: {
+    entry?: RegistryEntryRow;
+    onSaved: () => void;
+}) {
     // controlled — React resets uncontrolled fields after a form action, which
     // would wipe the user's input when the action returns an error
     const [name, setName] = useState("");
@@ -20,8 +26,21 @@ export default function McpEntryModal({ entry }: { entry?: RegistryEntryRow }) {
             wide
             title={entry ? "edit mcp server" : "new mcp server"}
             submitLabel={entry ? "save →" : "add →"}
-            action={saveMcpServer}
-            entryId={entry?.id}
+            action={async (formData: FormData) => {
+                try {
+                    await call<string>("save_mcp_server", {
+                        id: entry?.id ?? null,
+                        name: String(formData.get("name") ?? ""),
+                        serverUrl: String(formData.get("serverUrl") ?? ""),
+                        authToken: String(formData.get("authToken") ?? ""),
+                        clearToken: formData.get("clearToken") === "on",
+                        tools: String(formData.get("tools") ?? "[]"),
+                    });
+                } catch (err) {
+                    return { error: err instanceof Error ? err.message : "Save failed" };
+                }
+                onSaved();
+            }}
             onOpen={() => {
                 setName(entry?.name ?? "");
                 setServerUrl(entry?.server_url ?? "");

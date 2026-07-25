@@ -13,12 +13,12 @@ export default function MobileNav() {
         <header className={"sticky top-0 z-10 border-b border-foreground/15 bg-background md:hidden"}>
             {/* same lockup as the sidebar, laid flat in a top bar */}
             <Link
-                href={"/dashboard"}
-                aria-label={"Saturn dashboard"}
+                href={"/dashboard/workflows/"}
+                aria-label={"Saturn workflows"}
                 className={"flex h-12 items-center gap-2 px-4"}
             >
                 <div className={"shrink-0"}>
-                    <AsciiSaturn scale={4} sizeClass={"text-[3px]"} noise={false} />
+                    <AsciiSaturn />
                 </div>
                 <span className={"font-mono text-2xl"}>Saturn</span>
             </Link>

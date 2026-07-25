@@ -9,6 +9,8 @@
 //! and the grant resolution are exercised for real against the frozen
 //! transcripts, with nothing on the network.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::interpreter::{truncate, utf16_prefix, Kind, ModelFn, ToolFn};
 use crate::openrouter::{AgentMessage, ToolCall};
 
@@ -190,6 +192,11 @@ pub fn parse_tool_exclusions(raw: &str) -> Option<Vec<String>> {
 /// `mcp_calls` is the run-scoped budget, shared across every agent node in the
 /// graph. `call_tool`'s first argument routes to the local memory store instead
 /// of an MCP server.
+///
+/// `cancel` is the designer's stop button. It is checked here and not only in
+/// the interpreter's step loop because one agent node can burn eight model turns
+/// and forty tool calls without ever returning to that loop — a stop that only
+/// took effect between flow steps would look broken.
 pub fn run_loop(
     req: &mut Request,
     user_text: &str,
@@ -197,7 +204,9 @@ pub fn run_loop(
     emit: &mut dyn FnMut(Kind, String),
     call_model: ModelFn,
     call_tool: ToolFn,
+    cancel: Option<&AtomicBool>,
 ) -> Result<String, String> {
+    let stopped = || cancel.is_some_and(|c| c.load(Ordering::Relaxed));
     if req.model.is_empty() {
         return Err("agent: no model set".into());
     }
@@ -206,6 +215,9 @@ pub fn run_loop(
     });
     let mut content = String::new();
     for _ in 0..MAX_AGENT_TURNS {
+        if stopped() {
+            return Err("run stopped".into());
+        }
         emit(Kind::Info, format!("agent: calling {}…", req.model));
         let (all_calls, image) = match call_model(req) {
             Turn::Failed(err) => return Err(format!("agent: {err}")),
@@ -241,6 +253,9 @@ pub fn run_loop(
         req.messages
             .push(AgentMessage::Assistant { content: content.clone(), tool_calls: calls.clone() });
         for call in &calls {
+            if stopped() {
+                return Err("run stopped".into());
+            }
             // memory tools ride the same wire as MCP tools; the decoded call's
             // entryId is the store id, so route to the local store instead
             let is_memory = req.memory_id.as_deref() == Some(call.entry_id.as_str());
@@ -367,6 +382,7 @@ mod tests {
             &mut |k, t| lines.push((k, t)),
             &always_calls_a_tool,
             &ok_tool,
+            None,
         );
         assert_eq!(content.unwrap(), "thinking");
         assert_eq!(calls, MAX_AGENT_TURNS); // one tool call per turn, all eight
@@ -376,7 +392,7 @@ mod tests {
 
         // an earlier agent node in the same run having spent the budget
         let (mut req, mut calls) = (request("m"), MAX_AGENT_MCP_CALLS);
-        let err = run_loop(&mut req, "go", &mut calls, &mut |_, _| {}, &always_calls_a_tool, &ok_tool);
+        let err = run_loop(&mut req, "go", &mut calls, &mut |_, _| {}, &always_calls_a_tool, &ok_tool, None);
         assert_eq!(
             err.unwrap_err(),
             format!("agent MCP call limit ({MAX_AGENT_MCP_CALLS}) exceeded for one run")
@@ -384,7 +400,7 @@ mod tests {
 
         // a blank model is refused before any turn, so nothing is emitted
         let mut req = request("");
-        let err = run_loop(&mut req, "go", &mut 0, &mut |_, _| {}, &always_calls_a_tool, &ok_tool);
+        let err = run_loop(&mut req, "go", &mut 0, &mut |_, _| {}, &always_calls_a_tool, &ok_tool, None);
         assert_eq!(err.unwrap_err(), "agent: no model set");
         assert!(req.messages.is_empty());
     }

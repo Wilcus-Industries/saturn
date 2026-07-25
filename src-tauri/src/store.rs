@@ -80,7 +80,7 @@ pub enum RunStatus {
 }
 
 impl RunTrigger {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             RunTrigger::Cron => "cron",
             RunTrigger::Manual => "manual",
@@ -112,9 +112,7 @@ pub struct Workflow {
     pub updated_at: i64,
 }
 
-/// A `workflow_run` row, read back. Today only the tests assert on it; the run
-/// history UI that renders it lands in Phase F.
-#[allow(dead_code)]
+/// A `workflow_run` row, read back — the run-history list renders exactly this.
 #[derive(Serialize)]
 pub struct RunRow {
     pub id: String,
@@ -124,6 +122,39 @@ pub struct RunRow {
     pub log: Value,
     pub started_at: i64,
     pub finished_at: Option<i64>,
+}
+
+/// A workflow as the list page draws it: metadata plus the newest run's status
+/// chip. Deliberately NOT a `Workflow` — the graph is the biggest column in the
+/// database and the cards never look at it.
+#[derive(Serialize)]
+pub struct WorkflowCard {
+    pub id: String,
+    pub name: String,
+    pub emoji: String,
+    pub description: String,
+    pub active: bool,
+    /// "running" | "success" | "error", or null when the workflow never ran
+    pub last_run_status: Option<String>,
+    pub last_run_started_at: Option<i64>,
+}
+
+const WORKFLOW_SELECT: &str =
+    "select id, name, emoji, description, graph, active, last_run_at, created_at, updated_at
+       from workflow";
+
+fn workflow_row(r: &rusqlite::Row) -> Result<Workflow> {
+    Ok(Workflow {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        emoji: r.get(2)?,
+        description: r.get(3)?,
+        graph: r.get(4)?,
+        active: r.get(5)?,
+        last_run_at: r.get(6)?,
+        created_at: r.get(7)?,
+        updated_at: r.get(8)?,
+    })
 }
 
 /// Cloning shares the one connection — a run executes on its own thread and
@@ -172,12 +203,42 @@ impl Store {
         self.0.lock().unwrap()
     }
 
+    /// Name-and-graph only. Every caller that has nothing else to say is a test,
+    /// so this is test-only — the command builds the metadata itself.
+    /// Deliberately the *unvalidated* insert: several tests need a row whose
+    /// graph is malformed, to prove the scanner and the runner survive one.
+    #[cfg(test)]
     pub fn create_workflow(&self, name: &str, graph: Value) -> Result<Workflow> {
+        self.insert_workflow(name, "⚙️", "", graph)
+    }
+
+    /// The `create_workflow` command. A create that carries a graph passes the
+    /// same gate `set_graph` applies, so no write path can leave a graph in the
+    /// file that the designer would refuse to save and `execute_run` would
+    /// refuse to deserialize.
+    pub fn create_workflow_with(
+        &self,
+        name: &str,
+        emoji: &str,
+        description: &str,
+        graph: Value,
+    ) -> std::result::Result<Workflow, String> {
+        crate::workflow::check_graph(&graph)?;
+        self.insert_workflow(name, emoji, description, graph).map_err(|e| e.to_string())
+    }
+
+    fn insert_workflow(
+        &self,
+        name: &str,
+        emoji: &str,
+        description: &str,
+        graph: Value,
+    ) -> Result<Workflow> {
         let wf = Workflow {
             id: uuid(),
             name: name.into(),
-            emoji: "⚙️".into(),
-            description: String::new(),
+            emoji: emoji.into(),
+            description: description.into(),
             graph,
             active: true,
             last_run_at: None,
@@ -203,28 +264,138 @@ impl Store {
 
     pub fn list_workflows(&self) -> Result<Vec<Workflow>> {
         let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(&format!("{WORKFLOW_SELECT} order by updated_at desc"))?;
+        let rows = stmt.query_map([], workflow_row)?;
+        rows.collect()
+    }
+
+    /// One row by id. Not `list_workflows().find(…)`: `graph` is the largest
+    /// column in the file, and that shape read and JSON-parsed *every* workflow's
+    /// graph — on the designer's page load and, worse, once per delivered
+    /// Discord/Telegram message through `ingest_event`.
+    pub fn workflow(&self, id: &str) -> Result<Option<Workflow>> {
+        let conn = self.0.lock().unwrap();
+        conn.query_row(&format!("{WORKFLOW_SELECT} where id = ?1"), [id], workflow_row)
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })
+    }
+
+    /// The workflow list, each row carrying its newest run. One query, not N+1:
+    /// the correlated subquery picks the run *id* off `workflow_run_recent`
+    /// (workflow_id, started_at desc) and the join then hits it by primary key,
+    /// which is what the Postgres `left join lateral … limit 1` compiled to.
+    ///
+    /// `created_at desc` — the list page's order, not `list_workflows`'
+    /// `updated_at desc`. Cards must not reshuffle under the user every time an
+    /// autosave touches a row.
+    pub fn list_workflow_cards(&self) -> Result<Vec<WorkflowCard>> {
+        let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(
-            "select id, name, emoji, description, graph, active, last_run_at, created_at, updated_at
-             from workflow order by updated_at desc",
+            "select w.id, w.name, w.emoji, w.description, w.active, r.status, r.started_at
+               from workflow w
+               left join workflow_run r on r.id = (
+                   select id from workflow_run
+                    where workflow_id = w.id order by started_at desc limit 1
+               )
+              order by w.created_at desc",
         )?;
         let rows = stmt.query_map([], |r| {
-            Ok(Workflow {
+            Ok(WorkflowCard {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 emoji: r.get(2)?,
                 description: r.get(3)?,
-                graph: r.get(4)?,
-                active: r.get(5)?,
-                last_run_at: r.get(6)?,
-                created_at: r.get(7)?,
-                updated_at: r.get(8)?,
+                active: r.get(4)?,
+                last_run_status: r.get(5)?,
+                last_run_started_at: r.get(6)?,
             })
         })?;
         rows.collect()
     }
 
-    pub fn workflow(&self, id: &str) -> Result<Option<Workflow>> {
-        Ok(self.list_workflows()?.into_iter().find(|w| w.id == id))
+    /// Run history for one workflow, newest first.
+    pub fn list_runs(&self, workflow_id: &str, limit: i64) -> Result<Vec<RunRow>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "select id, trigger, status, error, log, started_at, finished_at
+               from workflow_run where workflow_id = ?1 order by started_at desc limit ?2",
+        )?;
+        let rows = stmt.query_map(params![workflow_id, limit], |r| {
+            Ok(RunRow {
+                id: r.get(0)?,
+                trigger: r.get(1)?,
+                status: r.get(2)?,
+                error: r.get(3)?,
+                log: r.get(4)?,
+                started_at: r.get(5)?,
+                finished_at: r.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Metadata only — the graph is the designer's to write. No
+    /// `subscriptions_changed()`: a name or emoji cannot change which events are
+    /// subscribed to, and this fires on every keystroke-close of the edit modal.
+    pub fn update_workflow_meta(
+        &self,
+        id: &str,
+        name: &str,
+        emoji: &str,
+        description: &str,
+    ) -> Result<bool> {
+        let changed = self.0.lock().unwrap().execute(
+            "update workflow set name = ?2, emoji = ?3, description = ?4, updated_at = ?5
+              where id = ?1",
+            params![id, name, emoji, description, now()],
+        )?;
+        Ok(changed == 1)
+    }
+
+    /// The designer's autosave. Validates before writing: a graph that fails
+    /// `is_workflow_graph` deserializes into something the interpreter chokes
+    /// on, and the only symptom would be "workflow graph is malformed" the next
+    /// time the schedule fires.
+    pub fn set_graph(&self, id: &str, graph: &Value) -> std::result::Result<bool, String> {
+        let json = crate::workflow::check_graph(graph)?;
+        let changed = self
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "update workflow set graph = ?2, updated_at = ?3 where id = ?1",
+                params![id, json, now()],
+            )
+            .map_err(|e| e.to_string())?;
+        // graph edits add and remove event nodes and change bot tokens. Cheap
+        // by design: the transports debounce, so an autosave burst collapses.
+        crate::events::subscriptions_changed();
+        Ok(changed == 1)
+    }
+
+    /// Explicit desired state, never a flip — a double-click must be idempotent.
+    /// `active` gates event delivery as well as cron, so the transports have to
+    /// be woken.
+    pub fn set_active(&self, id: &str, active: bool) -> Result<bool> {
+        let changed = self.0.lock().unwrap().execute(
+            "update workflow set active = ?2, updated_at = ?3 where id = ?1",
+            params![id, active, now()],
+        )?;
+        crate::events::subscriptions_changed();
+        Ok(changed == 1)
+    }
+
+    /// Idempotent: a row already gone (another window deleted it) is not an
+    /// error. `workflow_run` cascades on its FK.
+    pub fn delete_workflow(&self, id: &str) -> Result<()> {
+        self.0.lock().unwrap().execute("delete from workflow where id = ?1", [id])?;
+        // unconditional, like `registry::delete_entry`: the workflow's event
+        // nodes are gone and a spurious wake costs one feed scan.
+        crate::events::subscriptions_changed();
+        Ok(())
     }
 
     /// Atomically claims a workflow for this tick: stamps `last_run_at` only if
@@ -251,7 +422,10 @@ impl Store {
         Ok(changed == 1)
     }
 
-    #[allow(dead_code)] // read path for the Phase F run history; tests assert on it today
+    // stays test-only: the run-history UI reads `list_runs`, and the list page's
+    // newest-run chip comes from `list_workflow_cards`' one correlated query
+    // rather than a per-row call to this.
+    #[allow(dead_code)]
     pub fn latest_run(&self, workflow_id: &str) -> Result<Option<RunRow>> {
         let conn = self.0.lock().unwrap();
         conn.query_row(
@@ -427,6 +601,127 @@ mod tests {
 
         drop(q);
         drop(conn);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The list page's newest-run chip. The correlated subquery has to pick the
+    /// LATEST run per workflow and leave a never-run workflow null — an
+    /// unscoped or mis-ordered subquery still returns *a* row, so the card would
+    /// show a stale status and nothing would fail loudly.
+    #[test]
+    fn cards_carry_each_workflows_newest_run() {
+        let dir = std::env::temp_dir().join(format!("saturn-cards-{}", uuid()));
+        let store = Store::open(&dir.join("saturn.db")).unwrap();
+
+        let a = store.create_workflow("first", serde_json::json!({})).unwrap();
+        let b = store.create_workflow("second", serde_json::json!({})).unwrap();
+        let never = store.create_workflow("never ran", serde_json::json!({})).unwrap();
+        // all three land in the same millisecond here, and SQLite is free to
+        // return tied rows in any order — space them so the ORDER BY is what is
+        // actually under test
+        for (i, id) in [&a.id, &b.id, &never.id].iter().enumerate() {
+            store
+                .0
+                .lock()
+                .unwrap()
+                .execute("update workflow set created_at = ?2 where id = ?1", params![id, i as i64])
+                .unwrap();
+        }
+
+        // two runs on `a`: an older success, then a newer error
+        let old = store.insert_run(&a.id, RunTrigger::Cron).unwrap();
+        store.finish_run(&old, RunStatus::Success, "", &[]).unwrap();
+        let new = store.insert_run(&a.id, RunTrigger::Manual).unwrap();
+        store.finish_run(&new, RunStatus::Error, "boom", &[]).unwrap();
+        // insert_run stamps `now()` for both, so force the order rather than
+        // relying on the millisecond clock ticking between two statements
+        {
+            let conn = store.0.lock().unwrap();
+            conn.execute("update workflow_run set started_at = 1000 where id = ?1", [&old]).unwrap();
+            conn.execute("update workflow_run set started_at = 2000 where id = ?1", [&new]).unwrap();
+        }
+        // one still-running run on `b`
+        store.insert_run(&b.id, RunTrigger::Event).unwrap();
+
+        let cards = store.list_workflow_cards().unwrap();
+        assert_eq!(cards.len(), 3);
+        // created_at desc — newest workflow first
+        assert_eq!(
+            cards.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["never ran", "second", "first"],
+            "cards are not in created_at desc order"
+        );
+        let card = |id: &str| cards.iter().find(|c| c.id == id).unwrap();
+        assert_eq!(card(&a.id).last_run_status.as_deref(), Some("error"), "picked the older run");
+        assert_eq!(card(&a.id).last_run_started_at, Some(2000));
+        assert_eq!(card(&b.id).last_run_status.as_deref(), Some("running"));
+        assert_eq!(card(&never.id).last_run_status, None, "a never-run workflow leaked a run");
+        assert_eq!(card(&never.id).last_run_started_at, None);
+
+        // run history is scoped and newest-first
+        let runs = store.list_runs(&a.id, 50).unwrap();
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].status, "error");
+        assert_eq!(runs[0].error, "boom");
+        assert_eq!(runs[1].trigger, "cron");
+        assert_eq!(store.list_runs(&a.id, 1).unwrap().len(), 1);
+        assert!(store.list_runs(&never.id, 50).unwrap().is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `set_graph` is the only writer of the `graph` column the designer can
+    /// reach, so every cap has to be enforced here — a graph that gets past it
+    /// is one the interpreter fails to deserialize at run time, which surfaces
+    /// as a dead workflow with no save-time signal at all.
+    #[test]
+    fn set_graph_enforces_the_shape_and_the_caps() {
+        let dir = std::env::temp_dir().join(format!("saturn-setgraph-{}", uuid()));
+        let store = Store::open(&dir.join("saturn.db")).unwrap();
+        let wf = store.create_workflow("wf", serde_json::json!({})).unwrap();
+
+        let node = |i: usize| {
+            serde_json::json!({ "id": format!("n{i}"), "type": "print", "x": 0, "y": 0, "config": {} })
+        };
+        let good = serde_json::json!({ "nodes": [node(0)], "edges": [] });
+        assert!(store.set_graph(&wf.id, &good).unwrap());
+        assert_eq!(store.workflow(&wf.id).unwrap().unwrap().graph, good);
+
+        assert_eq!(store.set_graph(&wf.id, &serde_json::json!({})).unwrap_err(), "Invalid graph");
+        let too_many: Vec<_> = (0..crate::workflow::MAX_NODES + 1).map(node).collect();
+        assert_eq!(
+            store
+                .set_graph(&wf.id, &serde_json::json!({ "nodes": too_many, "edges": [] }))
+                .unwrap_err(),
+            "Graph too large"
+        );
+        // under the node cap but over the serialized-JSON cap
+        let fat: Vec<_> = (0..10)
+            .map(|i| {
+                serde_json::json!({ "id": format!("n{i}"), "type": "print", "x": 0, "y": 0,
+                                    "config": { "text": "x".repeat(crate::workflow::MAX_GRAPH_JSON / 5) } })
+            })
+            .collect();
+        assert_eq!(
+            store.set_graph(&wf.id, &serde_json::json!({ "nodes": fat, "edges": [] })).unwrap_err(),
+            "Graph too large"
+        );
+        // a rejected save must not have touched the row
+        assert_eq!(store.workflow(&wf.id).unwrap().unwrap().graph, good);
+        // an id that is not there reports it rather than silently succeeding
+        assert!(!store.set_graph(&uuid(), &good).unwrap());
+
+        // the create path shares the gate: a graph the designer could not save
+        // must not be creatable either, and the row must not exist afterwards
+        let before = store.list_workflows().unwrap().len();
+        assert_eq!(
+            // `.err()`, not `unwrap_err()` — Workflow has no Debug and does not
+            // need one for a test to read the error side
+            store.create_workflow_with("x", "⚙️", "", serde_json::json!({})).err().unwrap(),
+            "Invalid graph"
+        );
+        assert_eq!(store.list_workflows().unwrap().len(), before);
+
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -13,36 +13,172 @@ mod runner;
 mod secrets;
 mod store;
 mod telegram;
+mod workflow;
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::{json, Value};
+use registry::len16;
 use secrets::{Secret, KEYCHAIN};
-use store::{RunTrigger, Store, Workflow};
-use tauri::{AppHandle, Manager, State};
+use store::{RunRow, RunTrigger, Store, Workflow, WorkflowCard};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+/// The id shape every workflow and registry command checks before it reaches
+/// SQL. Postgres threw 22P02 on a malformed uuid, which is why the TypeScript
+/// pre-validated; SQLite would silently match nothing, which is worse — a typo'd
+/// id would read as "already deleted" instead of "invalid".
+fn check_id(id: &str) -> Result<(), String> {
+    if registry::is_uuid(id) {
+        Ok(())
+    } else {
+        Err("Invalid workflow id".into())
+    }
+}
 
 // --- workflows -------------------------------------------------------------
 
+/// The workflow list, each card carrying its newest run. Does NOT include the
+/// graph — the cards never draw it and it is the largest column in the file.
 #[tauri::command]
-fn list_workflows(store: State<Store>) -> Result<Vec<Workflow>, String> {
-    store.list_workflows().map_err(|e| e.to_string())
+fn list_workflows(store: State<Store>) -> Result<Vec<WorkflowCard>, String> {
+    store.list_workflow_cards().map_err(|e| e.to_string())
+}
+
+/// The designer's page load. `Not found` is an ordinary error, not a panic —
+/// a stale window pointing at a deleted workflow is a normal thing to hit.
+#[tauri::command]
+fn get_workflow(store: State<Store>, id: String) -> Result<Workflow, String> {
+    check_id(&id)?;
+    store.workflow(&id).map_err(|e| e.to_string())?.ok_or_else(|| "Not found".into())
 }
 
 #[tauri::command]
-fn create_workflow(store: State<Store>, name: String, graph: Option<Value>) -> Result<Workflow, String> {
+fn create_workflow(
+    store: State<Store>,
+    name: String,
+    emoji: Option<String>,
+    description: Option<String>,
+    graph: Option<Value>,
+) -> Result<Workflow, String> {
+    let (name, emoji, description) = parse_meta(&name, emoji.as_deref(), description.as_deref())?;
     let graph = graph.unwrap_or_else(|| json!({ "nodes": [], "edges": [] }));
-    store.create_workflow(&name, graph).map_err(|e| e.to_string())
+    store.create_workflow_with(name, emoji, description, graph)
 }
+
+/// `parseWorkflowFields` — shared by create and update in the TypeScript, and it
+/// has to stay shared here. The create path dropping the emoji and description
+/// the modal submits, or skipping the blank-name check, is exactly what happens
+/// when only one of the two gets ported.
+fn parse_meta<'a>(
+    name: &'a str,
+    emoji: Option<&'a str>,
+    description: Option<&'a str>,
+) -> Result<(&'a str, &'a str, &'a str), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Name is required".into());
+    }
+    let emoji = match emoji.unwrap_or("").trim() {
+        "" => "⚙️",
+        e => e,
+    };
+    Ok((name, emoji, description.unwrap_or("").trim()))
+}
+
+/// Metadata only (`updateWorkflow`) — the graph, and the schedule inside it,
+/// belong to `save_workflow`.
+#[tauri::command]
+fn update_workflow(
+    store: State<Store>,
+    id: String,
+    name: String,
+    emoji: String,
+    description: String,
+) -> Result<(), String> {
+    check_id(&id)?;
+    let (name, emoji, description) = parse_meta(&name, Some(&emoji), Some(&description))?;
+    if store
+        .update_workflow_meta(&id, name, emoji, description)
+        .map_err(|e| e.to_string())?
+    {
+        Ok(())
+    } else {
+        Err("Not found".into())
+    }
+}
+
+/// The designer's autosave (`saveWorkflow`). Validation and the
+/// `subscriptions_changed()` wake both live in `store::set_graph` so no future
+/// caller can save a graph past them.
+#[tauri::command]
+fn save_workflow(store: State<Store>, id: String, graph: Value) -> Result<(), String> {
+    check_id(&id)?;
+    if store.set_graph(&id, &graph)? {
+        Ok(())
+    } else {
+        Err("Not found".into())
+    }
+}
+
+/// `active` gates scheduled and event execution only — a test run still works
+/// when it is off. Explicit desired state, so a double-click is idempotent.
+#[tauri::command]
+fn set_workflow_active(store: State<Store>, id: String, active: bool) -> Result<(), String> {
+    check_id(&id)?;
+    if store.set_active(&id, active).map_err(|e| e.to_string())? {
+        Ok(())
+    } else {
+        Err("Not found".into())
+    }
+}
+
+/// Idempotent: a workflow another window already deleted is not an error.
+#[tauri::command]
+fn delete_workflow(store: State<Store>, id: String) -> Result<(), String> {
+    check_id(&id)?;
+    store.delete_workflow(&id).map_err(|e| e.to_string())
+}
+
+/// Run history for one workflow, newest first. 50 was the TypeScript's fixed
+/// page size and stays the default.
+#[tauri::command]
+fn list_runs(store: State<Store>, workflow_id: String, limit: Option<i64>) -> Result<Vec<RunRow>, String> {
+    check_id(&workflow_id)?;
+    store
+        .list_runs(&workflow_id, limit.unwrap_or(50).clamp(1, 200))
+        .map_err(|e| e.to_string())
+}
+
+/// The designer's stop button. One flag, not a map keyed by run id: the designer
+/// refuses to start a second test run while one is going, and it is the only
+/// surface that can start one at all. `test_run` clears it before each run, so a
+/// stop can never leak into the next one.
+static TEST_RUN_CANCEL: AtomicBool = AtomicBool::new(false);
 
 /// Test-runs a workflow. Returns as soon as the run is spawned; console lines
-/// arrive as `run-log` events while it walks, and `run-finished` closes it out.
+/// arrive as `run-log` events while it walks, the extract path-picker's per-port
+/// samples as `run-value`, and `run-finished` closes it out.
+///
+/// `entry_node_ids` is the event node the designer selected — a test run starts
+/// from exactly one entry point, not from every event node in the graph.
+/// `event_payloads` seeds each platform event node with its canned sample
+/// payload (`sampleEventPayload`, which stays in TypeScript) so a payload →
+/// extract chain runs against realistic data.
 #[tauri::command]
-fn test_run(app: AppHandle, store: State<Store>, workflow_id: String) -> Result<(), String> {
+fn test_run(
+    app: AppHandle,
+    store: State<Store>,
+    workflow_id: String,
+    entry_node_ids: Option<Vec<String>>,
+    event_payloads: Option<HashMap<String, String>>,
+) -> Result<(), String> {
     let wf = store
         .workflow(&workflow_id)
         .map_err(|e| e.to_string())?
         .ok_or("workflow not found")?;
     let store = store.inner().clone();
+    TEST_RUN_CANCEL.store(false, Ordering::Relaxed);
     // execute_run blocks until the run finishes, and reqwest's blocking client
     // must not be built on a runtime worker — a plain std thread is both
     std::thread::spawn(move || {
@@ -52,13 +188,33 @@ fn test_run(app: AppHandle, store: State<Store>, workflow_id: String) -> Result<
             &KEYCHAIN,
             &wf,
             RunTrigger::Manual,
-            None,
-            None,
+            entry_node_ids,
+            event_payloads,
+            Some(&TEST_RUN_CANCEL),
         ) {
             eprintln!("[run] {err}");
+            // execute_run's own failures (a malformed graph, a SQLite write)
+            // return before it can emit `run-finished`, and the designer clears
+            // `running` on nothing else — so the topbar would stay on "stop" and
+            // every later test run would be blocked for the life of the mount.
+            // Same payload shape as the normal close-out, and `trigger` must be
+            // "manual" or the designer's filter drops it on the floor.
+            let _ = app.emit(
+                "run-finished",
+                json!({ "runId": null, "trigger": RunTrigger::Manual.as_str(), "status": "error", "error": err }),
+            );
         }
     });
     Ok(())
+}
+
+/// Stops the running test run. Cooperative: the interpreter checks the flag
+/// between flow steps and between agent turns/tool calls, so an in-flight HTTP
+/// request or model call still finishes before the run unwinds with
+/// "run stopped". Always succeeds — stopping nothing is a no-op.
+#[tauri::command]
+fn stop_run() {
+    TEST_RUN_CANCEL.store(true, Ordering::Relaxed);
 }
 
 // --- secrets ---------------------------------------------------------------
@@ -71,11 +227,35 @@ fn has_openrouter_key() -> bool {
     secrets::has(&KEYCHAIN, &Secret::OpenRouterKey)
 }
 
-/// Blank keeps the stored key, `clear` removes it. `saveOpenrouterKey` was
-/// exactly this and nothing more.
+/// Blank keeps the stored key, `clear` removes it — `saveOpenrouterKey` down to
+/// its length cap, and nothing more.
 #[tauri::command]
 fn set_openrouter_key(value: Option<String>, clear: bool) -> Result<(), String> {
-    secrets::set(&KEYCHAIN, &Secret::OpenRouterKey, value.as_deref(), clear)
+    let value = trimmed_secret(value.as_deref(), registry::MAX_TOKEN, "Key too long")?;
+    secrets::set(&KEYCHAIN, &Secret::OpenRouterKey, value, clear)
+}
+
+/// Trim, then cap. Both halves were in the TypeScript (`saveOpenrouterKey` did
+/// `String(...).trim()` before its length check) and both matter:
+///
+/// - a key pasted with a trailing newline is stored verbatim otherwise, and then
+///   fails at OpenRouter as an opaque 401 that looks nothing like its cause;
+/// - trimming to empty means "keep the stored value", which is the write-only
+///   convention's blank case — so whitespace-only input correctly changes nothing.
+///
+/// The cap lives here rather than in `secrets::set`, which also writes the MCP
+/// OAuth blob — legitimately larger than a token. Same ceiling and the same
+/// UTF-16 counting as `registry::save_variable` and `save_mcp_server`.
+fn trimmed_secret<'a>(
+    value: Option<&'a str>,
+    max: usize,
+    too_long: &str,
+) -> Result<Option<&'a str>, String> {
+    let value = value.map(str::trim);
+    if len16(value.unwrap_or("")) > max {
+        return Err(too_long.into());
+    }
+    Ok(value)
 }
 
 /// The GitHub poller's PAT, same write-only convention. Optional — without one
@@ -88,7 +268,29 @@ fn has_github_pat() -> bool {
 
 #[tauri::command]
 fn set_github_pat(value: Option<String>, clear: bool) -> Result<(), String> {
-    secrets::set(&KEYCHAIN, &Secret::GithubPat, value.as_deref(), clear)
+    let value = trimmed_secret(value.as_deref(), registry::MAX_TOKEN, "Token too long")?;
+    secrets::set(&KEYCHAIN, &Secret::GithubPat, value, clear)
+}
+
+// --- openrouter ------------------------------------------------------------
+
+/// The model picker's catalogue. `None` (JS `null`) means LOCKED — no OpenRouter
+/// key, so the toolbox hints at settings. `Some([])` means unlocked but the
+/// fetch failed, which falls back to the blank model chip. The distinction
+/// drives real UI, so it is one call rather than "has key" plus "list".
+#[tauri::command(async)]
+fn list_openrouter_models() -> Result<Option<Vec<openrouter::Model>>, String> {
+    if !secrets::has(&KEYCHAIN, &Secret::OpenRouterKey) {
+        return Ok(None);
+    }
+    // reqwest's blocking client must not be built on a runtime worker, and
+    // `command(async)` hands the body to one — a plain std thread is neither.
+    let models = std::thread::spawn(openrouter::list_models)
+        .join()
+        .map_err(|_| "openrouter models: worker panicked".to_string())?;
+    // a failed fetch is [], not an error: unlocked-but-empty is a distinct UI
+    // state from locked, and the TypeScript degraded the same way
+    Ok(Some(models.unwrap_or_default()))
 }
 
 // --- registry --------------------------------------------------------------
@@ -203,6 +405,12 @@ fn count_memory_items(store: State<Store>) -> Result<HashMap<String, i64>, Strin
     memory::count_memory_items(&store).map_err(|e| e.to_string())
 }
 
+/// Deletes one memory item (`deleteMemoryItem`). `id` is `MemoryItemRow.id`.
+#[tauri::command]
+fn delete_memory_item(store: State<Store>, id: String) -> Result<(), String> {
+    memory::delete_memory_item(&store, &id)
+}
+
 /// Empties a store without deleting it (`wipeMemoryStore`). The store's own row
 /// stays, so every node wired to it keeps resolving.
 #[tauri::command]
@@ -239,12 +447,20 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             list_workflows,
+            get_workflow,
             create_workflow,
+            update_workflow,
+            save_workflow,
+            set_workflow_active,
+            delete_workflow,
+            list_runs,
             test_run,
+            stop_run,
             has_openrouter_key,
             set_openrouter_key,
             has_github_pat,
             set_github_pat,
+            list_openrouter_models,
             list_registry,
             save_mcp_server,
             save_skill,
@@ -254,6 +470,7 @@ fn main() {
             discover_mcp_tools,
             list_memory_items,
             count_memory_items,
+            delete_memory_item,
             wipe_memory_store,
         ])
         .run(tauri::generate_context!())

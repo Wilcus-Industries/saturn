@@ -46,7 +46,7 @@ const SEGMENTS: {
 ];
 
 // per-tool allowlist rows for an MCP server; serialized into a hidden
-// "tools" field so the surrounding server-action form can submit it
+// "tools" field so the surrounding form can submit it as one string
 export default function ToolListEditor({ initial }: { initial: McpTool[] }) {
     const [tools, setTools] = useState<McpTool[]>(initial);
 
@@ -139,8 +139,8 @@ export default function ToolListEditor({ initial }: { initial: McpTool[] }) {
                 </button>
             )}
 
-            {/* strict triple only — discovered description/params stay server-side
-                (saveMcpServer re-attaches them by name) and off the wire */}
+            {/* strict triple only — discovered description/params stay in the
+                store (save_mcp_server re-attaches them by name) and off the wire */}
             <input
                 type={"hidden"}
                 name={"tools"}

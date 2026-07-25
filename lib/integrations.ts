@@ -1,9 +1,9 @@
 // Platform extensions (client-safe). Each PlatformExtension bundles one app's
-// outbound `actions` (message nodes → lib/integrations.server.ts senders) and
-// inbound `events` (trigger nodes, delivered by the in-process gateway,
-// lib/gateway.server.ts). Adding a platform = one descriptor
-// here plus its senders/handlers server-side; interpreter/designer/toolbox
-// derive everything from the flat views at the bottom.
+// outbound `actions` (message nodes → src-tauri/src/integrations.rs senders)
+// and inbound `events` (trigger nodes, delivered by the Rust listeners:
+// src-tauri/src/gateway.rs, telegram.rs, github.rs). Adding a platform = one
+// descriptor here plus its senders/handlers in Rust; interpreter/designer/
+// toolbox derive everything from the flat views at the bottom.
 // Type-only imports from workflow.ts — workflow.ts value-imports this file,
 // so a value import here would create a runtime cycle.
 import type { ConfigField, NodeCategory } from "@/lib/workflow";
@@ -60,7 +60,7 @@ export type PlatformExtension = {
 };
 
 // a flat integration node = an action merged with its platform's app + logo,
-// the shape lib/workflow.ts and lib/integrations.server.ts consume.
+// the shape lib/workflow.ts and src-tauri/src/integrations.rs consume.
 export type IntegrationProvider = IntegrationAction & {
     app: string; // toolbox subheader within the Apps group — the app's name
     logoDomain: string; // favicon host

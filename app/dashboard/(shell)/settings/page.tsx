@@ -1,54 +1,115 @@
-import { notFound } from "next/navigation";
-import McpLogo from "@/app/dashboard/mcpLogo";
+"use client";
+
+import { useCallback, useState } from "react";
 import ActionButton from "@/app/dashboard/actionButton";
-import ConnectAgent from "@/app/dashboard/connectAgent";
-import { faviconDomain } from "@/lib/registry";
-import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
-import { hasOpenrouterKey } from "@/lib/openrouter.server";
-import { getUserRegistry } from "@/lib/registry.server";
-import { SELF_HOSTED } from "@/lib/selfhost";
-import { baseUrl, getSessionCached } from "@/lib/subscription";
-import { deleteRegistryEntry, saveOpenrouterKey } from "./actions";
-import ConnectButton from "./connectButton";
 import ConfirmButton from "@/app/dashboard/confirmButton";
+import McpLogo from "@/app/dashboard/mcpLogo";
+import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
+import { faviconDomain, type RegistryEntryRow } from "@/lib/registry";
+import ConnectButton from "./connectButton";
 import McpEntryModal from "./mcpEntryModal";
 import SkillModal from "./skillModal";
-import UnlinkInstallationButton from "./unlinkInstallationButton";
 
-export default async function Settings({
-    searchParams,
+// the two Keychain-backed secrets on this page are the same form twice: a
+// password field, a clear checkbox that only exists once something is stored,
+// and a save. Write-only both ways — the value never comes back over IPC, so
+// blank means "keep" and there is nothing to prefill.
+function SecretForm({
+    field,
+    placeholder,
+    isSet,
+    cmd,
+    onSaved,
 }: {
-    searchParams: Promise<{
-        entry?: string;
-        mcp_error?: string;
-        github?: string;
-        github_error?: string;
-    }>;
+    field: string;
+    placeholder: string;
+    isSet: boolean;
+    cmd: string;
+    onSaved: () => void;
 }) {
-    const session = await getSessionCached();
-    if (!session?.user) notFound();
+    const [error, setError] = useState<string | null>(null);
 
-    // connect failures redirect back here with the message in the URL
-    const {
-        entry: errorEntryId,
-        mcp_error: mcpError,
-        github: githubStatus,
-        github_error: githubError,
-    } = await searchParams;
+    return (
+        <form
+            className={"flex flex-col gap-3"}
+            action={async (formData: FormData) => {
+                setError(null);
+                try {
+                    // Rust writes the value verbatim, so the trim happens here —
+                    // an accidental space must read as "keep", not overwrite
+                    await call(cmd, {
+                        value: String(formData.get("value") ?? "").trim(),
+                        clear: formData.get("clear") === "on",
+                    });
+                } catch (err) {
+                    setError(err instanceof Error ? err.message : "Save failed");
+                    return;
+                }
+                onSaved();
+            }}
+        >
+            <label className={"flex flex-col gap-1"}>
+                <span className={"font-mono text-xs text-gray-400"}>{field}</span>
+                <input
+                    name={"value"}
+                    type={"password"}
+                    autoComplete={"off"}
+                    placeholder={isSet ? "•••• set — leave blank to keep" : placeholder}
+                    className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
+                />
+            </label>
 
-    // GitHub App card only exists when the operator has registered an app
-    // (webhook secret + OAuth client). Unset → self-hosters / poller-only see
-    // nothing, and no DB round trip for the installation list.
-    const githubConfigured = githubAppConfigured();
-    const installations = githubConfigured
-        ? await listInstallations(session.user.id)
-        : [];
+            {error && <p className={"font-mono text-xs text-red-400"}>{error}</p>}
 
-    // independent reads — one Promise.all so the page pays the DB round trip once
-    const [registry, keySet] = await Promise.all([
-        getUserRegistry(session.user.id),
-        hasOpenrouterKey(session.user.id),
-    ]);
+            <div className={"flex items-center gap-4"}>
+                {isSet && (
+                    <label className={"flex items-center gap-2 font-mono text-xs text-gray-400"}>
+                        <input type={"checkbox"} name={"clear"} />
+                        clear stored value
+                    </label>
+                )}
+                <ActionButton
+                    className={`ml-auto rounded-full border border-foreground px-4 py-2
+                        font-mono text-sm transition-colors duration-200
+                        hover:bg-foreground hover:text-background`}
+                >
+                    save →
+                </ActionButton>
+            </div>
+        </form>
+    );
+}
+
+export default function Settings() {
+    const load = useCallback(
+        async () =>
+            Promise.all([
+                call<RegistryEntryRow[]>("list_registry"),
+                call<boolean>("has_openrouter_key"),
+                call<boolean>("has_github_pat"),
+            ]),
+        [],
+    );
+    const { data, error, loading, reload } = useAsync(load);
+
+    // ConfirmButton has no error slot of its own, so a failed delete surfaces
+    // at the top of the page rather than vanishing
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const remove = useCallback(
+        async (formData: FormData) => {
+            setDeleteError(null);
+            try {
+                await call<boolean>("delete_registry_entry", { id: String(formData.get("id") ?? "") });
+            } catch (err) {
+                setDeleteError(err instanceof Error ? err.message : "Delete failed");
+                return;
+            }
+            reload();
+        },
+        [reload],
+    );
+
+    const [registry = [], keySet = false, patSet = false] = data ?? [];
     const mcpServers = registry.filter((entry) => entry.kind === "mcp");
     const skills = registry.filter((entry) => entry.kind === "skill");
 
@@ -56,225 +117,157 @@ export default async function Settings({
         <div className={"flex flex-col gap-6"}>
             <h1 className={"font-mono text-3xl"}>Settings</h1>
 
-            {/* BYOK: the user's own OpenRouter key funds every model call */}
-            <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
-                <h2 className={"font-mono text-xl"}>Models</h2>
+            {deleteError && <ErrorNote error={deleteError} />}
 
-                <p className={"font-mono text-sm text-gray-400"}>
-                    add an OpenRouter key to run models
-                </p>
+            {/* one gate for the whole page: the registry, the OpenRouter key and
+                the PAT are three local reads that land in the same tick, so four
+                independent placeholders would just be four pulsing lines */}
+            {loading && <Loading what={"loading settings"} />}
+            {error && <ErrorNote error={error} retry={reload} />}
 
-                <form action={saveOpenrouterKey} className={"flex flex-col gap-3"}>
-                    <label className={"flex flex-col gap-1"}>
-                        <span className={"font-mono text-xs text-gray-400"}>
-                            openrouter api key
-                        </span>
-                        <input
-                            name={"openrouterKey"}
-                            type={"password"}
-                            autoComplete={"off"}
-                            placeholder={
-                                keySet ? "•••• key set — leave blank to keep" : "sk-or-..."
-                            }
-                            className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
+            {data && (
+                <>
+                    {/* BYOK: the user's own OpenRouter key funds every model call */}
+                    <section
+                        className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
+                    >
+                        <h2 className={"font-mono text-xl"}>Models</h2>
+
+                        <p className={"font-mono text-sm text-gray-400"}>
+                            add an OpenRouter key to run models
+                        </p>
+
+                        <SecretForm
+                            field={"openrouter api key"}
+                            placeholder={"sk-or-..."}
+                            isSet={keySet}
+                            cmd={"set_openrouter_key"}
+                            onSaved={reload}
                         />
-                    </label>
+                    </section>
 
-                    <div className={"flex items-center gap-4"}>
-                        {keySet && (
-                            <label
-                                className={"flex items-center gap-2 font-mono text-xs text-gray-400"}
-                            >
-                                <input type={"checkbox"} name={"clearKey"} />
-                                clear stored key
-                            </label>
+                    {/* user registry: entries become nodes in the workflow designer */}
+                    <section
+                        className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
+                    >
+                        <h2 className={"font-mono text-xl"}>MCP servers</h2>
+
+                        <p className={"font-mono text-sm text-gray-400"}>
+                            servers that sign you in with OAuth aren&apos;t supported yet — set an
+                            auth token instead
+                        </p>
+
+                        {mcpServers.length === 0 && (
+                            <p className={"font-mono text-sm text-gray-400"}>no mcp servers yet</p>
                         )}
-                        <ActionButton
-                            className={`ml-auto rounded-full border border-foreground px-4 py-2
-                                font-mono text-sm transition-colors duration-200
-                                hover:bg-foreground hover:text-background`}
-                        >
-                            save →
-                        </ActionButton>
-                    </div>
-                </form>
-            </section>
 
-            {/* user registry: entries become nodes in the workflow designer */}
-            <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
-                <h2 className={"font-mono text-xl"}>MCP servers</h2>
+                        {mcpServers.map((entry) => {
+                            const enabledTools = entry.tools.filter((t) => t.enabled).length;
+                            return (
+                                <div
+                                    key={entry.id}
+                                    className={"flex flex-col border border-foreground/15"}
+                                >
+                                    <div className={"flex items-center gap-3 p-3"}>
+                                        <McpLogo
+                                            domain={faviconDomain(entry.server_url)}
+                                            name={entry.name}
+                                            size={32}
+                                        />
+                                        <div className={"flex min-w-0 flex-col"}>
+                                            <span className={"truncate font-mono text-sm"}>
+                                                {entry.name}
+                                            </span>
+                                            <span
+                                                className={"truncate font-mono text-xs text-gray-400"}
+                                            >
+                                                {faviconDomain(entry.server_url)}
+                                            </span>
+                                        </div>
+                                        <div className={"ml-auto flex shrink-0 items-center gap-3"}>
+                                            <McpEntryModal entry={entry} onSaved={reload} />
+                                            <ConfirmButton id={entry.id} action={remove} />
+                                        </div>
+                                    </div>
+                                    <div
+                                        className={`flex flex-wrap items-center gap-x-4 gap-y-1 border-t
+                                            border-foreground/15 px-3 py-2 font-mono text-xs
+                                            text-gray-400`}
+                                    >
+                                        {entry.has_token && <span>●●● token set</span>}
+                                        <span>
+                                            {enabledTools}/{entry.tools.length} tools
+                                        </span>
+                                        <ConnectButton
+                                            id={entry.id}
+                                            label={entry.has_token ? "discover tools →" : "connect →"}
+                                            onDiscovered={reload}
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })}
 
-                {mcpServers.length === 0 && (
-                    <p className={"font-mono text-sm text-gray-400"}>no mcp servers yet</p>
-                )}
+                        <McpEntryModal onSaved={reload} />
+                    </section>
 
-                {mcpServers.map((entry) => {
-                    const enabledTools = entry.tools.filter((t) => t.enabled).length;
-                    return (
-                        <div
-                            key={entry.id}
-                            className={"flex flex-col border border-foreground/15"}
-                        >
-                            <div className={"flex items-center gap-3 p-3"}>
-                                <McpLogo
-                                    domain={faviconDomain(entry.server_url)}
-                                    name={entry.name}
-                                    size={32}
-                                />
+                    <section
+                        className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
+                    >
+                        <h2 className={"font-mono text-xl"}>Skills</h2>
+
+                        {skills.length === 0 && (
+                            <p className={"font-mono text-sm text-gray-400"}>no skills yet</p>
+                        )}
+
+                        {skills.map((entry) => (
+                            <div
+                                key={entry.id}
+                                className={"flex items-center gap-3 border border-foreground/15 p-3"}
+                            >
+                                <span className={"text-2xl"}>{entry.emoji}</span>
                                 <div className={"flex min-w-0 flex-col"}>
-                                    <span className={"truncate font-mono text-sm"}>
-                                        {entry.name}
-                                    </span>
-                                    <span className={"truncate font-mono text-xs text-gray-400"}>
-                                        {faviconDomain(entry.server_url)}
-                                    </span>
+                                    <span className={"truncate font-mono text-sm"}>{entry.name}</span>
+                                    {entry.description && (
+                                        <span className={"truncate font-mono text-xs text-gray-400"}>
+                                            {entry.description}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
-                                    <McpEntryModal entry={entry} />
-                                    <ConfirmButton id={entry.id} action={deleteRegistryEntry} />
+                                    <SkillModal entry={entry} onSaved={reload} />
+                                    <ConfirmButton id={entry.id} action={remove} />
                                 </div>
                             </div>
-                            <div
-                                className={`flex flex-wrap items-center gap-x-4 gap-y-1 border-t
-                                    border-foreground/15 px-3 py-2 font-mono text-xs
-                                    text-gray-400`}
-                            >
-                                {entry.connected && (
-                                    <span className={"text-green-500"}>● connected</span>
-                                )}
-                                {entry.has_token && <span>●●● token set</span>}
-                                <span>
-                                    {enabledTools}/{entry.tools.length} tools
-                                </span>
-                                {/* pulls tools/list; 401 navigates out to the
-                                    server's OAuth flow and back here */}
-                                <ConnectButton
-                                    id={entry.id}
-                                    label={
-                                        entry.connected || entry.has_token
-                                            ? "discover tools →"
-                                            : "connect →"
-                                    }
-                                />
-                            </div>
-                            {mcpError && errorEntryId === entry.id && (
-                                <p
-                                    className={`border-t border-red-500/30 px-3 py-2 font-mono
-                                        text-xs text-red-400`}
-                                >
-                                    {/* reflected from the URL (gated on the viewer's own entry
-                                        id); collapse whitespace + hard-cap so it can't be shaped
-                                        into fake multi-line UI */}
-                                    {mcpError.replace(/\s+/g, " ").trim().slice(0, 200)}
-                                </p>
-                            )}
-                        </div>
-                    );
-                })}
+                        ))}
 
-                <McpEntryModal />
-            </section>
+                        <SkillModal onSaved={reload} />
+                    </section>
 
-            <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
-                <h2 className={"font-mono text-xl"}>Skills</h2>
-
-                {skills.length === 0 && (
-                    <p className={"font-mono text-sm text-gray-400"}>no skills yet</p>
-                )}
-
-                {skills.map((entry) => (
-                    <div
-                        key={entry.id}
-                        className={"flex items-center gap-3 border border-foreground/15 p-3"}
+                    {/* the central GitHub App is gone — one fine-grained read-only
+                        PAT in the Keychain now covers every github event node */}
+                    <section
+                        className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
                     >
-                        <span className={"text-2xl"}>{entry.emoji}</span>
-                        <div className={"flex min-w-0 flex-col"}>
-                            <span className={"truncate font-mono text-sm"}>{entry.name}</span>
-                            {entry.description && (
-                                <span className={"truncate font-mono text-xs text-gray-400"}>
-                                    {entry.description}
-                                </span>
-                            )}
-                        </div>
-                        <div className={"ml-auto flex shrink-0 items-center gap-3"}>
-                            <SkillModal entry={entry} />
-                            <ConfirmButton id={entry.id} action={deleteRegistryEntry} />
-                        </div>
-                    </div>
-                ))}
+                        <h2 className={"font-mono text-xl"}>GitHub</h2>
 
-                <SkillModal />
-            </section>
-
-            {/* central GitHub App: instant webhook delivery for github event
-                nodes. Only rendered when the operator has registered the app. */}
-            {githubConfigured && (
-                <section
-                    className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
-                >
-                    <h2 className={"font-mono text-xl"}>GitHub App</h2>
-
-                    <p className={"font-mono text-sm text-gray-400"}>
-                        install on your repos — GitHub events arrive instantly instead of
-                        polling. Private repos deliver only to the account that installs.
-                    </p>
-
-                    {githubStatus === "connected" && (
-                        <p className={"font-mono text-sm text-green-500"}>
-                            ● installation linked
-                        </p>
-                    )}
-                    {githubError && (
-                        <p className={"font-mono text-sm text-red-400"}>
-                            {/* reflected from the URL — collapse whitespace + hard-cap so
-                                it can't be shaped into fake multi-line UI */}
-                            {githubError.replace(/\s+/g, " ").trim().slice(0, 200)}
-                        </p>
-                    )}
-
-                    {installations.length === 0 && (
                         <p className={"font-mono text-sm text-gray-400"}>
-                            no repositories linked yet
+                            optional — public repos poll fine without a token, at 60 requests/hour
+                            shared across every watch instead of 5,000. github-star watches are the
+                            exception: one of them spends ~120 requests/hour on its own, so they
+                            need a token to work at all.
                         </p>
-                    )}
 
-                    {installations.map((inst) => (
-                        <div
-                            key={inst.installationId}
-                            className={"flex items-center gap-3 border border-foreground/15 p-3"}
-                        >
-                            <div className={"flex min-w-0 flex-col"}>
-                                <span className={"truncate font-mono text-sm"}>
-                                    {inst.accountLogin || `installation ${inst.installationId}`}
-                                </span>
-                                <span className={"truncate font-mono text-xs text-gray-400"}>
-                                    installation {inst.installationId}
-                                </span>
-                            </div>
-                            <div className={"ml-auto shrink-0"}>
-                                <UnlinkInstallationButton
-                                    installationId={inst.installationId}
-                                />
-                            </div>
-                        </div>
-                    ))}
-
-                    <a
-                        href={"/api/github/install"}
-                        className={`self-start rounded-full border border-foreground px-4 py-2
-                            font-mono text-sm transition-colors duration-200
-                            hover:bg-foreground hover:text-background`}
-                    >
-                        Install on GitHub →
-                    </a>
-                </section>
+                        <SecretForm
+                            field={"fine-grained personal access token (read-only)"}
+                            placeholder={"github_pat_..."}
+                            isSet={patSet}
+                            cmd={"set_github_pat"}
+                            onSaved={reload}
+                        />
+                    </section>
+                </>
             )}
-
-            <ConnectAgent
-                baseUrl={baseUrl}
-                selfHosted={SELF_HOSTED}
-                mcpToken={process.env.SELF_HOSTED_MCP_TOKEN ?? ""}
-            />
         </div>
     );
 }

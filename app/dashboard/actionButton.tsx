@@ -4,7 +4,7 @@ import { type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import Spinner from "./spinner";
 
-// submit button that turns into a spinner while its form's server action runs
+// submit button that turns into a spinner while its form's async action runs
 // (useFormStatus only reports the enclosing form, so sibling cards stay idle)
 export default function ActionButton({
     className,

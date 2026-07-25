@@ -270,7 +270,7 @@ pub fn can_call_tool(tool: &McpTool) -> bool {
 
 /// UTF-16 length, because every cap ported here was written against JS
 /// `String.length` — an emoji counts 2 there and must count 2 here.
-fn len16(s: &str) -> usize {
+pub fn len16(s: &str) -> usize {
     s.encode_utf16().count()
 }
 

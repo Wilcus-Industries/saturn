@@ -13,7 +13,8 @@
 # testing
 /coverage
 
-# next.js
+# next.js — /out is the static export that tauri.conf.json's frontendDist
+# embeds; /.next is the bundler scratch dir. Build output, never committed.
 /.next/
 /out/
 
@@ -40,12 +41,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files. Nothing reads one any more — the Rust takes no env vars and every
+# secret lives in the macOS Keychain — but keep them out of git regardless.
 .env*
-!.env.example
-
-# vercel
-.vercel
 
 # typescript
 *.tsbuildinfo

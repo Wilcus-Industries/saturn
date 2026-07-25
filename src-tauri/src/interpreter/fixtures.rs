@@ -327,6 +327,7 @@ fn golden_fixtures() {
             Some(&registry),
             &tx,
             Effects { send: &stub_send, model: &stub_model, tool: &stub_tool },
+            None,
         );
         drop(tx);
         let console: Vec<Value> = rx.into_iter().map(|l| json!(l)).collect();

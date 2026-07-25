@@ -36,8 +36,9 @@ const FIELD_RANGES: [min: number, max: number][] = [
 
 // accepts the grammar the visual builder can emit: exactly 5 fields, each
 // "*" or a plain in-range integer (no ranges/steps/lists), plus "*/n" in the
-// minute field only. Server actions validate with this — the create form is
-// a public POST endpoint.
+// minute field only. The scheduler has its own copy of this grammar in
+// src-tauri/src/runner.rs (`is_valid_cron`) — an invalid cron never matches
+// there, so a bad one is inert rather than a crash.
 export function isValidCron(cron: string): boolean {
     const fields = cron.trim().split(/\s+/);
     if (fields.length !== 5) return false;

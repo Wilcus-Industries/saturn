@@ -1,7 +1,8 @@
 // User registry: MCP servers and skills added in dashboard settings
 // (registry_entry table). Rows convert to workflow CatalogEntry nodes
 // keyed "mcp:<uuid>:*" / "skill:<uuid>" so the designer can render them.
-// Client-safe (no pg import) — the DB query lives in lib/registry.server.ts.
+// Client-safe — the SQLite query and every mutation live in
+// src-tauri/src/registry.rs, reached over IPC (lib/ipc.tsx).
 import { ALL_TOOLS } from "@/lib/agent";
 import { type CatalogEntry, type McpToolParam, valuePort } from "@/lib/workflow";
 

@@ -3,11 +3,17 @@
 import { useState } from "react";
 import EmojiGrid from "@/app/dashboard/emojiGrid";
 import ModalShell from "@/app/dashboard/modalShell";
+import { call } from "@/lib/ipc";
 import type { RegistryEntryRow } from "@/lib/registry";
-import { saveMemoryStore } from "./actions";
 
 // add ("+ add memory store") or edit ("edit") trigger + modal for one store
-export default function MemoryModal({ entry }: { entry?: RegistryEntryRow }) {
+export default function MemoryModal({
+    entry,
+    onSaved,
+}: {
+    entry?: RegistryEntryRow;
+    onSaved: () => void;
+}) {
     // controlled — React resets uncontrolled fields after a form action, which
     // would wipe the user's input when the action returns an error
     const [name, setName] = useState("");
@@ -17,8 +23,19 @@ export default function MemoryModal({ entry }: { entry?: RegistryEntryRow }) {
         <ModalShell
             title={entry ? "edit memory store" : "new memory store"}
             submitLabel={entry ? "save →" : "add →"}
-            action={saveMemoryStore}
-            entryId={entry?.id}
+            action={async (formData) => {
+                try {
+                    await call("save_memory_store", {
+                        id: entry?.id ?? null,
+                        name: String(formData.get("name") ?? ""),
+                        emoji: String(formData.get("emoji") ?? ""),
+                        description: String(formData.get("description") ?? ""),
+                    });
+                } catch (err) {
+                    return { error: err instanceof Error ? err.message : "Something went wrong" };
+                }
+                onSaved();
+            }}
             onOpen={() => {
                 setName(entry?.name ?? "");
                 setDescription(entry?.description ?? "");

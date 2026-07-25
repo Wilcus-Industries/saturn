@@ -432,6 +432,24 @@ pub fn list_memory_items(
     items
 }
 
+/// Port of `deleteMemoryItem`. The id is the vec0 rowid rendered as a string
+/// (`MemoryItemRow::id`), not a uuid — there is no per-item uuid column to check
+/// a shape against, so a non-numeric id is simply "Not found" rather than a SQL
+/// type error.
+pub fn delete_memory_item(store: &Store, id: &str) -> Result<(), String> {
+    let Ok(rowid) = id.parse::<i64>() else {
+        return Err("Not found".into());
+    };
+    let removed = store
+        .conn()
+        .execute("delete from memory_item where rowid = ?1", [rowid])
+        .map_err(|e| e.to_string())?;
+    if removed == 0 {
+        return Err("Not found".into());
+    }
+    Ok(())
+}
+
 /// entry_id → item count, for the stores list.
 pub fn count_memory_items(store: &Store) -> rusqlite::Result<HashMap<String, i64>> {
     let conn = store.conn();

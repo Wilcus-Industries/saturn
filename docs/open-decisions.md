@@ -91,6 +91,37 @@ destructures would just quietly change shape.
 **Options:** a test asserting the serialized key order of each payload builder ·
 enable `serde_json`'s `preserve_order` crate-wide (see 2.1) and stop worrying.
 
+### 1.5 Does the TypeScript interpreter stay now that nothing runs it?
+
+Phase F deleted the designer's `import("@/lib/interpreter")`, so `lib/interpreter.ts`
+(805 lines) executes nothing. Its only remaining consumers are three compile-erased
+`import type { ConsoleLine }` lines and `fixtures/run.mjs`, the oracle that
+generated `fixtures/expected/`.
+
+`fixtures/README.md` — written before Phase F and already committed — says
+outright: *"Phase F deletes the TypeScript interpreter. From that moment
+`expected/` **is** the specification."* The deletion pass did not do it, and the
+question is whether it should.
+
+**For deleting** (the ponytail reading): it is a second implementation of
+semantics only Rust now executes, so it can drift silently, and
+`node fixtures/run.mjs --update` still exists and will rewrite the spec the README
+forbids rewriting. It drags ~130 lines of now-dead exports with it —
+`isWorkflowGraph`, `graphShapeError`, `WorkflowRow`, `MAX_EDGES`,
+`MAX_GRAPH_JSON`, `mergeTools`, `cronMatches`, `MODEL_ID`, `toReasoningParam`,
+`MEMORY_TOOL_NAMES` — several of which read as the live cap and are not
+(`MAX_GRAPH_JSON` in TypeScript is inert; Rust's is the real one, and per §2.1 it
+measures a different serialization).
+
+**For keeping:** two independent implementations agreeing on 47 fixtures is a
+stronger signal than one implementation agreeing with a file it generated. Delete
+the oracle and `expected/` can never be regenerated or cross-checked again — which
+is exactly the guarantee the fixtures exist to provide, and the thing that would
+catch a Rust interpreter change that is wrong in the same direction as its test.
+
+Both oracles are green today (`node fixtures/run.mjs` and `cargo test fixtures`
+each 47/47). Nothing forces the decision; the cost of waiting is the dead exports.
+
 ---
 
 ## 2. Known divergences
@@ -179,6 +210,45 @@ and caps the response body. These are deliberate hardenings, not port errors.
 - Lock ordering between `events::CACHE` and the `Store` mutex is unenforced. No
   deadlock today — every mutation drops the store guard before taking the cache —
   but nothing keeps it that way.
+- `list_openrouter_models` sorts with `to_lowercase().cmp()` where the TypeScript
+  used `localeCompare`. No stdlib equivalent, and ICU is not worth a dependency
+  for a picker sort; accented names may order differently.
+
+### 2.6 Dynamic route segments became query strings
+
+`output: "export"` prerenders every route at build time, so a segment whose values
+are user-created uuids cannot exist. The three that did were moved:
+
+| was | is |
+|---|---|
+| `/dashboard/workflows/[id]` | `/dashboard/workflows/designer/?id=` |
+| `/dashboard/workflows/[id]/runs` | `/dashboard/workflows/runs/?id=` |
+| `/dashboard/memory/[id]` | `/dashboard/memory/store/?id=` |
+
+The alternative was an SPA-fallback rewrite, which Tauri's asset protocol does not
+do. Cost: every page reading an id needs `useSearchParams`, which forces a Suspense
+boundary under static export. `app/dashboard/workflows/[id]/` was renamed to
+`designer/` on disk, so ~20 colocated designer components moved with it.
+
+### 2.7 There is no invalidation bus, and that is the point
+
+23 `revalidatePath` calls did not become 23 event channels. A mutation the user
+just made is awaited by its own caller, so **the caller refetches**. The only
+changes nobody asked for are background ones — a cron firing, a Discord message
+landing — and those emit one app-wide `data-changed` with no payload, which
+`useAsync` subscribes to. Test runs deliberately do not emit it: the designer is
+already following that run over `run-log`/`run-finished`, and firing it too would
+make every open page refetch twice.
+
+Revisit only if a page appears that renders something no command returns.
+
+### 2.8 Security headers moved to the Tauri CSP
+
+`next.config.ts`'s `headers()` is gone with the HTTP server. `frame-ancestors`,
+HSTS and `Referrer-Policy` have no meaning inside a WebView with no navigation
+surface; the CSP itself moves to `tauri.conf.json` `app.security.csp`, the only
+layer that still sees a request. `img-src` still allows the Google favicon hosts
+(MCP and model logos are fetched live) and `connect-src` adds `ipc:`.
 
 ---
 
@@ -195,8 +265,8 @@ be — a function called only from a branch that can never be true.**
 | where | count | warms with |
 |---|---|---|
 | `mcp.rs` — the OAuth/PKCE flow, ~270 LOC | 18 | a redirect target (loopback listener), Phase G/H |
-| `openrouter.rs` — `stream_chat` + SSE decoder, ~200 LOC | 6 | the agent chat page, Phase F |
-| `store.rs` — `RunRow`, `latest_run` | 2 | the run-history UI, Phase F |
+| `openrouter.rs` — `stream_chat` + SSE decoder, ~200 LOC | 6 | the agent chat page, blocked on 3.3 |
+| `store.rs` — `latest_run` | 1 | stays cold: `list_runs` and `list_workflow_cards` cover the UI, and tests are its only reader |
 | `registry.rs` — `variable_id_from_sentinel` | 1 | stays cold; its consumer is TypeScript |
 
 ### 3.2 MCP OAuth cannot complete
@@ -232,12 +302,18 @@ single deadline over a whole run.
 17 usable MCP grants" arithmetic in `agent.rs` are asserted only in a comment.
 A 21-chip golden fixture would close it.
 
-### 3.6 `subscriptions_changed()` has no Phase F call sites yet
+### 3.6 `subscriptions_changed()` — done
 
-Every workflow and variable mutation must call it or a transport keeps listening
-with a stale token and a deleted event node keeps delivering. The Rust mutation
-paths that exist today all call it. Phase F adds the IPC commands for workflow
-save / delete / toggle-active, and each one must too.
+Closed by the Phase F command surface. The wake lives on the **store** methods,
+not the commands, for the same reason `create_workflow` already carried it: an
+IPC command or a Phase G MCP tool that forgets it leaves a deleted event node
+delivering and a saved bot token invisible for a full minute.
+
+Callers today: `store::create_workflow`, `store::set_graph`, `store::set_active`,
+`store::delete_workflow`, `registry::save_variable` (both branches, after the
+Keychain write) and `registry::delete_entry`. Deliberately NOT
+`store::update_workflow_meta` — a name or emoji cannot change a subscription,
+and it fires on every close of the metadata modal.
 
 ### 3.7 `catalog.json` carries neither `platform` nor `requiredConfig`
 
@@ -247,7 +323,85 @@ for those two facts. Config *field ids* still come from `CATALOG` and
 small — but it is a second source of truth, which is the exact thing
 `catalog.json` exists to prevent.
 
-### 3.8 `docs/` still describes the hosted product
+### 3.8 `docs/` — and now `CLAUDE.md` — describe the hosted product
 
 Every file under `docs/` predates the desktop pivot. `CLAUDE.md` carries a
 banner saying so. Rewrite at the end, with this file.
+
+**`CLAUDE.md` is now wrong in ways Phase F caused**, which is worse than merely
+stale, because it is the file every agent reads first and its own rule says a
+change altering anything it documents must update it in the same change. It still
+documents `npm run dev:full` and `psql "$DATABASE_URL" -f db/setup.sql` (both
+deleted), `npx @better-auth/cli migrate` (better-auth uninstalled), `.env.example`
+(deleted), the `next.config.ts` `headers()` CSP (moved to `tauri.conf.json`), "raw
+`pg` Pool against Postgres", in-process background loops, and an entire **Auth**
+invariants block naming `lib/auth.ts`, `lib/subscription.ts`, `SELF_HOSTED` and
+`proxy.ts` — every one of which is gone.
+
+Deliberately not patched line-by-line: fixing three commands inside a globally
+stale document buys a false impression of currency. It goes in the one rewrite.
+
+### 3.10 Duplication the parallel build left behind
+
+Phase F's four UI lanes ran concurrently against a written contract and could not
+see each other, so they solved the same problems separately. That is the known,
+predictable cost of building it that way, and it was the right trade — but the
+duplicates are real and worth one consolidation pass **after the app is proven to
+run**, not at the tail of a change nobody has launched yet:
+
+- **Four armed-confirm buttons**, now structurally identical (`confirmButton.tsx`,
+  `deleteWorkflowButton.tsx`, and both buttons in `memory/store/itemButtons.tsx`).
+  The three-way split was justified pre-Phase-F because each posted a different
+  server action through a `<form>`; all four bodies are now the same
+  `call(cmd, args).then(cb, cb)`. Two lanes even disagreed on the refetch idiom.
+  ≈130 lines.
+- **`skillModal.tsx` and `memoryModal.tsx` are the same file** — 94 and 98 lines
+  whose diff is 22 lines of string literals plus the command name, and
+  `workflowModal.tsx` is the same shape a third time. All three commands take the
+  identical `{id, name, emoji, description}`. ≈110 lines.
+- **Ten copies of an unreachable error fallback**, with four different messages
+  (`"Something went wrong"` / `"Save failed"` / `"Delete failed"` /
+  `"Connection failed"`). `lib/ipc.tsx`'s `call()` always rethrows an `Error`, so
+  `err instanceof Error` is always true and the fallback string is dead in every
+  one. One exported helper.
+- **FormData scaffolding that outlived the server actions**: `ModalShell`'s
+  `entryId` prop and its hidden input (no callers), `ConfirmButton`'s
+  `FormData` signature and `label`/`confirm`/`title` props (no caller has ever
+  passed a non-default), `cronBuilder`'s `name` prop and hidden input.
+- **`relativeTime` lives in `workflowCard.tsx`** and is imported by two other
+  pages, dragging `WorkflowCard` → `WorkflowModal` → `ModalShell` → `EmojiGrid`
+  into their module graphs for an 8-line date formatter. Belongs in `lib/`.
+- `memory/store/page.tsx`'s `load` depends on `query`, so pressing search refetches
+  `list_registry` and every store's item count alongside the filtered items.
+
+Estimated ≈390 lines. None of it is broken; all of it is code someone will read.
+
+### 3.9 The Saturn Agent chat ships with Phase G, not v1
+
+**The one feature Phase F removes rather than rewires**, so it is worth stating
+plainly rather than leaving it to be noticed.
+
+The agent chat is two entry points — the dashboard home page and the panel docked
+beside the designer canvas — and both run the same loop: stream OpenRouter with
+Saturn's own MCP toolset bound, so the agent can list workflows, read the catalog,
+validate and save a graph, search memory. That toolset is `TOOL_DEFS` /
+`dispatchTool` in `app/mcp/tools.ts` (1,288 LOC, 35 tools), which is Phase G and
+deferred past v1 (§3.3).
+
+Shipping the chat without the tools was considered and rejected: an agent that can
+talk about your workflows but cannot read or change one is worse than no chat,
+because it looks like it works.
+
+So the routes and the components are **deleted**, not stubbed —
+`app/dashboard/(shell)/page.tsx`, `agentChat.tsx`, `agentComposer.tsx`,
+`agentChatStore.ts`, `agentPrefs.ts`, `designer/agentPanel.tsx`. Recover them with
+`git show b6d0f71:<path>`; they need a `fetch`-to-`invoke`/`listen` swap once the
+tool layer is Rust. Leaving a tree of files importing deleted modules would have
+broken the build and rotted; git history is the archive. (`app/mcp/` — the hosted
+server holding `TOOL_DEFS` itself — is deleted on the same terms.)
+
+Consequence for §3.1: `openrouter::stream_chat` and its SSE decoder stay cold. The
+plan expected Phase F to warm them; it cannot.
+
+`agentPrefs` (the composer's last model + effort, in cookies) goes with it — no
+cookies under static export, and nothing left to remember until the chat returns.

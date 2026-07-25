@@ -664,9 +664,161 @@ pub fn stream_chat(
     Ok(decoder.finish())
 }
 
+// --- the model catalogue ---------------------------------------------------
+
+/// One row of the designer's model picker. `output_modalities` is
+/// `architecture.output_modalities` filtered to the two values the designer
+/// understands (it drives the agent node's output select); `supports_reasoning`
+/// comes off `supported_parameters` and drives the reasoning select.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Model {
+    pub id: String,
+    pub name: String,
+    pub output_modalities: Vec<String>,
+    pub supports_reasoning: bool,
+}
+
+const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
+const MODELS_TTL: Duration = Duration::from_secs(3600);
+/// The response is several MB and ~2 000 entries; the designer renders a
+/// toolbox chip per row, so the tail is unreachable UI either way.
+const MAX_MODELS: usize = 1000;
+/// `MODEL_ID`'s length cap in lib/agent.ts — a longer id could never be run.
+const MAX_MODEL_ID: usize = 128;
+
+/// Same shape as `events::CACHE`: the whole parsed list behind one mutex, with
+/// the lock held across the load so a designer and a settings page opening
+/// together produce one fetch and one hit rather than two fetches.
+///
+/// A failure is NOT cached (`load_models` returns Err and nothing is stored), so
+/// the next call retries — that is what the TypeScript's `loadModels` throwing
+/// past the memo did.
+static MODELS: std::sync::Mutex<Option<(std::time::Instant, Vec<Model>)>> =
+    std::sync::Mutex::new(None);
+
+/// The public models endpoint. Deliberately unauthenticated — the response is
+/// identical for every caller and no key is sent, which is why this is safe to
+/// cache process-wide.
+///
+/// Blocking reqwest: the caller must be on a plain std thread.
+pub fn list_models() -> Result<Vec<Model>, String> {
+    // `into_inner` on poison, not `unwrap`: the lock is held across a network
+    // call, and a panic under it would otherwise wedge the picker for the life
+    // of the process.
+    let mut cache = MODELS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, models)) = cache.as_ref() {
+        if at.elapsed() < MODELS_TTL {
+            return Ok(models.clone());
+        }
+    }
+    let models = load_models()?;
+    *cache = Some((std::time::Instant::now(), models.clone()));
+    Ok(models)
+}
+
+fn load_models() -> Result<Vec<Model>, String> {
+    let client = Client::builder().timeout(TIMEOUT).build().map_err(|e| e.to_string())?;
+    let res = client.get(MODELS_URL).send().map_err(crate::http::net_error)?;
+    let status = res.status().as_u16();
+    if !(200..300).contains(&status) {
+        return Err(format!("openrouter models: {status}"));
+    }
+    let body: Value = res.json().map_err(crate::http::net_error)?;
+    Ok(parse_models(&body))
+}
+
+fn parse_models(body: &Value) -> Vec<Model> {
+    let data = body.get("data").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let mut models: Vec<Model> = data
+        .iter()
+        // the cap applies AFTER the filter and BEFORE the map, exactly as the
+        // TypeScript's .filter().slice(0, 1000).map() chain did — filtering
+        // after slicing would silently shrink the list below 1 000
+        .filter_map(|m| {
+            let id = m
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && s.encode_utf16().count() <= MAX_MODEL_ID)?;
+            Some((m, id))
+        })
+        .take(MAX_MODELS)
+        .map(|(m, id)| Model {
+            id: id.to_string(),
+            name: m
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(id)
+                .to_string(),
+            output_modalities: m
+                .get("architecture")
+                .and_then(|a| a.get("output_modalities"))
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|x| *x == "text" || *x == "image")
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            supports_reasoning: m
+                .get("supported_parameters")
+                .and_then(Value::as_array)
+                .is_some_and(|p| p.iter().any(|x| x.as_str() == Some("reasoning"))),
+        })
+        .collect();
+    // `localeCompare` has no Rust equivalent without pulling in ICU. Lowercase
+    // byte order is the closest thing that keeps "Claude" next to "claude"
+    // instead of sorting every capitalised name ahead of every lowercase one,
+    // which is the only difference a user would actually notice in the picker.
+    models.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    models
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The models list is parsed from an endpoint nobody in this project owns,
+    /// so every field is optional in practice. The order of filter/cap/map is
+    /// the load-bearing part: capping before the filter would hand the picker
+    /// fewer than 1 000 usable models whenever OpenRouter lists a junk row early.
+    #[test]
+    fn model_rows_are_filtered_then_capped_then_sorted() {
+        let mut rows: Vec<Value> = vec![
+            serde_json::json!({ "id": "", "name": "blank id" }),
+            serde_json::json!({ "id": 7, "name": "not a string" }),
+            serde_json::json!({ "id": "x".repeat(MAX_MODEL_ID + 1) }),
+            serde_json::json!({ "id": "zeta/one", "name": "Zeta",
+                                "architecture": { "output_modalities": ["text", "video"] },
+                                "supported_parameters": ["reasoning", "tools"] }),
+            // no name → falls back to the id; no architecture → no modalities
+            serde_json::json!({ "id": "alpha/two" }),
+        ];
+        let models = parse_models(&serde_json::json!({ "data": rows.clone() }));
+        assert_eq!(models.len(), 2, "junk rows survived: {models:?}");
+        assert_eq!(models[0].id, "alpha/two");
+        assert_eq!(models[0].name, "alpha/two", "name must fall back to the id");
+        assert!(models[0].output_modalities.is_empty());
+        assert!(!models[0].supports_reasoning);
+        assert_eq!(models[1].name, "Zeta");
+        // "video" is not a modality the designer can render
+        assert_eq!(models[1].output_modalities, ["text"]);
+        assert!(models[1].supports_reasoning);
+
+        // the cap counts usable rows, not raw ones: 3 junk rows above + 1005 good
+        for i in 0..1005 {
+            rows.push(serde_json::json!({ "id": format!("m/{i:04}") }));
+        }
+        let capped = parse_models(&serde_json::json!({ "data": rows }));
+        assert_eq!(capped.len(), MAX_MODELS);
+
+        // a body with no `data` array is empty, never a panic
+        assert!(parse_models(&serde_json::json!({})).is_empty());
+        assert!(parse_models(&serde_json::json!({ "data": "nope" })).is_empty());
+    }
 
     fn spec(entry: &str, tool: &str, params: Option<Vec<ToolParam>>) -> ToolSpec {
         ToolSpec {

@@ -14,6 +14,7 @@
 //! that builder emits. A crate would silently disagree on exactly that rule.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::channel;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -36,6 +37,13 @@ const MAX_CATCHUP_MINUTES: i64 = 5; // a long sleep must not burst-fire history
 const MINUTE_MS: i64 = 60_000;
 const MAX_LOG_LINES: usize = 300;
 const MAX_LOG_LINE_CHARS: usize = 2_000;
+/// Per-port sample cap for the `run-value` events. Deliberately NOT
+/// `MAX_LOG_LINE_CHARS`: these feed the designer's extract path-picker, which
+/// JSON.parses them, and every real event payload is longer than 2 000 chars —
+/// cutting there would leave the picker with nothing to walk. This is the
+/// picker's own MAX_SAMPLE_CHARS, so the cap costs nothing it was going to use.
+/// No "… (truncated)" marker either: a marker is not a JSON suffix.
+const MAX_SAMPLE_CHARS: usize = 500_000;
 /// The model writes this argument blob, so it is bounded before it is parsed.
 const MAX_TOOL_INPUT: usize = 65_536;
 /// The system prompt is graph-authored and re-sent on every turn of the loop.
@@ -422,6 +430,7 @@ fn agent_turn(
 /// The interpreter gets its own std thread and this one drains the channel.
 /// That is not decoration: reqwest's blocking client must not be built on a
 /// tokio worker, and a fresh std thread is guaranteed clean of runtime context.
+#[allow(clippy::too_many_arguments)] // every one of these is a real run seam
 pub fn execute_run(
     app: Option<&AppHandle>,
     store: &Store,
@@ -433,10 +442,16 @@ pub fn execute_run(
     // Only the event path seeds this; cron and manual runs pass None, and an
     // event node with no entry here evaluates to "" exactly as before.
     event_payloads: Option<HashMap<String, String>>,
+    // the designer's stop button. Only `test_run` passes one — a cron or event
+    // run has no UI to press it from.
+    cancel: Option<&'static AtomicBool>,
 ) -> Result<String, String> {
     let graph: Graph = serde_json::from_value(wf.graph.clone())
         .map_err(|e| format!("workflow graph is malformed: {e}"))?;
     let run_id = store.insert_run(&wf.id, trigger).map_err(|e| e.to_string())?;
+    // a run that nobody asked for has just appeared in the history — nudge any
+    // open page. Manual runs already have a caller that will refetch.
+    data_changed(app, trigger);
 
     // One registry read per run feeds both the chip overlay (so an `mcp:…` node
     // renders as itself rather than "(deleted)") and every agent turn's grant
@@ -468,7 +483,7 @@ pub fn execute_run(
     // the registry, and a detached thread would force all three to be 'static.
     // It is still a plain std thread — which is the requirement, since reqwest's
     // blocking client must not be built on a tokio worker.
-    let panicked = std::thread::scope(|scope| {
+    let (panicked, samples) = std::thread::scope(|scope| {
         let worker = scope.spawn(move || {
             run_workflow(
                 &graph,
@@ -477,26 +492,79 @@ pub fn execute_run(
                 Some(&catalog),
                 &tx,
                 effects,
-            );
+                cancel,
+            )
         });
         for line in rx {
-            let capped = crate::interpreter::utf16_prefix(&line.text, MAX_LOG_LINE_CHARS);
-            let text = capped.unwrap_or(line.text);
-            if line.kind == Kind::Error {
-                last_error = text.clone();
-            }
+            // An image line is a data:image/… URL the designer console renders
+            // as an <img>, so it goes out whole: the char cap would corrupt the
+            // base64. Its size is already bounded at the source by
+            // MAX_IMAGE_DATA_URL, so no cap of its own is needed here.
+            let is_image = line.kind == Kind::Image;
+            let capped = if is_image {
+                None
+            } else {
+                crate::interpreter::utf16_prefix(&line.text, MAX_LOG_LINE_CHARS)
+            };
+            // `trigger` rides along on all three run events so the designer can
+            // tell its own test run from a cron or event run that happens to be
+            // streaming on the same channel. Filtering on `runId` alone cannot:
+            // `test_run` returns before the run row exists, so the id is unknown
+            // until the first line arrives, and "first id wins" latches whichever
+            // run spoke first — possibly the background one, which would silently
+            // swallow every line the user was waiting for.
             if let Some(app) = app {
+                let text = capped.as_deref().unwrap_or(&line.text);
                 let _ =
-                    app.emit("run-log", json!({ "runId": run_id, "kind": line.kind, "text": text }));
+                    app.emit("run-log", json!({ "runId": run_id, "trigger": trigger.as_str(), "kind": line.kind, "text": text }));
+            }
+            // never persist an image data URL — the char cap would corrupt the
+            // base64 and bloat the stored log; keep a description instead
+            let (kind, text) = if is_image {
+                (Kind::Info, agent::describe_image(&line.text))
+            } else {
+                (line.kind, capped.unwrap_or(line.text))
+            };
+            if kind == Kind::Error {
+                last_error = text.clone();
             }
             if log.len() >= MAX_LOG_LINES {
                 dropped += 1;
                 continue;
             }
-            log.push(json!({ "kind": line.kind, "text": text }));
+            log.push(json!({ "kind": kind, "text": text }));
         }
-        worker.join().is_err()
+        match worker.join() {
+            Ok(values) => (false, values),
+            Err(_) => (true, Vec::new()),
+        }
     });
+
+    // Per-port samples for the designer's extract path-picker (the TypeScript's
+    // `onValue` hook). Emitted after the walk rather than streamed: the picker
+    // reads them only when it opens, which is necessarily after the run, and the
+    // designer kept them in a Map keyed "nodeId:portId" — so last-writer-wins
+    // is the state it ends up in either way. Deduping to that state here turns
+    // one IPC message per *evaluation* (up to MAX_STEPS of them) into one per
+    // port. Ordering is guaranteed: every `run-value` precedes `run-finished`.
+    if let Some(app) = app {
+        let mut seen: HashMap<String, String> = HashMap::new();
+        let mut order: Vec<(String, String)> = Vec::new();
+        for (node_id, port_id, text) in samples {
+            let key = format!("{node_id}:{port_id}");
+            if seen.insert(key, text).is_none() {
+                order.push((node_id, port_id));
+            }
+        }
+        for (node_id, port_id) in order {
+            let text = seen.remove(&format!("{node_id}:{port_id}")).unwrap_or_default();
+            let text = utf16_prefix(&text, MAX_SAMPLE_CHARS).unwrap_or(text);
+            let _ = app.emit(
+                "run-value",
+                json!({ "runId": run_id, "trigger": trigger.as_str(), "nodeId": node_id, "portId": port_id, "text": text }),
+            );
+        }
+    }
     if dropped > 0 {
         log.push(json!({ "kind": "info", "text": format!("({dropped} lines truncated)") }));
     }
@@ -516,10 +584,28 @@ pub fn execute_run(
     if let Some(app) = app {
         let _ = app.emit(
             "run-finished",
-            json!({ "runId": run_id, "status": if failed { "error" } else { "success" }, "error": error }),
+            json!({ "runId": run_id, "trigger": trigger.as_str(), "status": if failed { "error" } else { "success" }, "error": error }),
         );
     }
+    data_changed(app, trigger);
     Ok(run_id)
+}
+
+/// The one app-wide "something changed behind your back, refetch" signal. No
+/// payload and no per-table channels: the pages that care already refetch
+/// everything they render, and a background run is the only thing that mutates
+/// without an IPC caller standing by to refetch for itself.
+///
+/// Manual runs are excluded on purpose — `test_run`'s caller is the designer,
+/// which is already following the run over `run-log`/`run-finished`, and firing
+/// this too would make every page refetch twice.
+fn data_changed(app: Option<&AppHandle>, trigger: RunTrigger) {
+    if matches!(trigger, RunTrigger::Manual) {
+        return;
+    }
+    if let Some(app) = app {
+        let _ = app.emit("data-changed", ());
+    }
 }
 
 // --- the tick --------------------------------------------------------------
@@ -575,7 +661,7 @@ pub fn run_due_workflows(
             // its siblings or the next tick
             running.push(scope.spawn(move || {
                 let _ =
-                    execute_run(app.as_ref(), &store, vault, &wf, RunTrigger::Cron, Some(ids), None);
+                    execute_run(app.as_ref(), &store, vault, &wf, RunTrigger::Cron, Some(ids), None, None);
             }));
         }
         let ran = running.len();
@@ -741,7 +827,7 @@ mod tests {
             ],
         });
         let wf = store.create_workflow("bad scheme", graph).unwrap();
-        execute_run(None, &store, &vault, &wf, RunTrigger::Manual, None, None).unwrap();
+        execute_run(None, &store, &vault, &wf, RunTrigger::Manual, None, None, None).unwrap();
 
         let run = store.latest_run(&wf.id).unwrap().unwrap();
         assert_eq!(run.status, "error");
@@ -760,9 +846,47 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// An image line is a data URL, and the 2 000-char cap would corrupt its
+    /// base64 — so the persisted log keeps a description instead of the data.
+    /// The `run-log` event is the other half (it carries the URL whole, for the
+    /// designer's `<img>`); asserting that needs an AppHandle, which a test has
+    /// no way to build, so this pins the sink that writes to the file.
+    #[test]
+    fn an_image_line_persists_as_a_description() {
+        let (dir, store, vault) = temp_store();
+        let url = format!("data:image/png;base64,{}", "Q".repeat(4001));
+        let graph = json!({
+            "nodes": [
+                { "id": "s", "type": "schedule", "x": 0, "y": 0, "config": {} },
+                { "id": "v", "type": "string", "x": 0, "y": 0, "config": { "value": url } },
+                { "id": "p", "type": "print", "x": 0, "y": 0, "config": { "message": "" } },
+            ],
+            "edges": [
+                { "id": "e1", "from": { "nodeId": "s", "portId": "out" },
+                  "to": { "nodeId": "p", "portId": "in" }, "kind": "flow" },
+                { "id": "e2", "from": { "nodeId": "v", "portId": "out" },
+                  "to": { "nodeId": "p", "portId": "message" }, "kind": "value" },
+            ],
+        });
+        let wf = store.create_workflow("image", graph).unwrap();
+        execute_run(None, &store, &vault, &wf, RunTrigger::Manual, None, None, None).unwrap();
+
+        let log = store.latest_run(&wf.id).unwrap().unwrap().log;
+        let lines = log.as_array().unwrap();
+        let image = lines
+            .iter()
+            .find(|l| l["text"].as_str().unwrap().starts_with("[image"))
+            .unwrap_or_else(|| panic!("no image line: {lines:?}"));
+        assert_eq!(image["kind"], "info");
+        assert_eq!(image["text"], "[image · image/png · 3 KB]");
+        // and not a single byte of the payload reached the row
+        assert!(!lines.iter().any(|l| l["text"].as_str().unwrap().contains("QQQ")), "{lines:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn run_log(store: &Store, vault: &dyn Vault, graph: Value) -> Vec<String> {
         let wf = store.create_workflow("wiring", graph).unwrap();
-        execute_run(None, store, vault, &wf, RunTrigger::Manual, None, None).unwrap();
+        execute_run(None, store, vault, &wf, RunTrigger::Manual, None, None, None).unwrap();
         store
             .latest_run(&wf.id)
             .unwrap()

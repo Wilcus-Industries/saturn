@@ -1,5 +1,7 @@
 // Workflow designer data model: node catalog, graph types, validation and
-// connection rules. Shared by the designer canvas and server actions.
+// connection rules. Shared by the designer canvas and the test-run
+// interpreter; the save-time caps and shape guard it enforces are mirrored in
+// src-tauri/src/workflow.rs, which is what actually gates a save.
 
 import catalogJson from "@/catalog.json";
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS, parseToolExclusions } from "@/lib/agent";
@@ -185,7 +187,7 @@ export const valuePort = (id: string, label = id): PortSpec => ({ id, label, kin
 //   add a value output carrying the sender's result.
 // - event:*: no flow input (they're entry points), one value input per config
 //   field, "payload" carries the event as a JSON string. Their config is
-//   resolved statically by getEventSubscriptions, never by the interpreter. No
+//   resolved statically by src-tauri/src/events.rs, never by the interpreter. No
 //   `section`: unlike integration actions they paint with the events color.
 export const CATALOG = catalogJson as CatalogEntry[];
 // mcp and skill nodes come exclusively from the user registry (lib/registry.ts)
@@ -496,10 +498,11 @@ export type ValidationIssue = {
     edgeId?: string;
 };
 
-// node types whose value output getEventSubscriptions can resolve statically
-// (from config.value) when reading event-node config before any run — every
-// other source is dynamic and resolves to blank. Shared with events.server.ts
-// so the validator's warning and the resolver stay in lockstep.
+// node types whose value output the event-subscription scan can resolve
+// statically (from config.value) when reading event-node config before any run
+// — every other source is dynamic and resolves to blank. Duplicated as
+// STATIC_VALUE_TYPES in src-tauri/src/events.rs so this validator's warning and
+// the resolver stay in lockstep.
 export const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
 
 // deep validation for graphs authored without the designer's UI guardrails
@@ -763,8 +766,8 @@ export function validateGraphStrict(
         }
     }
 
-    // event config is read statically by the always-on listener before any run
-    // (getEventSubscriptions), so only variable/string/number sources can feed
+    // event config is read statically by the always-on listeners before any run
+    // (src-tauri/src/events.rs), so only variable/string/number sources can feed
     // an event config port — a dynamic source silently resolves to blank
     for (const edge of graph.edges) {
         if (edge.kind !== "value") continue;

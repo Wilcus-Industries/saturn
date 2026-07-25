@@ -1,7 +1,6 @@
-// Client-safe agent types and helpers shared by the workflow test-run
-// interpreter (browser) and the callAgentModel server action. Server-only
-// code (OpenRouter client, prompt assembly) lives in lib/agent.server.ts —
-// same layering split as lib/registry.ts / lib/registry.server.ts.
+// Client-safe agent types and helpers for the workflow test-run interpreter
+// (browser). The real agent turn — OpenRouter client, prompt assembly, tool
+// dispatch — is Rust: src-tauri/src/agent.rs and src-tauri/src/openrouter.rs.
 
 // a granted MCP tool, resolved to its registry entry — the wire-format
 // function names OpenRouter sees never leave the server. exclude is only
@@ -53,8 +52,8 @@ export function toReasoningParam(
 }
 
 // grants are now edges from chip nodes into the agent's tools/skills ports —
-// these cap how many an agent may carry (mirrored by the server's request
-// validation in lib/runner.server.ts)
+// these cap how many an agent may carry (mirrored by src-tauri/src/agent.rs,
+// enforced on every agent request in src-tauri/src/runner.rs)
 export const MAX_GRANTED_TOOLS = 20;
 export const MAX_GRANTED_SKILLS = 10;
 

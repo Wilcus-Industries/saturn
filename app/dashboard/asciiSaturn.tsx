@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 // Intensity grids (hex 0-b per cell) sampled from public/art/saturn_with_tilted_rings.svg
 // with its blur+dither filter applied. Rings and planet are separate layers so the
@@ -101,18 +101,13 @@ function downsample(grid: number[][], f: number): number[][] {
     );
 }
 
-const gridCache = new Map<number, [number[][], number[][]]>();
-function gridsAt(scale: number): [number[][], number[][]] {
-    let entry = gridCache.get(scale);
-    if (!entry) {
-        entry = scale === 1 ? [rings, planet] : [downsample(rings, scale), downsample(planet, scale)];
-        gridCache.set(scale, entry);
-    }
-    return entry;
-}
+// Both call sites (sidebar, mobile nav) render the same small logo mark, so the
+// grids are downsampled once here instead of behind a `scale` prop.
+const ringGrid = downsample(rings, 4);
+const planetGrid = downsample(planet, 4);
 
 // returns [ringLines, planetLines] — separate layers so each can be colored independently
-function frame(t: number, ringGrid: number[][], planetGrid: number[][]): [string, string] {
+function frame(t: number): [string, string] {
     const ringLines: string[] = [];
     const planetLines: string[] = [];
     for (let y = 0; y < ringGrid.length; y++) {
@@ -145,76 +140,20 @@ function frame(t: number, ringGrid: number[][], planetGrid: number[][]): [string
     return [ringLines.join("\n"), planetLines.join("\n")];
 }
 
-// full-viewport noise field on the same character grid as the art; cells occupied
-// by ring/planet ink are left blank so nothing sits directly behind the art
-function bgFrame(
-    t: number,
-    totalCols: number,
-    totalRows: number,
-    offX: number,
-    offY: number,
-    ringGrid: number[][],
-    planetGrid: number[][],
-): string {
-    const lines: string[] = [];
-    for (let y = 0; y < totalRows; y++) {
-        let line = "";
-        for (let x = 0; x < totalCols; x++) {
-            const ax = x - offX;
-            const ay = y - offY;
-            const inked =
-                ay >= 0 && ay < ringGrid.length && ax >= 0 && ax < ringGrid[0].length &&
-                (ringGrid[ay][ax] > 0 || planetGrid[ay][ax] > 0);
-            if (inked) {
-                line += " ";
-            } else {
-                // faint static noise; a few cells twinkle
-                const n = hash(x, y);
-                let bg = n < 42 ? "." : n < 60 ? ":" : n < 68 ? "+" : " ";
-                if (bg !== " " && (n * 7 + t) % 160 < 3) bg = "*";
-                line += bg;
-            }
-        }
-        lines.push(line);
-    }
-    return lines.join("\n");
-}
+// only the t=0 frame is rendered by React (static export + hydration); every
+// later frame is written to the DOM by the effect below. Module constants, so
+// React keeps diffing the same string and never stomps the animated textContent.
+const [ringText0, planetText0] = frame(0);
 
-// art is ~94 chars wide (~56em in monospace) — default font size scales with viewport, capped at 10px
-export const DEFAULT_SIZE_CLASS = "text-[min(10px,1.6vw)]";
+const PRE_CLASSES = "font-mono text-[3px] leading-none select-none";
 
-export default function AsciiSaturn({
-    sizeClass = DEFAULT_SIZE_CLASS,
-    scale = 1,
-    noise = true,
-}: {
-    sizeClass?: string;
-    // downsample factor: 1 = full art, 2/3/… = coarser grid with fewer, denser characters
-    scale?: number;
-    // set false to skip the background noise field (e.g. small logo marks)
-    noise?: boolean;
-}) {
+export default function AsciiSaturn() {
     const artRef = useRef<HTMLDivElement>(null);
     const ringRef = useRef<HTMLPreElement>(null);
     const planetRef = useRef<HTMLPreElement>(null);
-    const bgRef = useRef<HTMLPreElement>(null);
-    // parent-div coverage in whole cells around the art, so the bg grid stays
-    // cell-aligned with the art grid and fills the section without spilling past it
-    const [box, setBox] = useState<{
-        dx: number;
-        dy: number;
-        width: number;
-        height: number;
-        cellsLeft: number;
-        cellsTop: number;
-        totalCols: number;
-        totalRows: number;
-    } | null>(null);
 
-    const [ringGrid, planetGrid] = gridsAt(scale);
-
-    // animation runs outside React (same shape as moon.tsx): the frames are
-    // written straight into the <pre> nodes, so a tick costs one string build
+    // animation runs outside React: the frames are written straight into the
+    // <pre> nodes, so a tick costs one string build
     // and one textContent write instead of a re-render of the whole grid.
     // rAF gives the backgrounded-tab gate for free (browsers don't fire it in
     // hidden tabs); the IntersectionObserver adds the scrolled-past one.
@@ -231,14 +170,9 @@ export default function AsciiSaturn({
             if (now - last < 90) return; // same ~11 Hz cadence as before
             last = now;
             t += 1;
-            const [ringText, planetText] = frame(t, ringGrid, planetGrid);
+            const [ringText, planetText] = frame(t);
             if (ringRef.current) ringRef.current.textContent = ringText;
             if (planetRef.current) planetRef.current.textContent = planetText;
-            if (bgRef.current && box) {
-                bgRef.current.textContent = bgFrame(
-                    t, box.totalCols, box.totalRows, box.cellsLeft, box.cellsTop, ringGrid, planetGrid,
-                );
-            }
         };
         // rAF ids are positive, so 0 doubles as "not running"
         const io = new IntersectionObserver(([entry]) => {
@@ -253,83 +187,15 @@ export default function AsciiSaturn({
             io.disconnect();
             cancelAnimationFrame(raf);
         };
-    }, [ringGrid, planetGrid, box]);
-
-    useEffect(() => {
-        if (!noise) return;
-        const cols = ringGrid[0].length;
-        const rows = ringGrid.length;
-        const measure = () => {
-            const el = artRef.current;
-            // noise field fills the nearest [data-ascii-bounds] ancestor (fallback:
-            // direct parent), so wrappers can sit between the art and the section
-            const parent = el?.closest<HTMLElement>("[data-ascii-bounds]") ?? el?.parentElement;
-            if (!el || !parent) return;
-            const rect = el.getBoundingClientRect();
-            const p = parent.getBoundingClientRect();
-            const charW = rect.width / cols;
-            const charH = rect.height / rows;
-            const dx = rect.left - p.left;
-            const dy = rect.top - p.top;
-            const cellsLeft = Math.max(0, Math.ceil(dx / charW));
-            const cellsTop = Math.max(0, Math.ceil(dy / charH));
-            const cellsRight = Math.max(0, Math.ceil((p.right - rect.right) / charW));
-            const cellsBottom = Math.max(0, Math.ceil((p.bottom - rect.bottom) / charH));
-            setBox({
-                dx,
-                dy,
-                width: p.width,
-                height: p.height,
-                cellsLeft,
-                cellsTop,
-                totalCols: cols + cellsLeft + cellsRight,
-                totalRows: rows + cellsTop + cellsBottom,
-            });
-        };
-        measure();
-        window.addEventListener("resize", measure);
-        return () => window.removeEventListener("resize", measure);
-    }, [ringGrid]);
-
-    // only the t=0 frame is rendered by React (SSR + hydration); every later
-    // frame is written to the DOM by the effect above. Memoized so an unrelated
-    // re-render doesn't rebuild the grids — and so React keeps diffing the same
-    // string and never stomps the animated textContent.
-    const [ringText, planetText] = useMemo(() => frame(0, ringGrid, planetGrid), [ringGrid, planetGrid]);
-    const bgText = useMemo(
-        () =>
-            box
-                ? bgFrame(0, box.totalCols, box.totalRows, box.cellsLeft, box.cellsTop, ringGrid, planetGrid)
-                : "",
-        [box, ringGrid, planetGrid],
-    );
-    const preClasses = `font-mono ${sizeClass} leading-none select-none`;
+    }, []);
 
     return (
         <div ref={artRef} className={"relative"} role={"img"} aria-label={"Saturn"}>
-            {noise && box && (
-                <div
-                    aria-hidden
-                    className={"absolute -z-10 overflow-hidden"}
-                    style={{ left: -box.dx, top: -box.dy, width: box.width, height: box.height }}
-                >
-                    <pre
-                        ref={bgRef}
-                        className={`${preClasses} absolute text-[#D9D9D9] dark:text-[#2E2E2E]`}
-                        style={{
-                            left: `calc(${box.dx}px - ${box.cellsLeft}ch)`,
-                            top: `calc(${box.dy}px - ${box.cellsTop}em)`,
-                        }}
-                    >
-                        {bgText}
-                    </pre>
-                </div>
-            )}
-            <pre ref={planetRef} aria-hidden className={`${preClasses} text-[#6E7780] dark:text-[#8E979F]`}>
-                {planetText}
+            <pre ref={planetRef} aria-hidden className={`${PRE_CLASSES} text-[#6E7780] dark:text-[#8E979F]`}>
+                {planetText0}
             </pre>
-            <pre ref={ringRef} aria-hidden className={`${preClasses} absolute inset-0 text-[#26221D] dark:text-[#F5F1E8]`}>
-                {ringText}
+            <pre ref={ringRef} aria-hidden className={`${PRE_CLASSES} absolute inset-0 text-[#26221D] dark:text-[#F5F1E8]`}>
+                {ringText0}
             </pre>
         </div>
     );

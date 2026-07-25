@@ -446,6 +446,7 @@ pub fn ingest_event(
         RunTrigger::Event,
         Some(vec![node_id.into()]),
         Some(HashMap::from([(node_id.to_string(), payload.to_string())])),
+        None,
     )?;
     Ok(IngestResult { ran: true, reason: None, run_id: Some(run_id) })
 }

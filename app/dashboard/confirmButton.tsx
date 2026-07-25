@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 // two-step inline confirm: first click arms, second submits the form (with a
 // hidden `id`); disarms after 3s. Shared by the shell's delete buttons —
-// pass the delete server action and, optionally, the labels.
+// pass the async action that IPCs the delete and, optionally, the labels.
 export default function ConfirmButton({
     id,
     action,

@@ -1,27 +1,57 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import EmojiGrid from "@/app/dashboard/emojiGrid";
 import ModalShell from "@/app/dashboard/modalShell";
-import type { WorkflowRow } from "@/lib/workflow";
-import { createWorkflow, updateWorkflow } from "./actions";
+import { call } from "@/lib/ipc";
+import type { CardRow } from "./workflowCard";
 
-type WorkflowMeta = Pick<WorkflowRow, "id" | "name" | "emoji" | "description">;
+type WorkflowMeta = Pick<CardRow, "id" | "name" | "emoji" | "description">;
 
 // create (dashed hollow "+" card) or edit ("edit" on a card) trigger + modal
 // for one workflow's metadata; the graph is edited in the designer
-export default function WorkflowModal({ workflow }: { workflow?: WorkflowMeta }) {
+export default function WorkflowModal({
+    workflow,
+    onSaved,
+}: {
+    workflow?: WorkflowMeta;
+    onSaved: () => void;
+}) {
+    const router = useRouter();
     // controlled — React resets uncontrolled fields after a form action, which
     // would wipe the user's input when the action returns an error
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
 
+    // name/emoji/description are validated in Rust; blank emoji becomes ⚙️ there
+    const save = async (formData: FormData) => {
+        const fields = {
+            name: String(formData.get("name") ?? "").trim(),
+            emoji: String(formData.get("emoji") ?? "").trim(),
+            description: String(formData.get("description") ?? "").trim(),
+        };
+        try {
+            if (workflow) {
+                await call("update_workflow", { id: workflow.id, ...fields });
+            } else {
+                // create used to redirect from the server action; now the command
+                // hands back the row and the modal navigates itself
+                const created = await call<{ id: string }>("create_workflow", fields);
+                router.push(`/dashboard/workflows/designer/?id=${created.id}`);
+                return;
+            }
+        } catch (err) {
+            return { error: err instanceof Error ? err.message : "Something went wrong" };
+        }
+        onSaved();
+    };
+
     return (
         <ModalShell
             title={workflow ? "edit workflow" : "new workflow"}
             submitLabel={workflow ? "save →" : "create →"}
-            action={workflow ? updateWorkflow : createWorkflow}
-            entryId={workflow?.id}
+            action={save}
             onOpen={() => {
                 setName(workflow?.name ?? "");
                 setDescription(workflow?.description ?? "");
