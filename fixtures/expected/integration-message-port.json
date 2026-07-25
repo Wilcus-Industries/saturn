@@ -1,0 +1,46 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "info",
+      "text": "running http request…"
+    },
+    {
+      "kind": "info",
+      "text": "http request → sent:http-request cfg=104#84a93527 msg=13#9fee7d9b"
+    },
+    {
+      "kind": "print",
+      "text": "sent:http-request cfg=104#84a93527 msg=13#9fee7d9b"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (2 steps)"
+    }
+  ],
+  "values": [
+    [
+      "u",
+      "out",
+      "https://example.invalid/wired"
+    ],
+    [
+      "s",
+      "out",
+      "wired message"
+    ],
+    [
+      "h",
+      "response",
+      "sent:http-request cfg=104#84a93527 msg=13#9fee7d9b"
+    ],
+    [
+      "h",
+      "response",
+      "sent:http-request cfg=104#84a93527 msg=13#9fee7d9b"
+    ]
+  ]
+}

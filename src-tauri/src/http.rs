@@ -17,7 +17,7 @@ use reqwest::blocking::Client;
 use reqwest::{redirect, Method, Url};
 use serde_json::Value;
 
-use crate::interpreter::utf16_prefix;
+use crate::interpreter::{js, utf16_prefix};
 
 const HTTP_METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const MAX_URL: usize = 2048;
@@ -358,31 +358,35 @@ fn send_inner(config: &HashMap<String, String>) -> Result<String, String> {
     }
     let text = String::from_utf8_lossy(&buf).into_owned();
 
-    // embed a parsed JSON body when whole (single-extract UX), else raw text
+    // embed a parsed JSON body when whole (single-extract UX), else raw text.
+    // js::J, not serde_json::Value: without the `preserve_order` feature the
+    // latter's Map is a BTreeMap, so a response body's keys would come back out
+    // alphabetized — and this string is the node's `response` value output.
     let mut out_body = None;
     if content_type.to_lowercase().contains("json") && !truncated {
-        if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
-            if parsed.is_object() || parsed.is_array() {
-                out_body = Some(parsed);
-            }
+        match js::parse(&text) {
+            Ok(parsed @ (js::J::O(_) | js::J::A(_))) => out_body = Some(parsed),
+            _ => {}
         }
     }
     let out_body = out_body.unwrap_or_else(|| match utf16_prefix(&text, MAX_RESULT_BODY) {
         Some(cut) => {
             truncated = true;
-            Value::String(cut)
+            js::J::S(cut)
         }
-        None => Value::String(text),
+        None => js::J::S(text),
     });
 
-    let mut obj = serde_json::Map::new();
-    obj.insert("status".into(), Value::String(status.to_string()));
-    obj.insert("contentType".into(), Value::String(content_type));
-    obj.insert("body".into(), out_body);
+    // key order is JSON.stringify's, i.e. the order they are written here
+    let mut obj = vec![
+        ("status".to_string(), js::J::S(status.to_string())),
+        ("contentType".to_string(), js::J::S(content_type)),
+        ("body".to_string(), out_body),
+    ];
     if truncated {
-        obj.insert("truncated".into(), Value::String("true".into()));
+        obj.push(("truncated".to_string(), js::J::S("true".into())));
     }
-    Ok(Value::Object(obj).to_string())
+    Ok(js::stringify(&js::J::O(obj)))
 }
 
 /// Serves `responses` verbatim to that many successive connections on loopback,
@@ -485,15 +489,21 @@ mod tests {
         let port = spawn_test_server(vec![concat!(
             "HTTP/1.1 201 Created\r\n",
             "content-type: application/json\r\n",
-            "content-length: 17\r\n",
+            "content-length: 18\r\n",
             "connection: close\r\n\r\n",
-            "{\"greeting\":\"hi\"}"
+            "{\"z\":1e3,\"a\":\"hi\"}"
         )]);
         let out = send(&cfg(&[("url", &format!("http://127.0.0.1:{port}/"))])).unwrap();
+        // This whole string is the node's `response` value output, so its key
+        // order and its number rendering are observable: JSON.stringify emitted
+        // declaration order and `1000`, a serde_json::Map would alphabetize both
+        // levels and ryu would write `1000.0`.
+        assert_eq!(
+            out,
+            r#"{"status":"201","contentType":"application/json","body":{"z":1000,"a":"hi"}}"#
+        );
         let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["status"], "201");
-        assert_eq!(v["contentType"], "application/json");
-        assert_eq!(v["body"]["greeting"], "hi"); // parsed, not a raw string
+        assert_eq!(v["body"]["a"], "hi"); // parsed, not a raw string
         assert!(v.get("truncated").is_none());
     }
 

@@ -1,0 +1,168 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": ""
+        }
+      },
+      {
+        "id": "neg",
+        "type": "not",
+        "x": 120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl",
+        "type": "string",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "value": "shared value → "
+        }
+      },
+      {
+        "id": "cat",
+        "type": "concat",
+        "x": 240,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "a",
+        "type": "print",
+        "x": 300,
+        "y": 0,
+        "config": {
+          "message": "branch A"
+        }
+      },
+      {
+        "id": "b",
+        "type": "print",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "message": "branch B"
+        }
+      },
+      {
+        "id": "tail",
+        "type": "print",
+        "x": 420,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "src",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "neg",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "lbl",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "neg",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "b",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "cat",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "tail",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "a",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "tail",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "b",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "tail",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

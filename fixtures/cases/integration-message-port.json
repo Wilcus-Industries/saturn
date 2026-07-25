@@ -1,0 +1,49 @@
+{
+  "graph": {
+    "nodes": [
+      { "id": "ev", "type": "run", "x": 0, "y": 0, "config": {} },
+      { "id": "s", "type": "string", "x": 20, "y": 0, "config": { "value": "wired message" } },
+      { "id": "u", "type": "string", "x": 20, "y": 60, "config": { "value": "https://example.invalid/wired" } },
+      {
+        "id": "h",
+        "type": "integration:http-request",
+        "x": 60,
+        "y": 0,
+        "config": { "method": "GET", "url": "https://example.invalid/literal", "headers": "", "body": "", "message": "config literal" }
+      },
+      { "id": "p", "type": "print", "x": 120, "y": 0, "config": {} }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": { "nodeId": "ev", "portId": "out" },
+        "to": { "nodeId": "h", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e1",
+        "from": { "nodeId": "s", "portId": "out" },
+        "to": { "nodeId": "h", "portId": "message" },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": { "nodeId": "u", "portId": "out" },
+        "to": { "nodeId": "h", "portId": "url" },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": { "nodeId": "h", "portId": "out" },
+        "to": { "nodeId": "p", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": { "nodeId": "h", "portId": "response" },
+        "to": { "nodeId": "p", "portId": "message" },
+        "kind": "value"
+      }
+    ]
+  }
+}

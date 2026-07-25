@@ -1,0 +1,29 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "branch A first step"
+    },
+    {
+      "kind": "error",
+      "text": "if: no operator selected"
+    },
+    {
+      "kind": "print",
+      "text": "branch B first step"
+    },
+    {
+      "kind": "print",
+      "text": "branch B second step"
+    },
+    {
+      "kind": "error",
+      "text": "run aborted"
+    }
+  ],
+  "values": []
+}

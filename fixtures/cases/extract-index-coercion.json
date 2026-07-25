@@ -1,0 +1,1227 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src0",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": "[10,20,30]"
+        }
+      },
+      {
+        "id": "ex0",
+        "type": "extract",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "path": " 1"
+        }
+      },
+      {
+        "id": "lbl0",
+        "type": "string",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "value": "space padded index [[10,20,30] /  1] → "
+        }
+      },
+      {
+        "id": "cat0",
+        "type": "concat",
+        "x": 240,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p0",
+        "type": "print",
+        "x": 300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src1",
+        "type": "string",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "value": "[10,20,30]"
+        }
+      },
+      {
+        "id": "ex1",
+        "type": "extract",
+        "x": 420,
+        "y": 0,
+        "config": {
+          "path": "0x2"
+        }
+      },
+      {
+        "id": "lbl1",
+        "type": "string",
+        "x": 480,
+        "y": 0,
+        "config": {
+          "value": "hex index [[10,20,30] / 0x2] → "
+        }
+      },
+      {
+        "id": "cat1",
+        "type": "concat",
+        "x": 540,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p1",
+        "type": "print",
+        "x": 600,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src2",
+        "type": "string",
+        "x": 660,
+        "y": 0,
+        "config": {
+          "value": "[10,20,30]"
+        }
+      },
+      {
+        "id": "ex2",
+        "type": "extract",
+        "x": 720,
+        "y": 0,
+        "config": {
+          "path": "1e0"
+        }
+      },
+      {
+        "id": "lbl2",
+        "type": "string",
+        "x": 780,
+        "y": 0,
+        "config": {
+          "value": "exponent index [[10,20,30] / 1e0] → "
+        }
+      },
+      {
+        "id": "cat2",
+        "type": "concat",
+        "x": 840,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p2",
+        "type": "print",
+        "x": 900,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src3",
+        "type": "string",
+        "x": 960,
+        "y": 0,
+        "config": {
+          "value": "[10,20,30]"
+        }
+      },
+      {
+        "id": "ex3",
+        "type": "extract",
+        "x": 1020,
+        "y": 0,
+        "config": {
+          "path": "+1"
+        }
+      },
+      {
+        "id": "lbl3",
+        "type": "string",
+        "x": 1080,
+        "y": 0,
+        "config": {
+          "value": "signed index [[10,20,30] / +1] → "
+        }
+      },
+      {
+        "id": "cat3",
+        "type": "concat",
+        "x": 1140,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p3",
+        "type": "print",
+        "x": 1200,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src4",
+        "type": "string",
+        "x": 1260,
+        "y": 0,
+        "config": {
+          "value": "[10,20,30]"
+        }
+      },
+      {
+        "id": "ex4",
+        "type": "extract",
+        "x": 1320,
+        "y": 0,
+        "config": {
+          "path": "01"
+        }
+      },
+      {
+        "id": "lbl4",
+        "type": "string",
+        "x": 1380,
+        "y": 0,
+        "config": {
+          "value": "zero padded index [[10,20,30] / 01] → "
+        }
+      },
+      {
+        "id": "cat4",
+        "type": "concat",
+        "x": 1440,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p4",
+        "type": "print",
+        "x": 1500,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src5",
+        "type": "string",
+        "x": 1560,
+        "y": 0,
+        "config": {
+          "value": "[10,20,30]"
+        }
+      },
+      {
+        "id": "ex5",
+        "type": "extract",
+        "x": 1620,
+        "y": 0,
+        "config": {
+          "path": "-0"
+        }
+      },
+      {
+        "id": "lbl5",
+        "type": "string",
+        "x": 1680,
+        "y": 0,
+        "config": {
+          "value": "negative zero index [[10,20,30] / -0] → "
+        }
+      },
+      {
+        "id": "cat5",
+        "type": "concat",
+        "x": 1740,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p5",
+        "type": "print",
+        "x": 1800,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src6",
+        "type": "string",
+        "x": 1860,
+        "y": 0,
+        "config": {
+          "value": "[10,20,30]"
+        }
+      },
+      {
+        "id": "ex6",
+        "type": "extract",
+        "x": 1920,
+        "y": 0,
+        "config": {
+          "path": "1.0"
+        }
+      },
+      {
+        "id": "lbl6",
+        "type": "string",
+        "x": 1980,
+        "y": 0,
+        "config": {
+          "value": "decimal index splits on the dot [[10,20,30] / 1.0] → "
+        }
+      },
+      {
+        "id": "cat6",
+        "type": "concat",
+        "x": 2040,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p6",
+        "type": "print",
+        "x": 2100,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src7",
+        "type": "string",
+        "x": 2160,
+        "y": 0,
+        "config": {
+          "value": "[[1,2],[3,4]]"
+        }
+      },
+      {
+        "id": "ex7",
+        "type": "extract",
+        "x": 2220,
+        "y": 0,
+        "config": {
+          "path": "1.0"
+        }
+      },
+      {
+        "id": "lbl7",
+        "type": "string",
+        "x": 2280,
+        "y": 0,
+        "config": {
+          "value": "two segments walk two arrays [[[1,2],[3,4]] / 1.0] → "
+        }
+      },
+      {
+        "id": "cat7",
+        "type": "concat",
+        "x": 2340,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p7",
+        "type": "print",
+        "x": 2400,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src8",
+        "type": "string",
+        "x": 2460,
+        "y": 0,
+        "config": {
+          "value": "{\"a.b\":1}"
+        }
+      },
+      {
+        "id": "ex8",
+        "type": "extract",
+        "x": 2520,
+        "y": 0,
+        "config": {
+          "path": "a.b"
+        }
+      },
+      {
+        "id": "lbl8",
+        "type": "string",
+        "x": 2580,
+        "y": 0,
+        "config": {
+          "value": "key containing a dot [{\"a.b\":1} / a.b] → "
+        }
+      },
+      {
+        "id": "cat8",
+        "type": "concat",
+        "x": 2640,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p8",
+        "type": "print",
+        "x": 2700,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src9",
+        "type": "string",
+        "x": 2760,
+        "y": 0,
+        "config": {
+          "value": "{\"1\":\"obj\"}"
+        }
+      },
+      {
+        "id": "ex9",
+        "type": "extract",
+        "x": 2820,
+        "y": 0,
+        "config": {
+          "path": "1"
+        }
+      },
+      {
+        "id": "lbl9",
+        "type": "string",
+        "x": 2880,
+        "y": 0,
+        "config": {
+          "value": "numeric key on an object [{\"1\":\"obj\"} / 1] → "
+        }
+      },
+      {
+        "id": "cat9",
+        "type": "concat",
+        "x": 2940,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p9",
+        "type": "print",
+        "x": 3000,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src10",
+        "type": "string",
+        "x": 3060,
+        "y": 0,
+        "config": {
+          "value": "42"
+        }
+      },
+      {
+        "id": "ex10",
+        "type": "extract",
+        "x": 3120,
+        "y": 0,
+        "config": {
+          "path": "a"
+        }
+      },
+      {
+        "id": "lbl10",
+        "type": "string",
+        "x": 3180,
+        "y": 0,
+        "config": {
+          "value": "path into a number scalar [42 / a] → "
+        }
+      },
+      {
+        "id": "cat10",
+        "type": "concat",
+        "x": 3240,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p10",
+        "type": "print",
+        "x": 3300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "src11",
+        "type": "string",
+        "x": 3360,
+        "y": 0,
+        "config": {
+          "value": "true"
+        }
+      },
+      {
+        "id": "ex11",
+        "type": "extract",
+        "x": 3420,
+        "y": 0,
+        "config": {
+          "path": ""
+        }
+      },
+      {
+        "id": "lbl11",
+        "type": "string",
+        "x": 3480,
+        "y": 0,
+        "config": {
+          "value": "whole boolean document [true / ] → "
+        }
+      },
+      {
+        "id": "cat11",
+        "type": "concat",
+        "x": 3540,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p11",
+        "type": "print",
+        "x": 3600,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "src0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex0",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "lbl0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat0",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "ex0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat0",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "cat0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p0",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p0",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "src1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex1",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "lbl1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat1",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "ex1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat1",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "cat1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "p0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e10",
+        "from": {
+          "nodeId": "src2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex2",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e11",
+        "from": {
+          "nodeId": "lbl2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat2",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e12",
+        "from": {
+          "nodeId": "ex2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat2",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e13",
+        "from": {
+          "nodeId": "cat2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e14",
+        "from": {
+          "nodeId": "p1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e15",
+        "from": {
+          "nodeId": "src3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex3",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e16",
+        "from": {
+          "nodeId": "lbl3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat3",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e17",
+        "from": {
+          "nodeId": "ex3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat3",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e18",
+        "from": {
+          "nodeId": "cat3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p3",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e19",
+        "from": {
+          "nodeId": "p2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p3",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e20",
+        "from": {
+          "nodeId": "src4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex4",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e21",
+        "from": {
+          "nodeId": "lbl4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat4",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e22",
+        "from": {
+          "nodeId": "ex4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat4",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e23",
+        "from": {
+          "nodeId": "cat4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p4",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e24",
+        "from": {
+          "nodeId": "p3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p4",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e25",
+        "from": {
+          "nodeId": "src5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex5",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e26",
+        "from": {
+          "nodeId": "lbl5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat5",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e27",
+        "from": {
+          "nodeId": "ex5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat5",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e28",
+        "from": {
+          "nodeId": "cat5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p5",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e29",
+        "from": {
+          "nodeId": "p4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p5",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e30",
+        "from": {
+          "nodeId": "src6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex6",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e31",
+        "from": {
+          "nodeId": "lbl6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat6",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e32",
+        "from": {
+          "nodeId": "ex6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat6",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e33",
+        "from": {
+          "nodeId": "cat6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p6",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e34",
+        "from": {
+          "nodeId": "p5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p6",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e35",
+        "from": {
+          "nodeId": "src7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex7",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e36",
+        "from": {
+          "nodeId": "lbl7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat7",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e37",
+        "from": {
+          "nodeId": "ex7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat7",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e38",
+        "from": {
+          "nodeId": "cat7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p7",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e39",
+        "from": {
+          "nodeId": "p6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p7",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e40",
+        "from": {
+          "nodeId": "src8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex8",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e41",
+        "from": {
+          "nodeId": "lbl8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat8",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e42",
+        "from": {
+          "nodeId": "ex8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat8",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e43",
+        "from": {
+          "nodeId": "cat8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p8",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e44",
+        "from": {
+          "nodeId": "p7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p8",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e45",
+        "from": {
+          "nodeId": "src9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex9",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e46",
+        "from": {
+          "nodeId": "lbl9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat9",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e47",
+        "from": {
+          "nodeId": "ex9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat9",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e48",
+        "from": {
+          "nodeId": "cat9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p9",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e49",
+        "from": {
+          "nodeId": "p8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p9",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e50",
+        "from": {
+          "nodeId": "src10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex10",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e51",
+        "from": {
+          "nodeId": "lbl10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat10",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e52",
+        "from": {
+          "nodeId": "ex10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat10",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e53",
+        "from": {
+          "nodeId": "cat10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p10",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e54",
+        "from": {
+          "nodeId": "p9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p10",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e55",
+        "from": {
+          "nodeId": "src11",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "ex11",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e56",
+        "from": {
+          "nodeId": "lbl11",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat11",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e57",
+        "from": {
+          "nodeId": "ex11",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat11",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e58",
+        "from": {
+          "nodeId": "cat11",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p11",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e59",
+        "from": {
+          "nodeId": "p10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p11",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

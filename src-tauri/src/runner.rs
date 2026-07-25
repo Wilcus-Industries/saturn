@@ -348,9 +348,10 @@ mod tests {
         assert_eq!(texts[1], "running http request…");
         assert!(texts[2].starts_with("http request → {"), "{}", texts[2]);
         // the print node rendered the http node's response value, not its config
+        // — in JSON.stringify's key order, which is not alphabetical
         assert_eq!(
             texts[3],
-            r#"{"body":{"greeting":"hi"},"contentType":"application/json","status":"200"}"#
+            r#"{"status":"200","contentType":"application/json","body":{"greeting":"hi"}}"#
         );
         assert_eq!(texts[4], "run finished (2 steps)");
 

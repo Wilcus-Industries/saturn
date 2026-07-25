@@ -1,0 +1,31 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "error",
+      "text": "if: no operator selected"
+    },
+    {
+      "kind": "info",
+      "text": "running http request…"
+    },
+    {
+      "kind": "info",
+      "text": "http request → sent:http-request cfg=73#6702fd96 msg=0#811c9dc5"
+    },
+    {
+      "kind": "error",
+      "text": "run aborted"
+    }
+  ],
+  "values": [
+    [
+      "h",
+      "response",
+      "sent:http-request cfg=73#6702fd96 msg=0#811c9dc5"
+    ]
+  ]
+}

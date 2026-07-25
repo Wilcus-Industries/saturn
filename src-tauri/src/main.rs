@@ -1,4 +1,6 @@
+mod agent;
 mod http;
+mod integrations;
 mod interpreter;
 mod runner;
 mod store;

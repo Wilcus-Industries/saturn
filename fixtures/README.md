@@ -74,8 +74,49 @@ declared inline. Then run `--update` once and **read the generated file** — th
 point is that a human agreed the output is right, not that a run produced it.
 
 Prefer a linear flow chain. A flow fan-out makes emit order an ordering question
-rather than a semantics question; `await-join` and `await-abandoned` cover that
-deliberately and nothing else should.
+rather than a semantics question; only the `await-*` and `fanout-*` cases do it
+deliberately. Keep it that way — but note the limit is narrower than it looks:
+a *single* suspending branch is perfectly reproducible and
+`fanout-suspending-sibling` pins it, because a failed branch must stop a
+suspended sibling before its next step (that sibling could be a Discord send —
+this is a side-effect divergence, not a transcript one). What no sequential
+interpreter can reproduce is **several** entry nodes whose fan-outs suspend and
+interleave on V8's microtask queue. Don't write that case.
+
+## Traps these files exist to catch
+
+A port that looks right and fails here:
+
+- **UTF-16 code-unit ordering** (`if-string-order`). `<`/`>` compare code
+  units, so an astral character sorts *below* every BMP character from U+E000
+  up — the reverse of Rust's byte-wise `str` ordering. The same units drive
+  `.length` and the 2000-char truncation (`http-request-stub` pins a lone
+  surrogate at that cut, the one divergence a port cannot reproduce).
+- **`String(number)`** (`number-boundaries`). Exponential above 1e21 and below
+  1e-6, `-0` prints `0`, `Infinity` spelled out. And `Number(string)` accepts
+  `0x`/`0b`/`0o` literals, which is how `extract` reaches `[10,20,30]` element
+  `0x2` (`extract-index-coercion`).
+- **Per-step evaluation state** (`fanout-shared-node`, `await-abandoned-in-loop`).
+  The memo, the value-cycle stack and the await barrier are scoped to one flow
+  step / one fan-out, not to the run — a shared one changes the value stream
+  and can complete a barrier that should have been abandoned.
+- **`branchFailed` is set a microtask late** (`fanout-abort-siblings`,
+  `fanout-suspending-sibling`). A sibling that never suspends runs to completion
+  *after* another branch has already aborted, because `.map` started every
+  branch synchronously before the `.catch` microtask ran. Setting the flag
+  eagerly changes the transcript. But a sibling that *does* suspend stops at its
+  next step — get that half wrong and a failed branch still fires a Discord
+  send.
+- **Shortest-digits ties round to EVEN** (`number-ties-and-trim`). Where two
+  decimal candidates round-trip equally well, ECMA-262 picks the even one;
+  Rust's shortest formatter rounds half away from zero. Verified against V8 over
+  849,857 doubles — 11 disagreed, all exact ties. "Always round down" is equally
+  wrong, so both directions are pinned.
+- **`.trim()` is `StrWhiteSpace`, not Unicode `White_Space`**
+  (`number-ties-and-trim`). JS trims U+FEFF and does not trim U+0085; Rust does
+  the opposite. Either flips a string between a number and `NaN`, which decides
+  an `if` — and a BOM survives a copy-paste out of a file. Verified against V8
+  over 200,053 strings.
 
 ## Coupling worth knowing
 

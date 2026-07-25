@@ -1,0 +1,67 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "1"
+    },
+    {
+      "kind": "print",
+      "text": "diverged past the barrier"
+    },
+    {
+      "kind": "warn",
+      "text": "await never completed (1/2 branches)"
+    },
+    {
+      "kind": "print",
+      "text": "2"
+    },
+    {
+      "kind": "print",
+      "text": "diverged past the barrier"
+    },
+    {
+      "kind": "warn",
+      "text": "await never completed (1/2 branches)"
+    },
+    {
+      "kind": "print",
+      "text": "loop done"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (10 steps)"
+    }
+  ],
+  "values": [
+    [
+      "items",
+      "out",
+      "1,2"
+    ],
+    [
+      "lp",
+      "item",
+      "1"
+    ],
+    [
+      "lp",
+      "item",
+      "1"
+    ],
+    [
+      "lp",
+      "item",
+      "2"
+    ],
+    [
+      "lp",
+      "item",
+      "2"
+    ]
+  ]
+}

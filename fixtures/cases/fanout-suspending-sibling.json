@@ -1,0 +1,43 @@
+{
+  "graph": {
+    "nodes": [
+      { "id": "ev", "type": "run", "x": 0, "y": 0, "config": {} },
+      { "id": "boom", "type": "if", "x": 60, "y": 0, "config": { "operator": "" } },
+      { "id": "aT", "type": "print", "x": 120, "y": 0, "config": { "message": "branch A never" } },
+      {
+        "id": "h",
+        "type": "integration:http-request",
+        "x": 180,
+        "y": 0,
+        "config": { "method": "GET", "url": "https://example.invalid/x", "headers": "", "body": "" }
+      },
+      { "id": "b2", "type": "print", "x": 240, "y": 0, "config": { "message": "branch B after the send" } }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": { "nodeId": "ev", "portId": "out" },
+        "to": { "nodeId": "boom", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e1",
+        "from": { "nodeId": "boom", "portId": "true" },
+        "to": { "nodeId": "aT", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": { "nodeId": "ev", "portId": "out" },
+        "to": { "nodeId": "h", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": { "nodeId": "h", "portId": "out" },
+        "to": { "nodeId": "b2", "portId": "in" },
+        "kind": "flow"
+      }
+    ]
+  }
+}
