@@ -422,3 +422,33 @@ what Phase G actually costs. It is also the largest remaining consumer of
 
 `agentPrefs` (the composer's last model + effort, in cookies) goes with it — no
 cookies under static export, and nothing left to remember until the chat returns.
+
+### 3.11 Signing, notarization and auto-update are cut from v1
+
+`tauri build` produces an **unsigned, un-notarized** `Saturn.app`. On this machine
+that costs one right-click → Open the first time, and nothing after. It is not a
+shortcut that has to be undone later: signing is a build-time identity and a
+notarization round trip, not application code, so nothing in `src-tauri/` changes
+when it lands. What it gates is a *second* Mac, and there isn't one.
+
+Two consequences worth knowing before they surprise someone:
+
+- **`tauri-plugin-updater` is not installed.** With no signing identity there is
+  nothing to verify an update against, and an updater that can't verify is a
+  remote-code-execution channel wearing a convenience hat. It arrives with the
+  Developer ID cert or not at all.
+- **The login item records an absolute path.** `MacosLauncher::LaunchAgent` writes
+  a plist naming the binary that registered it, so enabling the toggle from
+  `tauri dev` pins `target/debug/saturn` — a path the next `cargo clean` deletes,
+  leaving a login item that silently fails. The Settings copy says to move the app
+  to `/Applications` first. Nothing enforces it, deliberately: a debug build living
+  in `/Applications` is a legitimate thing to run, so any check would be guessing.
+
+### 3.12 The tray icon is the app icon, not a template icon
+
+`TrayIconBuilder` is handed `default_window_icon()` — the colored ring — rather
+than a monochrome template. macOS will scale it into the menu bar and it reads
+fine, but it will not invert with the system appearance the way a template icon
+does. Flattening Saturn's mark to a silhouette loses the thing that identifies it,
+so this is a deliberate choice and not an oversight. Revisit only if it looks
+wrong against a light menu bar in practice.

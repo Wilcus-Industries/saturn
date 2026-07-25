@@ -22,7 +22,10 @@ use serde_json::{json, Value};
 use registry::len16;
 use secrets::{Secret, KEYCHAIN};
 use store::{RunRow, RunTrigger, Store, Workflow, WorkflowCard};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 /// The id shape every workflow and registry command checks before it reaches
 /// SQL. Postgres threw 22P02 on a malformed uuid, which is why the TypeScript
@@ -411,6 +414,35 @@ fn delete_memory_item(store: State<Store>, id: String) -> Result<(), String> {
     memory::delete_memory_item(&store, &id)
 }
 
+// --- tray, window lifetime, login item -------------------------------------
+
+/// Every way back to a hidden window routes through here: the tray's Open item,
+/// a second launch, and the macOS dock click. `show` alone leaves the window
+/// behind whatever the user is looking at, and `set_focus` alone does nothing to
+/// a hidden window — both, in that order, or it only works by accident.
+fn show_main(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Whether Saturn is registered as a login item.
+#[tauri::command]
+fn autostart_enabled(app: AppHandle) -> Result<bool, String> {
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+/// The plist records the path of the binary that registered it, so toggling this
+/// on from `tauri dev` pins a `target/debug` build that will not exist after the
+/// next `cargo clean`. The Settings copy says so; there is nothing to enforce it
+/// with, since a debug build in /Applications would be a legitimate thing to run.
+#[tauri::command]
+fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let launcher = app.autolaunch();
+    if enabled { launcher.enable() } else { launcher.disable() }.map_err(|e| e.to_string())
+}
+
 /// Empties a store without deleting it (`wipeMemoryStore`). The store's own row
 /// stays, so every node wired to it keeps resolving.
 #[tauri::command]
@@ -426,6 +458,14 @@ fn wipe_memory_store(store: State<Store>, entry_id: String) -> Result<usize, Str
 
 fn main() {
     tauri::Builder::default()
+        // First plugin, deliberately: it has to win the race before anything
+        // else in this builder touches saturn.db.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| show_main(app)))
+        // LaunchAgent rather than AppleScript: a plist starts the app the same
+        // way whether or not Finder is up, and needs no automation permission
+        // prompt. `None` — Saturn takes no argv, and a login-item launch should
+        // land on exactly the same state a manual one does.
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .setup(|app| {
             // app_data_dir is ~/Library/Application Support/<bundle identifier>, so the
             // db path follows tauri.conf.json's identifier and cannot drift from it.
@@ -443,7 +483,48 @@ fn main() {
             gateway::start_gateway(app.handle().clone());
             telegram::start(app.handle().clone());
             github::start(app.handle().clone());
+
+            // The tray is what makes the four loops above worth running while
+            // hidden: without it a closed window is unreachable and the only way
+            // out is Activity Monitor.
+            let open = MenuItem::with_id(app, "open", "Open Saturn", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit Saturn", true, None::<&str>)?;
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().expect("bundled icon").clone())
+                .tooltip("Saturn")
+                .menu(&Menu::with_items(app, &[&open, &quit])?)
+                // macOS convention: left click opens, the menu is the right-click
+                // gesture. Left-click-opens-menu would make Open a two-step.
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main(tray.app_handle());
+                    }
+                })
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "open" => show_main(app),
+                    // The only path that actually terminates the process. Every
+                    // other exit route is prevented below, so this is where the
+                    // scheduler and the three listeners stop.
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
             Ok(())
+        })
+        // The whole point of Phase H. Closing the window must not stop the
+        // scheduler, drop the Discord socket, or strand the pollers mid-cursor —
+        // so the close button hides, and only tray-Quit exits.
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             list_workflows,
@@ -472,7 +553,17 @@ fn main() {
             count_memory_items,
             delete_memory_item,
             wipe_memory_store,
+            autostart_enabled,
+            set_autostart,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        // `build` + `run` rather than plain `run`, for one event: clicking the
+        // dock icon of an app whose only window is hidden. Without this it does
+        // nothing at all, which reads as a hung app rather than a hidden one.
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Reopen { has_visible_windows: false, .. } = event {
+                show_main(app);
+            }
+        });
 }

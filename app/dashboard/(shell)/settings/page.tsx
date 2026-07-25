@@ -80,6 +80,36 @@ function SecretForm({
     );
 }
 
+// the login item, which is a Keychain-shaped thing without being one: the state
+// lives outside the database (a LaunchAgent plist), so it is read back from the
+// system rather than remembered, and a failed write must not leave the checkbox
+// showing what the user clicked instead of what actually happened.
+function AutostartToggle({ enabled, onChanged }: { enabled: boolean; onChanged: () => void }) {
+    const [error, setError] = useState<string | null>(null);
+
+    return (
+        <>
+            <label className={"flex items-center gap-2 font-mono text-sm"}>
+                <input
+                    type={"checkbox"}
+                    checked={enabled}
+                    onChange={async (e) => {
+                        setError(null);
+                        try {
+                            await call("set_autostart", { enabled: e.target.checked });
+                        } catch (err) {
+                            setError(err instanceof Error ? err.message : "Could not change");
+                        }
+                        onChanged();
+                    }}
+                />
+                start Saturn when I log in
+            </label>
+            {error && <p className={"font-mono text-xs text-red-400"}>{error}</p>}
+        </>
+    );
+}
+
 export default function Settings() {
     const load = useCallback(
         async () =>
@@ -87,6 +117,7 @@ export default function Settings() {
                 call<RegistryEntryRow[]>("list_registry"),
                 call<boolean>("has_openrouter_key"),
                 call<boolean>("has_github_pat"),
+                call<boolean>("autostart_enabled"),
             ]),
         [],
     );
@@ -109,7 +140,7 @@ export default function Settings() {
         [reload],
     );
 
-    const [registry = [], keySet = false, patSet = false] = data ?? [];
+    const [registry = [], keySet = false, patSet = false, autostart = false] = data ?? [];
     const mcpServers = registry.filter((entry) => entry.kind === "mcp");
     const skills = registry.filter((entry) => entry.kind === "skill");
 
@@ -265,6 +296,25 @@ export default function Settings() {
                             cmd={"set_github_pat"}
                             onSaved={reload}
                         />
+                    </section>
+
+                    <section
+                        className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
+                    >
+                        <h2 className={"font-mono text-xl"}>Startup</h2>
+
+                        <p className={"font-mono text-sm text-gray-400"}>
+                            closing the window hides Saturn to the menu bar — schedules keep firing
+                            and the Discord, Telegram and GitHub watches stay connected. quit from
+                            the menu bar icon to actually stop them.
+                        </p>
+
+                        <AutostartToggle enabled={autostart} onChanged={reload} />
+
+                        <p className={"font-mono text-xs text-gray-400"}>
+                            this records the path Saturn is running from, so move it to
+                            /Applications before switching it on
+                        </p>
                     </section>
                 </>
             )}
