@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSessionCached } from "@/lib/subscription";
 import type { WorkflowRow } from "@/lib/workflow";
@@ -8,7 +8,7 @@ import WorkflowModal from "./workflowModal";
 // scheduled agentic workflows; session check lives here, not the layout
 export default async function Workflows() {
     const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
+    if (!session?.user) notFound();
 
     // lateral join pulls each workflow's newest run for the card status chip
     const { rows } = await db.query<

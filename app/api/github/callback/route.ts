@@ -31,7 +31,7 @@ export async function GET(request: Request) {
     // getSessionCached, not auth.api.getSession — self-hosted synthetic owner
     // must be able to complete the binding (see install route)
     const session = await getSessionCached();
-    if (!session?.user) return NextResponse.redirect(`${baseUrl}/onboard`);
+    if (!session?.user) return new NextResponse("not signed in", { status: 401 });
 
     const clientId = process.env.GITHUB_APP_CLIENT_ID;
     const clientSecret = process.env.GITHUB_APP_CLIENT_SECRET;

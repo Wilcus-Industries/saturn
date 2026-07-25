@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import AsciiSaturn from "@/app/(saturn)/asciiSaturn";
+import AsciiSaturn from "@/app/dashboard/asciiSaturn";
 import type { AgentPrefs } from "@/app/dashboard/agentPrefs";
 import type { OpenrouterModel } from "@/lib/openrouter.server";
 import AgentComposer from "./agentComposer";
@@ -41,9 +41,6 @@ const VERBS: Record<string, string> = {
     validate: "validating",
     search: "searching",
     forget: "forgetting",
-    reset: "resetting",
-    stop: "stopping",
-    sandbox: "using sandbox",
 };
 function toolLabel(name: string): string {
     const [head, ...rest] = name.split("_");

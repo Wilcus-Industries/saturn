@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import AsciiSaturn from "@/app/(saturn)/asciiSaturn";
+import AsciiSaturn from "@/app/dashboard/asciiSaturn";
 import { NAV, isActive } from "./nav";
 import NavIcon from "./navIcon";
 

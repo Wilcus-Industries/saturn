@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { countMemoryItems, MAX_MEMORY_ITEMS } from "@/lib/memory.server";
 import { getUserRegistry } from "@/lib/registry.server";
 import { getSessionCached } from "@/lib/subscription";
@@ -10,7 +10,7 @@ import MemoryModal from "./memoryModal";
 // persistent agent-memory stores; session check lives here, not the layout
 export default async function Memory() {
     const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
+    if (!session?.user) notFound();
 
     const [registry, counts] = await Promise.all([
         getUserRegistry(session.user.id),

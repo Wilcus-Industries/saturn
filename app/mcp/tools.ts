@@ -16,13 +16,6 @@ import { countMemoryItems, executeMemoryTool, listMemoryItems } from "@/lib/memo
 import { buildUserCatalog, MAX_ENTRIES_PER_KIND, UUID_RE } from "@/lib/registry";
 import { getUserRegistry, invalidateUserRegistry } from "@/lib/registry.server";
 import { executeWorkflowRun } from "@/lib/runner.server";
-import {
-    destroySandbox,
-    executeSandboxTool,
-    getSandboxStatuses,
-    resetSandbox,
-    stopSandboxNow,
-} from "@/lib/sandbox.server";
 import { baseUrl, getActivationLevels, limitsFor } from "@/lib/subscription";
 import {
     CATALOG_BY_KEY,
@@ -113,7 +106,7 @@ export const TOOL_DEFS: ToolDef[] = [
     {
         name: "get_catalog",
         description:
-            "The node catalog available to this user (their registered MCP servers, skills, memory stores and sandboxes first, then built-in nodes) with every node's ports and config fields. Tool descriptions are trimmed for brevity — the full text reaches the agent at runtime. Call this before writing any graph; get_docs has the graph-format authoring guide.",
+            "The node catalog available to this user (their registered MCP servers, skills and memory stores first, then built-in nodes) with every node's ports and config fields. Tool descriptions are trimmed for brevity — the full text reaches the agent at runtime. Call this before writing any graph; get_docs has the graph-format authoring guide.",
         inputSchema: obj({}),
     },
     {
@@ -244,75 +237,11 @@ export const TOOL_DEFS: ToolDef[] = [
         ),
     },
 
-    // ----------------------------------------------------------- sandboxes
-    {
-        name: "list_sandboxes",
-        description:
-            "The user's linux sandboxes: id, name, description, whether the container is running, last-known disk usage, and whether this server has a sandbox runtime at all.",
-        inputSchema: obj({}),
-    },
-    {
-        name: "create_sandbox",
-        description:
-            "Create a persistent Debian linux sandbox. Nothing is provisioned until its first use; the account tier caps how many can exist and their memory/cpu/disk/timeout.",
-        inputSchema: obj(
-            { name: str("Sandbox name"), description: str("What it is for (optional)") },
-            ["name"],
-        ),
-    },
-    {
-        name: "delete_sandbox",
-        description: "Permanently delete a sandbox — the container and everything under /work are destroyed. Irreversible.",
-        inputSchema: obj({ id: str("Sandbox id (uuid)") }, ["id"]),
-    },
-    {
-        name: "reset_sandbox",
-        description: "Wipe a sandbox's /work volume and stop it. The sandbox stays registered and is recreated empty on next use.",
-        inputSchema: obj({ id: str("Sandbox id (uuid)") }, ["id"]),
-    },
-    {
-        name: "stop_sandbox",
-        description: "Stop a running sandbox now. /work survives; the next call starts it again.",
-        inputSchema: obj({ id: str("Sandbox id (uuid)") }, ["id"]),
-    },
-    {
-        name: "sandbox_exec",
-        description: "Run a bash command in a sandbox. stdout and stderr come back together (capped), nonzero exit codes are reported, /work persists across calls.",
-        inputSchema: obj(
-            {
-                id: str("Sandbox id (uuid)"),
-                command: str("Bash command to run inside the sandbox"),
-                timeout: { type: "number", description: "Seconds, capped by the account tier" },
-            },
-            ["id", "command"],
-        ),
-    },
-    {
-        name: "sandbox_write_file",
-        description: "Write a text file in a sandbox. Paths are confined to /work; parent directories are created and an existing file is overwritten.",
-        inputSchema: obj(
-            {
-                id: str("Sandbox id (uuid)"),
-                path: str("Path under /work"),
-                content: str("File contents"),
-            },
-            ["id", "path", "content"],
-        ),
-    },
-    {
-        name: "sandbox_read_file",
-        description: "Read a text file from a sandbox (paths confined to /work).",
-        inputSchema: obj(
-            { id: str("Sandbox id (uuid)"), path: str("Path under /work") },
-            ["id", "path"],
-        ),
-    },
-
     // ------------------------------------------------------------ registry
     {
         name: "list_registry",
         description:
-            "Everything registered on the account: MCP servers (with their tool allowlists), skills, memory stores, sandboxes and variables — the ids behind the \"mcp:<id>:*\", \"skill:<id>\", \"memory:<id>\", \"sandbox:<id>\" and \"variable:<id>\" node types. Secrets are never returned: MCP tokens and secret variables surface only as booleans.",
+            "Everything registered on the account: MCP servers (with their tool allowlists), skills, memory stores and variables — the ids behind the \"mcp:<id>:*\", \"skill:<id>\", \"memory:<id>\" and \"variable:<id>\" node types. Secrets are never returned: MCP tokens and secret variables surface only as booleans.",
         inputSchema: obj({}),
     },
 
@@ -413,17 +342,16 @@ Config fields hold literal strings. A field with "overriddenBy" is ignored when 
 ## Built-in nodes
 - schedule: scheduled entry point (config.cron, see above). run: manual entry point — fires only on run_workflow or a designer test run, no config. if: routes flow to true/false comparing the left ("l") vs right ("r") operand value ports (config.operator). loop: runs body once per item of the JSON array on items, then done; item carries the current element. and/or/not: boolean values. string: emits config.value verbatim on its "out" value output. number: emits config.value coerced to a number ("out"). print: logs its "message" input — the connected port overrides the config.message literal (overriddenBy). concat: joins the "a" and "b" value inputs into one string on "out". extract: pulls a field out of a JSON value via config.path, dot-separated with numeric array indices ("data.results.0.price"). await: join barrier for parallel branches — continues when ALL incoming flow edges arrive; results = JSON array of its values edges (multi port), in edge order. model: emits config.model (an OpenRouter model id) on its "model" value output — connect it to an agent's model input.
 
-## MCP server nodes (keys "mcp:<entryId>:*"), skill nodes (keys "skill:<uuid>"), memory nodes (keys "memory:<uuid>") and sandbox nodes (keys "sandbox:<uuid>")
-Grant chips — one MCP server node per registered server, one skill node per skill, one memory node per registered memory store, one sandbox node per registered sandbox. They have NO flow ports and are NOT executable on their own: a server node has a single value output "tool", a skill node a single value output "skill", a memory node a single value output "memory", a sandbox node a single value output "sandbox". That output connects nowhere except an agent's matching grant port ("tool" → agent "tools", "skill" → agent "skills", "memory" → agent "memory", "sandbox" → agent "sandbox"); wiring it there grants the agent that server's tools / that skill / that memory store / that sandbox. Chips are never run or evaluated as values — the grant resolves statically from the node type. MCP tools therefore run only through agents.
+## MCP server nodes (keys "mcp:<entryId>:*"), skill nodes (keys "skill:<uuid>") and memory nodes (keys "memory:<uuid>")
+Grant chips — one MCP server node per registered server, one skill node per skill, one memory node per registered memory store. They have NO flow ports and are NOT executable on their own: a server node has a single value output "tool", a skill node a single value output "skill", a memory node a single value output "memory". That output connects nowhere except an agent's matching grant port ("tool" → agent "tools", "skill" → agent "skills", "memory" → agent "memory"); wiring it there grants the agent that server's tools / that skill / that memory store. Chips are never run or evaluated as values — the grant resolves statically from the node type. MCP tools therefore run only through agents.
 A server node grants every enabled tool that passes the read/write gate (off or write-mismatched tools are silently skipped; the grantable list is each catalog entry's "tools" field). Optional config.exclude — a JSON array of tool names AS A STRING (e.g. "[\\"delete_file\\"]") — withholds specific tools from the grant: unknown names are ignored, and tools discovered later are granted automatically unless excluded. Old per-tool keys ("mcp:<entryId>:<toolName>") no longer exist — they render as inert "(deleted)" placeholders and grant nothing.
 A memory node connects ONLY to an agent's "memory" port, and that port takes a SINGLE edge — one memory store per agent (wiring a second memory node replaces the first). At runtime the attached store gives the agent three built-in tools it calls itself — memory_search (semantic recall), memory_save (store a durable fact) and memory_forget (delete an item by id) — and injects the store's name into the system prompt. These three occupy tool slots, so an agent with a memory store attached can be granted at most 17 MCP tools (the tool cap is ${MAX_GRANTED_TOOLS}).
-A sandbox node connects ONLY to an agent's "sandbox" port, also a SINGLE edge — one sandbox per agent (wiring a second sandbox node replaces the first). At runtime the attached sandbox gives the agent three built-in tools it calls itself — sandbox_exec (run a bash command), sandbox_write_file and sandbox_read_file (paths confined to /work) — in a persistent Debian linux environment: files under /work persist across runs, the exec timeout is set by the plan tier, at most 40 sandbox calls run per workflow run, and the tools only work when the server has the sandbox runtime configured. These three also occupy tool slots — 17 MCP tools with a sandbox alone, 14 with both a memory store and a sandbox attached.
 
 ## Variable nodes (keys "variable:<uuid>")
 Read-only secret value boxes, one per variable the user added in the designer toolbox. No inputs; a single value output "value" that connects to any ordinary value input. The output evaluates to an opaque placeholder {{var:<uuid>}} — NEVER the secret itself. Saturn substitutes the real value server-side only where secrets are consumed: inside integration nodes (config fields and message) at send time, and inside event-node config at subscription time (the always-on listener resolves a variable wired into botToken/filters). Everywhere else (print, agent prompts, MCP tool args, logs) the placeholder passes through literally. Use them to feed botToken/webhookUrl-style config ports without putting secrets in the graph.
 
 ## Agent node (type "agent")
-LLM loop over built-in model credits (paid plans) with the user's OpenRouter key as fallback. Inputs: flow in; prompt (value); system (value, usually from a "string" node — config.system holds the system prompt, edited in the designer via the node's system button, and is used when the port is unconnected); model (value, usually from a "model" node — config.model is a legacy fallback honored only when the port is unconnected); tools (value, multi — accepts ONLY MCP server node outputs); skills (value, multi — accepts ONLY skill node outputs); memory (value, SINGLE edge — accepts ONLY a memory node output; a second edge replaces the first, so an agent has at most ONE memory store, and the memory_search/memory_save/memory_forget tools it adds count against the tool cap); sandbox (value, SINGLE edge — accepts ONLY a sandbox node output; one sandbox per agent, and the sandbox_exec/sandbox_write_file/sandbox_read_file tools it adds also count against the tool cap). A memory store or a sandbox alone leaves room for at most 17 MCP tools, both together for at most 14. Config: output ("text" | "image" — image works only on models whose OpenRouter output modalities include image; any other value runs as text; image mode ignores tool grants and returns the first generated image) and reasoning ("off" | "low" | "medium" | "high" — maps to OpenRouter's reasoning parameter: "off" disables it, a level sets the effort, blank or any other value leaves the model default; only meaningful on models that support reasoning, and ignored entirely when output=image). Grants come from the connected chips: at most ${MAX_GRANTED_TOOLS} tools (after server-node expansion) and ${MAX_GRANTED_SKILLS} skills, resolved from each chip's node type; the agent may call granted tools itself during its loop. Output "result" carries the final text, or a data:image/… URL when output=image.
+LLM loop over built-in model credits (paid plans) with the user's OpenRouter key as fallback. Inputs: flow in; prompt (value); system (value, usually from a "string" node — config.system holds the system prompt, edited in the designer via the node's system button, and is used when the port is unconnected); model (value, usually from a "model" node — config.model is a legacy fallback honored only when the port is unconnected); tools (value, multi — accepts ONLY MCP server node outputs); skills (value, multi — accepts ONLY skill node outputs); memory (value, SINGLE edge — accepts ONLY a memory node output; a second edge replaces the first, so an agent has at most ONE memory store, and the memory_search/memory_save/memory_forget tools it adds count against the tool cap). Config: output ("text" | "image" — image works only on models whose OpenRouter output modalities include image; any other value runs as text; image mode ignores tool grants and returns the first generated image) and reasoning ("off" | "low" | "medium" | "high" — maps to OpenRouter's reasoning parameter: "off" disables it, a level sets the effort, blank or any other value leaves the model default; only meaningful on models that support reasoning, and ignored entirely when output=image). Grants come from the connected chips: at most ${MAX_GRANTED_TOOLS} tools (after server-node expansion) and ${MAX_GRANTED_SKILLS} skills, resolved from each chip's node type; the agent may call granted tools itself during its loop. Output "result" carries the final text, or a data:image/… URL when output=image.
 
 ## Integration nodes (keys "integration:<provider>")
 Outbound action nodes. Inputs: flow in, plus one value port PER CONFIG FIELD (same id) that overrides the field's literal when connected — so tokens, channel/chat ids, and messages can all be wired from upstream nodes (e.g. an extract node pulling chatId out of an event payload). Output: flow out; read-style actions additionally have a value output carrying their result, readable downstream only after the node's flow step ran. Messages truncate to the platform's cap (Discord 2000 chars, Telegram 4096); a message that is a data:image/… URL is uploaded as a file attachment/photo instead of text.
@@ -476,7 +404,7 @@ const trimArg = (x: unknown): string => (typeof x === "string" ? x.trim() : "");
 // an omitted arg is null, which the UPDATEs below coalesce to the stored column
 const patchArg = (x: unknown): string | null => (x === undefined ? null : trimArg(x));
 
-// the memory/sandbox cores return {text} | {error} — text is already JSON or
+// the memory core returns {text} | {error} — text is already JSON or
 // plain output, so it passes through instead of being re-serialized by ok()
 const fromCall = (r: McpCallResult): ToolResult =>
     "error" in r ? fail(r.error) : { content: [{ type: "text", text: r.text }] };
@@ -978,119 +906,6 @@ export async function dispatchTool(
             );
         }
 
-        // --------------------------------------------------------- sandboxes
-
-        case "list_sandboxes": {
-            const rows = (await getUserRegistry(userId)).filter((r) => r.kind === "sandbox");
-            const statuses = await getSandboxStatuses(rows.map((r) => r.id));
-            return ok(
-                rows.map((r) => ({
-                    id: r.id,
-                    name: r.name,
-                    description: r.description,
-                    running: statuses.get(r.id)?.running ?? false,
-                    diskMb: statuses.get(r.id)?.diskMb ?? null,
-                    runtimeConfigured: statuses.get(r.id)?.configured ?? false,
-                })),
-            );
-        }
-
-        case "create_sandbox": {
-            const name = trimArg(args.name);
-            if (!name || name.length > MAX_NAME) return fail(`name is required (max ${MAX_NAME} chars)`);
-            const description = trimArg(args.description);
-            if (description.length > MAX_DESCRIPTION) {
-                return fail(`description too long (max ${MAX_DESCRIPTION} chars)`);
-            }
-            // tier cap on new sandboxes; MAX_ENTRIES_PER_KIND is the absolute backstop
-            const cap = Math.min(limitsFor(await tierFor(userId)).sandboxes, MAX_ENTRIES_PER_KIND);
-            if ((await countKind(userId, "sandbox")) >= cap) {
-                return fail(`your plan allows ${cap} linux sandbox${cap === 1 ? "" : "es"} — upgrade to add more`);
-            }
-            // ponytail: dup of saveSandbox in sandboxes/actions.ts — extract if a third caller appears
-            // no podman calls here — the container is created on first use
-            const { rows } = await db.query<{ id: string }>(
-                `insert into registry_entry (user_id, kind, name, description)
-                 values ($1, 'sandbox', $2, $3) returning id`,
-                [userId, name, description],
-            );
-            invalidateUserRegistry(userId);
-            return ok({ id: rows[0].id });
-        }
-
-        case "delete_sandbox": {
-            const id = asId(args.id);
-            if (!id) return fail("invalid sandbox id");
-            // ponytail: dup of deleteSandbox in sandboxes/actions.ts — extract if a third caller appears
-            // ownership check before we touch any runtime resource, then a
-            // best-effort teardown BEFORE the row goes away
-            if (!(await ownsEntry(userId, id, "sandbox"))) return fail("sandbox not found");
-            await destroySandbox(id);
-            const { rowCount } = await db.query(
-                "delete from registry_entry where id = $1 and user_id = $2 and kind = 'sandbox'",
-                [id, userId],
-            );
-            if (!rowCount) return fail("sandbox not found");
-            invalidateUserRegistry(userId);
-            return ok({ deleted: true });
-        }
-
-        case "reset_sandbox": {
-            const id = asId(args.id);
-            if (!id) return fail("invalid sandbox id");
-            if (!(await ownsEntry(userId, id, "sandbox"))) return fail("sandbox not found");
-            const result = await resetSandbox(id);
-            if (result.error) return fail(result.error);
-            return ok({ reset: true });
-        }
-
-        case "stop_sandbox": {
-            const id = asId(args.id);
-            if (!id) return fail("invalid sandbox id");
-            if (!(await ownsEntry(userId, id, "sandbox"))) return fail("sandbox not found");
-            await stopSandboxNow(id);
-            return ok({ stopped: true });
-        }
-
-        case "sandbox_exec": {
-            const id = asId(args.id);
-            if (!id) return fail("invalid sandbox id");
-            return fromCall(
-                await executeSandboxTool(
-                    userId,
-                    id,
-                    "sandbox_exec",
-                    JSON.stringify({ command: args.command, timeout: args.timeout }),
-                ),
-            );
-        }
-
-        case "sandbox_write_file": {
-            const id = asId(args.id);
-            if (!id) return fail("invalid sandbox id");
-            return fromCall(
-                await executeSandboxTool(
-                    userId,
-                    id,
-                    "sandbox_write_file",
-                    JSON.stringify({ path: args.path, content: args.content }),
-                ),
-            );
-        }
-
-        case "sandbox_read_file": {
-            const id = asId(args.id);
-            if (!id) return fail("invalid sandbox id");
-            return fromCall(
-                await executeSandboxTool(
-                    userId,
-                    id,
-                    "sandbox_read_file",
-                    JSON.stringify({ path: args.path }),
-                ),
-            );
-        }
-
         // ---------------------------------------------------------- registry
 
         case "list_registry": {
@@ -1123,11 +938,6 @@ export async function dispatchTool(
                         id: r.id,
                         name: r.name,
                         emoji: r.emoji,
-                        description: r.description,
-                    })),
-                    sandboxes: pick("sandbox").map((r) => ({
-                        id: r.id,
-                        name: r.name,
                         description: r.description,
                     })),
                     variables: pick("variable").map((r) => ({

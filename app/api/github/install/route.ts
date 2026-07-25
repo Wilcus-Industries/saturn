@@ -21,7 +21,7 @@ export async function GET() {
     // better-auth session — the helper short-circuits to the synthetic owner so
     // self-hosters can bind their own GitHub App installations too
     const session = await getSessionCached();
-    if (!session?.user) return NextResponse.redirect(`${baseUrl}/onboard`);
+    if (!session?.user) return new NextResponse("not signed in", { status: 401 });
 
     const slug = process.env.GITHUB_APP_SLUG;
     if (!slug || !process.env.GITHUB_APP_CLIENT_ID || !process.env.GITHUB_APP_CLIENT_SECRET) {

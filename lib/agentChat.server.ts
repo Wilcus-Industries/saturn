@@ -1,10 +1,8 @@
 // Server-only orchestrator for the Agent-page chat (app/dashboard/(shell)).
 // A non-persistent back-and-forth with a tool loop over Saturn's own MCP
-// toolset: validate the browser-built transcript, pick the funding key
-// (platform credits then BYOK — shared with executeAgentTurn), stream
-// OpenRouter, run any requested tools through dispatchTool, and meter
-// platform-billed turns to the model_usage ledger. Yields NDJSON-ready deltas
-// the route pumps to the client.
+// toolset: validate the browser-built transcript, stream OpenRouter on the
+// user's own key, and run any requested tools through dispatchTool. Yields
+// NDJSON-ready deltas the route pumps to the client.
 import { TOOL_DEFS, dispatchTool, normalizeGraph } from "@/app/mcp/tools";
 import {
     MAX_AGENT_MESSAGES,
@@ -14,8 +12,8 @@ import {
     toReasoningParam,
 } from "@/lib/agent";
 import { type WireMessage, streamChat } from "@/lib/agent.server";
-import { recordUsage, selectModelApiKey } from "@/lib/credits.server";
 import { UUID } from "@/lib/formActions.server";
+import { getOpenrouterKey } from "@/lib/openrouter.server";
 
 const MAX_CHAT_MESSAGE = 24_000; // per-message char cap (mirrors output slice)
 const MAX_TOOL_RESULT = 20_000; // fed back to the model
@@ -38,8 +36,8 @@ const SATURN_SYSTEM =
     "build event-driven agent workflows as node graphs on a canvas.\n" +
     "You have real tools over this user's own account: workflows (list/read/create/update/" +
     "delete, save + validate graphs, run them, read run history), memory stores and their " +
-    "items, linux sandboxes, skills, variables, and a read view of their registry (MCP " +
-    "servers, skills, variables, memory stores, sandboxes).\n" +
+    "items, skills, variables, and a read view of their registry (MCP " +
+    "servers, skills, variables, memory stores).\n" +
     "Hard rule: before you author or edit ANY workflow graph, call get_docs and get_catalog " +
     "first. Never guess the graph format or a node type — the catalog is the only source of " +
     "valid node keys, ports and config fields, and it differs per user.\n" +
@@ -108,9 +106,9 @@ export async function* runAgentChat(
         return;
     }
 
-    const key = await selectModelApiKey(userId);
-    if ("error" in key) {
-        yield { t: "e", d: key.error };
+    const apiKey = await getOpenrouterKey(userId);
+    if (!apiKey) {
+        yield { t: "e", d: "model calls need an OpenRouter key: add one in settings" };
         return;
     }
 
@@ -127,7 +125,7 @@ export async function* runAgentChat(
 
     try {
         for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
-            const it = streamChat(key.apiKey, {
+            const it = streamChat(apiKey, {
                 model: req.model,
                 system,
                 messages: wire,
@@ -142,14 +140,6 @@ export async function* runAgentChat(
             while (true) {
                 const step = await it.next();
                 if (step.done) {
-                    // each turn is its own metered OpenRouter call
-                    if (key.platformBilled && step.value.usage) {
-                        await recordUsage(userId, {
-                            model: req.model,
-                            ...step.value.usage,
-                            source: "manual",
-                        });
-                    }
                     toolCalls = step.value.toolCalls;
                     break;
                 }

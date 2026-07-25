@@ -6,25 +6,6 @@ import { db } from "@/lib/db";
 import { seedExampleWorkflow } from "@/lib/exampleWorkflow.server";
 import { SELF_HOSTED_USER_ID } from "@/lib/selfhost";
 
-// per-container sandbox resource quotas for self-hosted mode (no tiers). Sized
-// generously — a self-hoster owns the box — but still parsed from env so an
-// operator can dial it to their hardware. Non-numeric / non-positive → default.
-function envPositiveInt(name: string, fallback: number): number {
-    const n = Number(process.env[name]);
-    return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-function envPositiveNumber(name: string, fallback: number): number {
-    const n = Number(process.env[name]);
-    return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-export const SELF_HOSTED_SANDBOX = {
-    memoryMb: envPositiveInt("SANDBOX_MEMORY_MB", 1024),
-    cpus: envPositiveNumber("SANDBOX_CPUS", 2),
-    diskMb: envPositiveInt("SANDBOX_DISK_MB", 8192),
-    execTimeoutS: envPositiveInt("SANDBOX_EXEC_TIMEOUT_S", 600),
-} as const;
-
 // module-load timestamp reused for the synthetic user's created/updated times
 const OWNER_SINCE = new Date();
 

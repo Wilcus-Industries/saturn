@@ -2,9 +2,9 @@ import { auth } from "@/lib/auth";
 import { createTtlCache } from "@/lib/cache.server";
 import { db } from "@/lib/db";
 import { SELF_HOSTED } from "@/lib/selfhost";
-import { SELF_HOSTED_SANDBOX, selfHostedSession } from "@/lib/selfhost.server";
+import { selfHostedSession } from "@/lib/selfhost.server";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { cache } from "react";
 
 // per-request session memo: pages and their nested helpers (requireUser,
@@ -44,16 +44,13 @@ export const baseUrl = process.env.BETTER_AUTH_URL as string;
 // tiers, rolling 30-day window on free. Only an explicitly activated level
 // gets it: getCreditUsage zeroes the allowance for level=null, unlike the
 // other limits (limitsFor treats null as free).
-// sandboxes caps (count + per-container memory/cpu/disk/exec-timeout quotas) are
-// enforced in saveSandbox (dashboard) and applied at container create — sized
-// for the 4GB Pi (app MemoryMax=2G, global 2-concurrent cap in lib/sandbox.server.ts).
 export const PLAN_LIMITS = {
-    free: { workflows: 3, mcpServers: 3, memoryStores: 1, cronFloorMinutes: 60, modelCredits: 1_000, sandboxes: 1, sandboxMemoryMb: 128, sandboxCpus: 0.25, sandboxDiskMb: 512, sandboxExecTimeoutS: 60 },
-    pro: { workflows: 20, mcpServers: 10, memoryStores: 5, cronFloorMinutes: 5, modelCredits: 15_000, sandboxes: 3, sandboxMemoryMb: 256, sandboxCpus: 0.5, sandboxDiskMb: 2_048, sandboxExecTimeoutS: 120 },
-    max: { workflows: 100, mcpServers: 50, memoryStores: 20, cronFloorMinutes: 1, modelCredits: 60_000, sandboxes: 5, sandboxMemoryMb: 512, sandboxCpus: 1, sandboxDiskMb: 4_096, sandboxExecTimeoutS: 300 },
+    free: { workflows: 3, mcpServers: 3, memoryStores: 1, cronFloorMinutes: 60, modelCredits: 1_000 },
+    pro: { workflows: 20, mcpServers: 10, memoryStores: 5, cronFloorMinutes: 5, modelCredits: 15_000 },
+    max: { workflows: 100, mcpServers: 50, memoryStores: 20, cronFloorMinutes: 1, modelCredits: 60_000 },
 } as const satisfies Record<
     ActivationLevel,
-    { workflows: number; mcpServers: number; memoryStores: number; cronFloorMinutes: number; modelCredits: number; sandboxes: number; sandboxMemoryMb: number; sandboxCpus: number; sandboxDiskMb: number; sandboxExecTimeoutS: number }
+    { workflows: number; mcpServers: number; memoryStores: number; cronFloorMinutes: number; modelCredits: number }
 >;
 
 // self-hosted mode has no tiers: everything unlimited, model credits off
@@ -66,11 +63,6 @@ export const SELF_HOSTED_LIMITS = {
     memoryStores: Infinity,
     cronFloorMinutes: 1,
     modelCredits: 0,
-    sandboxes: Infinity,
-    sandboxMemoryMb: SELF_HOSTED_SANDBOX.memoryMb,
-    sandboxCpus: SELF_HOSTED_SANDBOX.cpus,
-    sandboxDiskMb: SELF_HOSTED_SANDBOX.diskMb,
-    sandboxExecTimeoutS: SELF_HOSTED_SANDBOX.execTimeoutS,
 } as const;
 
 // not-yet-activated users get free limits; self-hosted gets unlimited
@@ -208,6 +200,6 @@ export async function getActivationLevels(
 export async function requireUser() {
     const requestHeaders = await headers();
     const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
+    if (!session?.user) notFound();
     return { requestHeaders, session };
 }

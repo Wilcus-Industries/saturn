@@ -63,14 +63,15 @@ export const auth = betterAuth({
                   }),
               ]),
         // OAuth 2.1 authorization server for the hosted workflow-editor MCP
-        // server at /mcp (dynamic client registration + PKCE); unauthenticated
-        // authorize requests bounce through /onboard and resume after Google
-        // sign-in sets the session cookie.
+        // server at /mcp (dynamic client registration + PKCE).
         //
-        // consentPage + the /api/auth/mcp/authorize proxy (proxy.ts) force an
-        // explicit consent screen for every authorize request. Without it the
-        // plugin issues a code silently to any (anonymously registered) client,
-        // which a Lax session cookie turns into cross-account token theft.
+        // loginPage and consentPage both point at routes the desktop pivot
+        // deleted, so every hosted authorize request now dead-ends in a 404.
+        // That is deliberate: it fails CLOSED. Do not "fix" it by dropping
+        // consentPage — without a consent screen the plugin issues a code
+        // silently to any anonymously registered client, which a Lax session
+        // cookie turns into cross-account token theft. Delete the whole mcp
+        // plugin instead when the hosted OAuth surface goes.
         mcp({
             loginPage: "/onboard",
             resource: `${process.env.BETTER_AUTH_URL}/mcp`,

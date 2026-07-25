@@ -1,5 +1,5 @@
 // Shared helpers for the dashboard's server actions (settings / memory /
-// sandboxes / workflows). Not a "use server" module itself — a plain util
+// workflows). Not a "use server" module itself — a plain util
 // imported by those action files, which re-check the session themselves.
 //
 // Expected failures come back as a value the modal renders inline; a thrown

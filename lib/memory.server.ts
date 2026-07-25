@@ -9,12 +9,10 @@
 // key. All failures return as values — never throw for an expected failure.
 import { MEMORY_TOOL_NAMES, type McpCallResult } from "@/lib/agent";
 import type { AgentToolSpec } from "@/lib/agent.server";
-import { getCreditUsage, platformKey, recordUsage } from "@/lib/credits.server";
 import { db } from "@/lib/db";
 import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
-import { SELF_HOSTED } from "@/lib/selfhost";
 import type { McpToolParam } from "@/lib/workflow";
 
 export const MEMORY_EMBED_MODEL = "openai/text-embedding-3-small"; // 1536 dims
@@ -216,32 +214,9 @@ async function embed(
     source: "designer" | "cron" | "manual" | "event",
     texts: string[],
 ): Promise<number[][]> {
-    let apiKey: string | null = null;
-    let platformBilled = false;
-    if (SELF_HOSTED) {
-        // single owner, no credits/BYOK: the server-wide platform key funds
-        // embeddings and nothing is metered (recordUsage also no-ops).
-        apiKey = platformKey();
-        if (!apiKey) {
-            throw new Error(
-                "model calls need an OpenRouter key: set PLATFORM_OPENROUTER_KEY on the server",
-            );
-        }
-    } else {
-        const credits = await getCreditUsage(userId);
-        if (credits.allowance > 0 && credits.used < credits.allowance && platformKey()) {
-            apiKey = platformKey();
-            platformBilled = true;
-        } else {
-            apiKey = await getOpenrouterKey(userId);
-        }
-        if (!apiKey) {
-            throw new Error(
-                credits.allowance > 0
-                    ? "out of built-in model credits for now — add an OpenRouter key in settings to keep running"
-                    : "no model credits on your plan — upgrade for built-in credits or add an OpenRouter key in settings",
-            );
-        }
+    const apiKey = await getOpenrouterKey(userId);
+    if (!apiKey) {
+        throw new Error("model calls need an OpenRouter key: add one in settings");
     }
 
     const res = await fetch(EMBED_URL, {
@@ -285,20 +260,6 @@ async function embed(
             throw new Error("embedding call failed: unexpected vector shape");
         }
         vectors.push(emb as number[]);
-    }
-
-    // metering: only platform-billed calls with a reported cost touch the
-    // ledger; BYOK is never recorded, and a missing cost is silently skipped.
-    // recordUsage never throws.
-    const usage = record(record(body)?.usage);
-    if (platformBilled && typeof usage?.cost === "number") {
-        await recordUsage(userId, {
-            model: MEMORY_EMBED_MODEL,
-            costUsd: usage.cost,
-            promptTokens: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0,
-            completionTokens: 0, // embeddings have no completion tokens
-            source,
-        });
     }
 
     return vectors;

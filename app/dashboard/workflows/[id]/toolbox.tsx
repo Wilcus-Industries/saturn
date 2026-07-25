@@ -44,10 +44,9 @@ const CATEGORY_HEADING: Partial<Record<NodeCategory, string>> = {
     mcp: "tools",
     skill: "skills",
     memory: "memory",
-    sandbox: "sandboxes",
 };
 const BLOCKS_CATEGORIES: NodeCategory[] = ["events", "logic", "data"];
-const AGENTS_CATEGORIES: NodeCategory[] = ["saturn", "mcp", "skill", "memory", "sandbox"];
+const AGENTS_CATEGORIES: NodeCategory[] = ["saturn", "mcp", "skill", "memory"];
 
 type CategorySection = { category: NodeCategory; heading: string; entries: CatalogEntry[] };
 
@@ -162,11 +161,7 @@ function Section({
             )}
             {entries.length === 0 && (
                 <p className={"text-[10px] text-gray-400"}>
-                    {q
-                        ? "no matches"
-                        : category === "sandbox"
-                          ? "add sandboxes in the Sandboxes tab"
-                          : "none yet — add in settings"}
+                    {q ? "no matches" : "none yet — add in settings"}
                 </p>
             )}
             {entries.map((entry) => (
@@ -427,7 +422,7 @@ export default function Toolbox({
                                 <p className={"text-[10px] text-gray-400"}>
                                     {githubLink === "unlinked"
                                         ? "github events need the GitHub App — link it in settings"
-                                        : "github events need a GitHub App on this server — see deploy/README.md"}
+                                        : "github events need a GitHub App configured on this server"}
                                 </p>
                             )}
                             {entries.map((entry) => (

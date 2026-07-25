@@ -23,13 +23,12 @@ import {
     describeImage,
     runWorkflow,
 } from "@/lib/interpreter";
-import { recordUsage, selectModelApiKey } from "@/lib/credits.server";
 import { executeIntegration } from "@/lib/integrations.server";
 import { executeMemoryTool, memoryToolSpecs } from "@/lib/memory.server";
 import { callTool, McpAuthRequired } from "@/lib/mcp";
+import { getOpenrouterKey } from "@/lib/openrouter.server";
 import { buildUserCatalog, canCallTool, UUID_RE } from "@/lib/registry";
 import { freshMcpToken, getMcpSecrets, getUserRegistry } from "@/lib/registry.server";
-import { executeSandboxTool, sandboxToolSpecs } from "@/lib/sandbox.server";
 import { getActivationLevels, limitsFor } from "@/lib/subscription";
 import { CATALOG_BY_KEY, type CatalogEntry, missingEntry, type WorkflowGraph } from "@/lib/workflow";
 
@@ -90,13 +89,10 @@ export async function executeMcpTool(
 
 // one LLM turn of an agent node's loop: resolve grants against the user's
 // registry, inject skill instructions by id (never caller-supplied text),
-// call OpenRouter — on the platform key while built-in credits remain
-// (debited to the model_usage ledger), else the user's own key. Errors
-// return as values.
+// call OpenRouter on the user's own key. Errors return as values.
 export async function executeAgentTurn(
     userId: string,
     req: CallAgentRequest,
-    source: "designer" | "cron" | "manual" | "event",
 ): Promise<AgentModelResult> {
     if (typeof req.model !== "string" || !MODEL_ID.test(req.model)) {
         return { error: "invalid model id" };
@@ -112,9 +108,6 @@ export async function executeAgentTurn(
     }
     if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID_RE.test(req.memoryId))) {
         return { error: "invalid memory store" };
-    }
-    if (req.sandboxId !== undefined && (typeof req.sandboxId !== "string" || !UUID_RE.test(req.sandboxId))) {
-        return { error: "invalid sandbox" };
     }
     if (!Array.isArray(req.tools) || req.tools.length > MAX_GRANTED_TOOLS) {
         return { error: "too many tools" };
@@ -171,37 +164,28 @@ export async function executeAgentTurn(
         if (!row) return { error: "skill not found" };
         system += `\n\n## Skill: ${row.name}\n${row.description}`;
     }
-    // memory store and sandbox: reject a missing store/sandbox outright (never
-    // silently drop — a granted-but-gone resource is a misconfiguration the
-    // user must see). Their tools are unshifted AFTER the MAX_GRANTED_TOOLS
-    // slice above, so they always survive the cap and sit at the head of the
-    // array — head position reserves the clean wire names (buildToolDefs
-    // renames the later collider, not the first). With memory attached an agent
-    // gets at most 17 MCP tools; with a sandbox, 17; with both, 14.
+    // memory store: reject a missing store outright (never silently drop — a
+    // granted-but-gone resource is a misconfiguration the user must see). Its
+    // tools are unshifted AFTER the MAX_GRANTED_TOOLS slice above, so they
+    // always survive the cap and sit at the head of the array — head position
+    // reserves the clean wire names (buildToolDefs renames the later collider,
+    // not the first). With memory attached an agent gets at most 17 MCP tools.
     if (req.memoryId !== undefined) {
         const row = registry.find((r) => r.id === req.memoryId && r.kind === "memory");
         if (!row) return { error: "memory store not found" };
         system += `\n\n## Memory: ${row.name}\n${row.description}\nSearch before answering questions that may involve prior context; save durable facts (not transcripts); forget stale items by id.`;
         specs.unshift(...memoryToolSpecs(req.memoryId));
     }
-    if (req.sandboxId !== undefined) {
-        const row = registry.find((r) => r.id === req.sandboxId && r.kind === "sandbox");
-        if (!row) return { error: "sandbox not found" };
-        system += `\n\n## Sandbox: ${row.name}${row.description ? `\n${row.description}` : ""}\nA persistent Linux sandbox (Debian: bash, Node 22, python3, pip, git, curl). Files under /work persist across runs ($HOME is /work); everything else resets. The rootfs is read-only: never try to install runtimes or system packages (no apt, no nvm — they fail or get OOM-killed); small installs go into /work via \`pip install --user\` or \`npm install\` in a /work project dir. Commands run via sandbox_exec time out per plan tier. The sandbox is a container with its own resource limits: free/nproc/df report the HOST, not the sandbox — for the sandbox's real limits read /sys/fs/cgroup/memory.max (bytes), /sys/fs/cgroup/cpu.max (quota period), and /sys/fs/cgroup/pids.max.`;
-        specs.unshift(...sandboxToolSpecs(req.sandboxId));
-    }
-    // key selection: platform key while credits remain, else BYOK fallback
-    // (shared with the Agent-page chat via lib/credits.server.ts).
-    const key = await selectModelApiKey(userId);
-    if ("error" in key) return { error: key.error };
-    const { apiKey, platformBilled } = key;
+    // BYOK only: the user's own OpenRouter key funds every model call.
+    const apiKey = await getOpenrouterKey(userId);
+    if (!apiKey) return { error: "model calls need an OpenRouter key: add one in settings" };
 
     // drop reasoning for image output (single-turn, not applicable); otherwise
     // allowlist the mode → OpenRouter's reasoning param
     const reasoning = req.outputImage === true ? undefined : toReasoningParam(req.reasoning);
 
     try {
-        const { content, toolCalls, images, usage } = await chatComplete(apiKey, {
+        const { content, toolCalls, images } = await chatComplete(apiKey, {
             model: req.model,
             system,
             messages: req.messages,
@@ -209,9 +193,6 @@ export async function executeAgentTurn(
             outputImage: req.outputImage === true,
             reasoning,
         });
-        if (platformBilled && usage) {
-            await recordUsage(userId, { model: req.model, ...usage, source });
-        }
         // the image rides its own field so the content slice never touches
         // the data URL; oversized images are dropped (interpreter falls back
         // to text with a warning)
@@ -407,11 +388,9 @@ export async function executeWorkflowRun(
                     executeMcpTool(wf.user_id, entryId, toolName, input),
                 callMemory: (memoryId, op, input) =>
                     executeMemoryTool(wf.user_id, memoryId, op, input, opts.trigger),
-                callSandbox: (sandboxId, op, input) =>
-                    executeSandboxTool(wf.user_id, sandboxId, op, input),
                 callIntegration: (providerId, config, message) =>
                     executeIntegration(wf.user_id, providerId, config, message),
-                callAgent: (req) => executeAgentTurn(wf.user_id, req, opts.trigger),
+                callAgent: (req) => executeAgentTurn(wf.user_id, req),
                 signal: controller.signal,
             }, { entryNodeIds: opts.entryNodeIds, eventPayloads: opts.eventPayloads });
         } catch (err) {

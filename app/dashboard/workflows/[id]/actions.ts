@@ -1,6 +1,5 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
 import {
     type AgentMessage,
     type AgentModelResult,
@@ -9,7 +8,6 @@ import {
     MAX_AGENT_MESSAGES,
     MEMORY_TOOL_NAMES,
     type McpCallResult,
-    SANDBOX_TOOL_NAMES,
 } from "@/lib/agent";
 import { db } from "@/lib/db";
 import { subscriptionsChanged } from "@/lib/events.server";
@@ -19,7 +17,6 @@ import { executeMemoryTool } from "@/lib/memory.server";
 import { MAX_ENTRIES_PER_KIND, UUID_RE } from "@/lib/registry";
 import { invalidateUserRegistry } from "@/lib/registry.server";
 import { executeAgentTurn, executeMcpTool } from "@/lib/runner.server";
-import { executeSandboxTool } from "@/lib/sandbox.server";
 import { requireUser } from "@/lib/subscription";
 import { isWorkflowGraph, MAX_EDGES, MAX_GRAPH_JSON, MAX_NODES } from "@/lib/workflow";
 
@@ -27,8 +24,6 @@ import { isWorkflowGraph, MAX_EDGES, MAX_GRAPH_JSON, MAX_NODES } from "@/lib/wor
 
 const MAX_AGENT_PAYLOAD = 393_216; // serialized transcript cap
 const MAX_MEMORY_INPUT = 4096; // memory tool argument JSON cap
-// larger than memory's cap — sandbox_write_file carries file content as an argument
-const MAX_SANDBOX_INPUT = 65_536;
 
 export async function saveWorkflow(id: string, graph: unknown) {
     const { session } = await requireUser();
@@ -48,42 +43,6 @@ export async function saveWorkflow(id: string, graph: unknown) {
     // graph edits add/remove event nodes and change bot tokens — poke the
     // gateway (debounced there, so autosave bursts collapse)
     subscriptionsChanged();
-}
-
-// --- webhook trigger secret (event:webhook). The secret lives in the
-// workflow.webhook_secret column (nullable = never provisioned) and forms the
-// second path segment of the ingress URL. Both actions follow the saveWorkflow
-// pattern: requireUser, UUID check, ownership scoped in the WHERE clause. ---
-
-// 24 random bytes → 32-char base64url token (matches /^[A-Za-z0-9_-]{20,64}$/)
-const webhookSecret = () => randomBytes(24).toString("base64url");
-
-// returns the workflow's webhook secret, minting one on first call. The
-// coalesce keeps an existing secret (idempotent — repeated opens return the
-// same URL); only a never-provisioned row gets the fresh value.
-export async function getOrCreateWebhookSecret(id: string): Promise<string> {
-    const { session } = await requireUser();
-    if (!UUID_RE.test(id)) throw new Error("Invalid workflow id");
-    const { rows } = await db.query<{ webhook_secret: string }>(
-        `update workflow set webhook_secret = coalesce(webhook_secret, $1)
-         where id = $2 and user_id = $3 returning webhook_secret`,
-        [webhookSecret(), id, session.user.id],
-    );
-    if (!rows[0]) throw new Error("Not found");
-    return rows[0].webhook_secret;
-}
-
-// rotates the secret unconditionally — the old URL stops working instantly.
-export async function rotateWebhookSecret(id: string): Promise<string> {
-    const { session } = await requireUser();
-    if (!UUID_RE.test(id)) throw new Error("Invalid workflow id");
-    const { rows } = await db.query<{ webhook_secret: string }>(
-        `update workflow set webhook_secret = $1
-         where id = $2 and user_id = $3 returning webhook_secret`,
-        [webhookSecret(), id, session.user.id],
-    );
-    if (!rows[0]) throw new Error("Not found");
-    return rows[0].webhook_secret;
 }
 
 // --- variables (toolbox-managed registry_entry rows, kind 'variable'; value
@@ -218,26 +177,6 @@ export async function callMemoryTool(
     return executeMemoryTool(session.user.id, memoryId, op, input, "designer");
 }
 
-// executes one sandbox operation for a designer test run. Errors return as
-// values (not throws) so the client console can render them. Validation and
-// the operation live in executeSandboxTool (lib/sandbox.server.ts), shared with
-// the scheduled runner.
-export async function callSandboxTool(
-    sandboxId: string,
-    op: string,
-    input: string,
-): Promise<McpCallResult> {
-    const { session } = await requireUser();
-    if (typeof sandboxId !== "string" || !UUID_RE.test(sandboxId)) return { error: "invalid sandbox id" };
-    if (typeof op !== "string" || !(SANDBOX_TOOL_NAMES as readonly string[]).includes(op)) {
-        return { error: "unknown sandbox operation" };
-    }
-    if (typeof input !== "string" || input.length > MAX_SANDBOX_INPUT) {
-        return { error: "input too long" };
-    }
-    return executeSandboxTool(session.user.id, sandboxId, op, input);
-}
-
 // executes one integration send for a designer test run. Errors return as
 // values; validation lives in executeIntegration (lib/integrations.server.ts),
 // shared with the scheduled runner.
@@ -300,9 +239,6 @@ export async function callAgentModel(req: CallAgentRequest): Promise<AgentModelR
     if (req.memoryId !== undefined && (typeof req.memoryId !== "string" || !UUID_RE.test(req.memoryId))) {
         return { error: "invalid memory store" };
     }
-    if (req.sandboxId !== undefined && (typeof req.sandboxId !== "string" || !UUID_RE.test(req.sandboxId))) {
-        return { error: "invalid sandbox" };
-    }
     if (
         !Array.isArray(req.messages) ||
         req.messages.length === 0 ||
@@ -315,5 +251,5 @@ export async function callAgentModel(req: CallAgentRequest): Promise<AgentModelR
         return { error: "transcript too large" };
     }
 
-    return executeAgentTurn(session.user.id, req, "designer");
+    return executeAgentTurn(session.user.id, req);
 }

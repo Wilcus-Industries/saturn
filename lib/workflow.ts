@@ -28,7 +28,6 @@ export type NodeCategory =
     | "mcp"
     | "skill"
     | "memory"
-    | "sandbox"
     | "variable"
     | "saturn"
     | "model"
@@ -50,14 +49,14 @@ export type McpToolParam = {
 // "tools"/"skills") — every other value input stays single-edge via
 // edgesToReplace.
 // accepts: value input that takes grant-chip outputs only ("tool" = an mcp
-// per-tool node, "skill" = a skill node, "memory" = a memory store node,
-// "sandbox" = a sandbox node); ordinary value edges are rejected.
+// per-tool node, "skill" = a skill node, "memory" = a memory store node);
+// ordinary value edges are rejected.
 export type PortSpec = {
     id: string;
     label: string;
     kind: PortKind;
     multi?: boolean;
-    accepts?: "tool" | "skill" | "memory" | "sandbox";
+    accepts?: "tool" | "skill" | "memory";
 };
 
 export type ConfigField = {
@@ -284,9 +283,6 @@ export const CATALOG: CatalogEntry[] = [
             // single-edge (no multi): one memory store per agent, so
             // edgesToReplace auto-swaps a second connection
             { ...v("memory"), accepts: "memory" },
-            // single-edge (no multi): one sandbox per agent, so
-            // edgesToReplace auto-swaps a second connection
-            { ...v("sandbox"), accepts: "sandbox" },
         ],
         // "result" carries the final text, or the generated image as a
         // data:image/… URL when output=image
@@ -380,7 +376,6 @@ export function missingEntry(type: string): CatalogEntry {
         prefix === "mcp" ||
         prefix === "skill" ||
         prefix === "memory" ||
-        prefix === "sandbox" ||
         prefix === "variable" ||
         prefix === "integration"
             ? prefix
@@ -442,13 +437,6 @@ export const CATEGORY_STYLES = {
         headerBg: "bg-fuchsia-500/10",
         text: "text-fuchsia-600 dark:text-fuchsia-400",
         edge: "#d946ef",
-    },
-    sandbox: {
-        borderL: "border-l-lime-500",
-        border: "border-lime-500/60",
-        headerBg: "bg-lime-500/10",
-        text: "text-lime-600 dark:text-lime-400",
-        edge: "#84cc16",
     },
     variable: {
         borderL: "border-l-violet-500",
@@ -603,17 +591,16 @@ function findPort(
     return entry[dir].find((p) => p.id === ref.portId) ?? null;
 }
 
-// grant-chip nodes: an mcp server node ("tool"), a skill node ("skill"), a
-// memory store node ("memory"), or a sandbox node ("sandbox"), whose value
+// grant-chip nodes: an mcp server node ("tool"), a skill node ("skill"), or a
+// memory store node ("memory"), whose value
 // output feeds only an agent's matching accepts port. Exported so the
 // designer's invalid-drop feedback can name the mismatch (chip into ordinary
 // port / wrong accepts port) without re-deriving these rules.
-export function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | "memory" | "sandbox" | null {
+export function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | "memory" | null {
     if (!entry || entry.missing) return null;
     if (entry.category === "mcp" && typeof entry.toolName === "string") return "tool";
     if (entry.category === "skill") return "skill";
     if (entry.category === "memory") return "memory";
-    if (entry.category === "sandbox") return "sandbox";
     return null;
 }
 

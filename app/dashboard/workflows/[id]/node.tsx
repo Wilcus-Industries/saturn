@@ -8,7 +8,6 @@ import {
     type SetStateAction,
     useRef,
 } from "react";
-import { FaTerminal } from "react-icons/fa6";
 import {
     type CatalogEntry,
     type ConfigField,
@@ -51,7 +50,6 @@ import {
     isMcpChipEntry,
     isMemoryChipEntry,
     isModelEntry,
-    isSandboxChipEntry,
     isSkillChipEntry,
     isVariableEntry,
     MCP_CHIP,
@@ -59,7 +57,6 @@ import {
     MODEL_D,
     nodeHeight,
     nodeWidth,
-    SANDBOX_CHIP,
     SKILL_CHIP,
     unpairedInputs,
 } from "./geometry";
@@ -91,14 +88,6 @@ export type OpenPickerHandler = (
 // a schedule event node opens the cron popover when clicked (press with no
 // drag); the anchor is the node's client-space bottom-left corner
 export type OpenCronHandler = (
-    anchor: { x: number; y: number },
-    nodeId: string,
-) => void;
-
-// an event:webhook trigger circle opens the webhook-url popover when clicked
-// (press with no drag); the anchor is the node's client-space bottom-left
-// corner, like cron
-export type OpenWebhookHandler = (
     anchor: { x: number; y: number },
     nodeId: string,
 ) => void;
@@ -189,7 +178,6 @@ export default memo(function Node({
     onPortPointerDown,
     onOpenPicker,
     onOpenCron,
-    onOpenWebhook,
     onOpenTools,
     onOpenInfo,
     onOpenVariable,
@@ -247,7 +235,6 @@ export default memo(function Node({
     onPortPointerDown: PortPointerDownHandler;
     onOpenPicker?: OpenPickerHandler;
     onOpenCron?: OpenCronHandler;
-    onOpenWebhook?: OpenWebhookHandler;
     onOpenTools?: OpenToolsHandler;
     onOpenInfo?: OpenInfoHandler;
     onOpenVariable?: OpenVariableHandler;
@@ -556,10 +543,9 @@ export default memo(function Node({
                 ? describeCron(cron)
                 : "not scheduled"
             : entry.label;
-        // a click opens the cron popover for a schedule, or the webhook-url
-        // popover for the webhook trigger; otherwise the node just drags
-        const isWebhook = entry.key === "event:webhook";
-        const clickOpens = hasCron || isWebhook;
+        // a click opens the cron popover for a schedule; otherwise the node
+        // just drags
+        const clickOpens = hasCron;
 
         // a press that stayed under the drag threshold is a click → open the
         // matching popover
@@ -567,8 +553,7 @@ export default memo(function Node({
             if (!clickedNotDragged()) return;
             const r = e.currentTarget.getBoundingClientRect();
             const anchor = { x: r.left, y: r.bottom + 4 };
-            if (isWebhook) onOpenWebhook?.(anchor, node.id);
-            else onOpenCron?.(anchor, node.id);
+            onOpenCron?.(anchor, node.id);
         };
 
         // per-port "portId=lx,ly" local anchors from the canvas (rotated toward
@@ -654,24 +639,18 @@ export default memo(function Node({
         );
     }
 
-    // mcp/skill/memory/sandbox grant chips render as a rounded square (60px mcp
-    // / 48px skill+memory+sandbox = MCP_CHIP/SKILL_CHIP/MEMORY_CHIP/SANDBOX_CHIP,
+    // mcp/skill/memory grant chips render as a rounded square (60px mcp
+    // / 48px skill+memory = MCP_CHIP/SKILL_CHIP/MEMORY_CHIP,
     // h-6 label strip = CHIP_LABEL_H) with the server favicon / skill+memory
-    // emoji / sandbox terminal icon centered and a single value output on the
+    // emoji centered and a single value output on the
     // right-edge midpoint per geometry.ts, mirroring the model circle branch.
     // Border is the category color via entryStyles — purple mcp / green skill /
-    // fuchsia memory / lime sandbox.
-    if (
-        isMcpChipEntry(entry) ||
-        isSkillChipEntry(entry) ||
-        isMemoryChipEntry(entry) ||
-        isSandboxChipEntry(entry)
-    ) {
+    // fuchsia memory.
+    if (isMcpChipEntry(entry) || isSkillChipEntry(entry) || isMemoryChipEntry(entry)) {
         const output = entry.outputs[0];
         const mcp = isMcpChipEntry(entry);
         const memory = isMemoryChipEntry(entry);
-        const sandbox = isSandboxChipEntry(entry);
-        const size = mcp ? MCP_CHIP : memory ? MEMORY_CHIP : sandbox ? SANDBOX_CHIP : SKILL_CHIP;
+        const size = mcp ? MCP_CHIP : memory ? MEMORY_CHIP : SKILL_CHIP;
 
         // a press that stayed under the drag threshold is a click: an mcp
         // server chip opens the tool-picker popover, a skill/memory chip opens
@@ -707,8 +686,6 @@ export default memo(function Node({
                 >
                     {mcp ? (
                         <McpLogo domain={entry.logoDomain ?? ""} name={entry.label} size={"fill"} />
-                    ) : sandbox ? (
-                        <FaTerminal className={`text-2xl ${styles.text}`} />
                     ) : (
                         <span className={"text-2xl leading-none"}>{entry.emoji}</span>
                     )}

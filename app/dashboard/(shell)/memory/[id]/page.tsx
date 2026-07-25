@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { countMemoryItems, listMemoryItems, MAX_MEMORY_ITEMS } from "@/lib/memory.server";
 import { UUID_RE } from "@/lib/registry";
 import { getUserRegistry } from "@/lib/registry.server";
@@ -18,7 +18,7 @@ export default async function MemoryStore({
     if (!UUID_RE.test(id)) notFound();
 
     const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
+    if (!session?.user) notFound();
 
     const { q } = await searchParams;
     const query = typeof q === "string" ? q : "";

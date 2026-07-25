@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { UUID_RE } from "@/lib/registry";
 import { getSessionCached } from "@/lib/subscription";
@@ -55,7 +55,7 @@ export default async function WorkflowRuns({
     if (!UUID_RE.test(id)) notFound();
 
     const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
+    if (!session?.user) notFound();
 
     // ownership check — runs are only reachable through the user's workflow;
     // the runs query joins on ownership itself so both can run in parallel

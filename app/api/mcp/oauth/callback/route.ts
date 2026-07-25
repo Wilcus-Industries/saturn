@@ -24,7 +24,7 @@ export async function GET(request: Request) {
         userId = SELF_HOSTED_USER_ID;
     } else {
         const session = await auth.api.getSession({ headers: await headers() });
-        if (!session?.user) return NextResponse.redirect(`${baseUrl}/onboard`);
+        if (!session?.user) return new NextResponse("not signed in", { status: 401 });
         userId = session.user.id;
     }
 

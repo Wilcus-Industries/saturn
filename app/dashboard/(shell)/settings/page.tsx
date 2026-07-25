@@ -1,18 +1,13 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
-import Link from "next/link";
+import { notFound } from "next/navigation";
 import McpLogo from "@/app/dashboard/mcpLogo";
-import { auth } from "@/lib/auth";
 import ActionButton from "@/app/dashboard/actionButton";
 import ConnectAgent from "@/app/dashboard/connectAgent";
-import CreditsBar from "@/app/dashboard/creditsBar";
 import { faviconDomain } from "@/lib/registry";
-import { getCreditUsage, platformKey } from "@/lib/credits.server";
 import { githubAppConfigured, listInstallations } from "@/lib/githubApp.server";
 import { hasOpenrouterKey } from "@/lib/openrouter.server";
 import { getUserRegistry } from "@/lib/registry.server";
 import { SELF_HOSTED } from "@/lib/selfhost";
-import { baseUrl, getActivationDetails, getSessionCached } from "@/lib/subscription";
+import { baseUrl, getSessionCached } from "@/lib/subscription";
 import { deleteRegistryEntry, saveOpenrouterKey } from "./actions";
 import ConnectButton from "./connectButton";
 import ConfirmButton from "@/app/dashboard/confirmButton";
@@ -30,9 +25,8 @@ export default async function Settings({
         github_error?: string;
     }>;
 }) {
-    const requestHeaders = await headers();
     const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
+    if (!session?.user) notFound();
 
     // connect failures redirect back here with the message in the URL
     const {
@@ -51,160 +45,24 @@ export default async function Settings({
         : [];
 
     // independent reads — one Promise.all so the page pays the DB round trip once
-    const [{ level, status, pendingCancel, periodEnd }, registry, keySet, credits] =
-        await Promise.all([
-            getActivationDetails(requestHeaders),
-            getUserRegistry(session.user.id),
-            hasOpenrouterKey(session.user.id),
-            getCreditUsage(session.user.id),
-        ]);
-    const { name, email, image, createdAt } = session.user;
-    // self-hosted: model calls run only on the server's platform key (BYOK is dead)
-    const platformKeySet = platformKey() !== null;
+    const [registry, keySet] = await Promise.all([
+        getUserRegistry(session.user.id),
+        hasOpenrouterKey(session.user.id),
+    ]);
     const mcpServers = registry.filter((entry) => entry.kind === "mcp");
     const skills = registry.filter((entry) => entry.kind === "skill");
-
-    async function logout() {
-        "use server";
-        await auth.api.signOut({ headers: await headers() });
-        redirect("/");
-    }
 
     return (
         <div className={"flex flex-col gap-6"}>
             <h1 className={"font-mono text-3xl"}>Settings</h1>
 
-            <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
-                <h2 className={"font-mono text-xl"}>Account</h2>
-
-                {SELF_HOSTED ? (
-                    // single-user instance: no Google identity, no plan, no session
-                    // to end — just a mode indicator card (same card language, no glow)
-                    <div
-                        className={"flex flex-col gap-3 border border-foreground/15 bg-background p-4 md:max-w-sm"}
-                    >
-                        <div className={"flex items-center gap-3 border-b border-current pb-2"}>
-                            <h3 className={"font-mono"}>Self-hosted</h3>
-                        </div>
-                        <p className={"font-mono text-sm text-gray-400"}>
-                            single-user instance with full access. No plans, billing, or sign-in.
-                        </p>
-                    </div>
-                ) : (
-                    <>
-                <div className={"grid gap-4 md:grid-cols-2"}>
-                    <div className={"flex items-center gap-4 border border-foreground/15 p-4"}>
-                        {image ? (
-                            // avatar comes from the OAuth provider; plain <img> since
-                            // remotePatterns isn't configured for next/image
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                                src={image}
-                                alt={`${name}'s profile picture`}
-                                referrerPolicy={"no-referrer"}
-                                className={"h-16 w-16 rounded-full"}
-                            />
-                        ) : (
-                            <div
-                                className={`flex h-16 w-16 items-center justify-center rounded-full
-                                    bg-foreground font-mono text-2xl text-background`}
-                            >
-                                {name.charAt(0).toUpperCase()}
-                            </div>
-                        )}
-                        <div className={"flex min-w-0 flex-col"}>
-                            <span className={"truncate font-sans text-lg"}>{name}</span>
-                            <span className={"truncate font-mono text-sm text-gray-400"}>
-                                {email}
-                            </span>
-                            <span className={"font-mono text-sm text-gray-400"}>
-                                member since{" "}
-                                {new Date(createdAt).toLocaleDateString("en-US", {
-                                    month: "long",
-                                    year: "numeric",
-                                })}
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* echoes the activate-page tier cards; informational, so no hover invert */}
-                    <div
-                        className={`flex flex-col gap-3 border border-foreground/15 bg-background p-4
-                            ${level === "max" ? "enchant-glow text-purple-300"
-                            : level === "pro" ? "pro-glow text-yellow-500" : ""}`}
-                    >
-                        <div className={"flex items-center gap-3 border-b border-current pb-2"}>
-                            <h3 className={"font-mono"}>
-                                {level
-                                    ? `Saturn ${level.charAt(0).toUpperCase()}${level.slice(1)}`
-                                    : "No plan"}
-                            </h3>
-                            {status && <small className={"ml-auto font-mono"}>{status}</small>}
-                        </div>
-                        {pendingCancel && (
-                            <p className={"font-mono text-sm text-gray-400"}>
-                                expires{" "}
-                                {periodEnd
-                                    ? periodEnd.toLocaleDateString("en-US", {
-                                          month: "long",
-                                          day: "numeric",
-                                          year: "numeric",
-                                      })
-                                    : "at period end"}
-                            </p>
-                        )}
-                        <Link
-                            href={"/dashboard/upgrade"}
-                            className={"mt-auto font-mono text-sm text-blue-400"}
-                        >
-                            {level === "pro" || level === "max" ? "Manage →" : "Upgrade →"}
-                        </Link>
-                    </div>
-                </div>
-
-                <form action={logout} className={"sm:self-end"}>
-                    <button
-                        type={"submit"}
-                        className={`w-full border border-red-500 bg-background p-2 sm:w-auto sm:px-6
-                            transition-colors duration-200 hover:bg-red-600 hover:text-white`}
-                    >
-                        Log out
-                    </button>
-                </form>
-                    </>
-                )}
-            </section>
-
-            {/* built-in credits (activated tiers) + BYO OpenRouter key fallback.
-                self-hosted: BYOK is dead — model calls run on the server's key. */}
+            {/* BYOK: the user's own OpenRouter key funds every model call */}
             <section className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}>
                 <h2 className={"font-mono text-xl"}>Models</h2>
 
-                {SELF_HOSTED ? (
-                    platformKeySet ? (
-                        <p className={"font-mono text-sm text-gray-400"}>
-                            server OpenRouter key configured. Workflows run on it.
-                        </p>
-                    ) : (
-                        <p className={"font-mono text-sm text-yellow-500"}>
-                            set PLATFORM_OPENROUTER_KEY on the server to enable model calls
-                        </p>
-                    )
-                ) : (
-                    <>
                 <p className={"font-mono text-sm text-gray-400"}>
-                    {credits.allowance > 0
-                        ? "workflows run on your built-in model credits; your OpenRouter key is used as fallback when credits run out"
-                        : "add an OpenRouter key to run models, or upgrade for built-in credits"}
+                    add an OpenRouter key to run models
                 </p>
-
-                {credits.allowance > 0 && (
-                    <CreditsBar
-                        used={credits.used}
-                        allowance={credits.allowance}
-                        periodEnd={credits.periodEnd}
-                    />
-                )}
 
                 <form action={saveOpenrouterKey} className={"flex flex-col gap-3"}>
                     <label className={"flex flex-col gap-1"}>
@@ -240,8 +98,6 @@ export default async function Settings({
                         </ActionButton>
                     </div>
                 </form>
-                    </>
-                )}
             </section>
 
             {/* user registry: entries become nodes in the workflow designer */}

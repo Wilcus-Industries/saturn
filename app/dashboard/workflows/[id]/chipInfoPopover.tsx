@@ -1,6 +1,5 @@
 "use client";
 
-import { FaTerminal } from "react-icons/fa6";
 import type { CatalogEntry } from "@/lib/workflow";
 import PopoverShell from "./popoverShell";
 
@@ -20,7 +19,6 @@ export default function ChipInfoPopover({
     onClose: () => void;
 }) {
     const isMemory = entry.category === "memory";
-    const isSandbox = entry.category === "sandbox";
     return (
         <PopoverShell
             anchor={anchor}
@@ -30,11 +28,7 @@ export default function ChipInfoPopover({
             }
         >
             <div className={"flex items-center gap-2"}>
-                {isSandbox ? (
-                    <FaTerminal className={"text-lg"} />
-                ) : (
-                    entry.emoji && <span className={"text-lg leading-none"}>{entry.emoji}</span>
-                )}
+                {entry.emoji && <span className={"text-lg leading-none"}>{entry.emoji}</span>}
                 <span className={"truncate font-semibold"}>{entry.label}</span>
             </div>
             {entry.description ? (
@@ -45,9 +39,7 @@ export default function ChipInfoPopover({
             <p className={"text-[10px] text-gray-500"}>
                 {isMemory
                     ? "wire the output into an agent's memory port"
-                    : isSandbox
-                      ? "wire the output into an agent's sandbox port"
-                      : "wire the output into an agent's skills port"}
+                    : "wire the output into an agent's skills port"}
             </p>
         </PopoverShell>
     );

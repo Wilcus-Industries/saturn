@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { agentPrefs } from "@/app/dashboard/agentPrefs";
 import { listOpenrouterModels } from "@/lib/openrouter.server";
 import { getSessionCached } from "@/lib/subscription";
@@ -10,7 +10,7 @@ import AgentChat from "./agentChat";
 // webhook has written the subscription row.
 export default async function Dashboard() {
     const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
+    if (!session?.user) notFound();
 
     // public 1h-cached list feeding the composer's model selector. [] on fetch
     // failure — the composer falls back to a canned list. The chat endpoint
