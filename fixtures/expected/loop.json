@@ -1,0 +1,486 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "json strings → a"
+    },
+    {
+      "kind": "print",
+      "text": "json strings → b"
+    },
+    {
+      "kind": "print",
+      "text": "json strings → c"
+    },
+    {
+      "kind": "print",
+      "text": "json mixed → 1"
+    },
+    {
+      "kind": "print",
+      "text": "json mixed → true"
+    },
+    {
+      "kind": "print",
+      "text": "json mixed → null"
+    },
+    {
+      "kind": "print",
+      "text": "json mixed → {\"k\":1}"
+    },
+    {
+      "kind": "print",
+      "text": "json mixed → [2]"
+    },
+    {
+      "kind": "print",
+      "text": "comma separated → a"
+    },
+    {
+      "kind": "print",
+      "text": "comma separated → b"
+    },
+    {
+      "kind": "print",
+      "text": "comma separated → c"
+    },
+    {
+      "kind": "print",
+      "text": "json object not array → {\"a\":1}"
+    },
+    {
+      "kind": "print",
+      "text": "malformed array → [1"
+    },
+    {
+      "kind": "print",
+      "text": "malformed array → 2"
+    },
+    {
+      "kind": "print",
+      "text": "number source → 42"
+    },
+    {
+      "kind": "print",
+      "text": "single value → solo"
+    },
+    {
+      "kind": "print",
+      "text": "empty entries → a"
+    },
+    {
+      "kind": "print",
+      "text": "empty entries → "
+    },
+    {
+      "kind": "print",
+      "text": "empty entries → b"
+    },
+    {
+      "kind": "print",
+      "text": "nested json arrays → [\"x\"]"
+    },
+    {
+      "kind": "print",
+      "text": "nested json arrays → [\"y\"]"
+    },
+    {
+      "kind": "warn",
+      "text": "loop \"item\" read outside an iteration — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": ""
+    },
+    {
+      "kind": "info",
+      "text": "run finished (34 steps)"
+    }
+  ],
+  "values": [
+    [
+      "src0",
+      "out",
+      "[\"a\",\"b\",\"c\"]"
+    ],
+    [
+      "lbl0",
+      "out",
+      "json strings → "
+    ],
+    [
+      "lp0",
+      "item",
+      "a"
+    ],
+    [
+      "cat0",
+      "out",
+      "json strings → a"
+    ],
+    [
+      "lbl0",
+      "out",
+      "json strings → "
+    ],
+    [
+      "lp0",
+      "item",
+      "b"
+    ],
+    [
+      "cat0",
+      "out",
+      "json strings → b"
+    ],
+    [
+      "lbl0",
+      "out",
+      "json strings → "
+    ],
+    [
+      "lp0",
+      "item",
+      "c"
+    ],
+    [
+      "cat0",
+      "out",
+      "json strings → c"
+    ],
+    [
+      "src1",
+      "out",
+      "[1,true,null,{\"k\":1},[2]]"
+    ],
+    [
+      "lbl1",
+      "out",
+      "json mixed → "
+    ],
+    [
+      "lp1",
+      "item",
+      "1"
+    ],
+    [
+      "cat1",
+      "out",
+      "json mixed → 1"
+    ],
+    [
+      "lbl1",
+      "out",
+      "json mixed → "
+    ],
+    [
+      "lp1",
+      "item",
+      "true"
+    ],
+    [
+      "cat1",
+      "out",
+      "json mixed → true"
+    ],
+    [
+      "lbl1",
+      "out",
+      "json mixed → "
+    ],
+    [
+      "lp1",
+      "item",
+      "null"
+    ],
+    [
+      "cat1",
+      "out",
+      "json mixed → null"
+    ],
+    [
+      "lbl1",
+      "out",
+      "json mixed → "
+    ],
+    [
+      "lp1",
+      "item",
+      "{\"k\":1}"
+    ],
+    [
+      "cat1",
+      "out",
+      "json mixed → {\"k\":1}"
+    ],
+    [
+      "lbl1",
+      "out",
+      "json mixed → "
+    ],
+    [
+      "lp1",
+      "item",
+      "[2]"
+    ],
+    [
+      "cat1",
+      "out",
+      "json mixed → [2]"
+    ],
+    [
+      "src2",
+      "out",
+      "a, b ,c"
+    ],
+    [
+      "lbl2",
+      "out",
+      "comma separated → "
+    ],
+    [
+      "lp2",
+      "item",
+      "a"
+    ],
+    [
+      "cat2",
+      "out",
+      "comma separated → a"
+    ],
+    [
+      "lbl2",
+      "out",
+      "comma separated → "
+    ],
+    [
+      "lp2",
+      "item",
+      "b"
+    ],
+    [
+      "cat2",
+      "out",
+      "comma separated → b"
+    ],
+    [
+      "lbl2",
+      "out",
+      "comma separated → "
+    ],
+    [
+      "lp2",
+      "item",
+      "c"
+    ],
+    [
+      "cat2",
+      "out",
+      "comma separated → c"
+    ],
+    [
+      "src3",
+      "out",
+      ""
+    ],
+    [
+      "src4",
+      "out",
+      "   "
+    ],
+    [
+      "src5",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "lbl5",
+      "out",
+      "json object not array → "
+    ],
+    [
+      "lp5",
+      "item",
+      "{\"a\":1}"
+    ],
+    [
+      "cat5",
+      "out",
+      "json object not array → {\"a\":1}"
+    ],
+    [
+      "src6",
+      "out",
+      "[1,2"
+    ],
+    [
+      "lbl6",
+      "out",
+      "malformed array → "
+    ],
+    [
+      "lp6",
+      "item",
+      "[1"
+    ],
+    [
+      "cat6",
+      "out",
+      "malformed array → [1"
+    ],
+    [
+      "lbl6",
+      "out",
+      "malformed array → "
+    ],
+    [
+      "lp6",
+      "item",
+      "2"
+    ],
+    [
+      "cat6",
+      "out",
+      "malformed array → 2"
+    ],
+    [
+      "src7",
+      "out",
+      "[]"
+    ],
+    [
+      "src8",
+      "out",
+      "42"
+    ],
+    [
+      "lbl8",
+      "out",
+      "number source → "
+    ],
+    [
+      "lp8",
+      "item",
+      "42"
+    ],
+    [
+      "cat8",
+      "out",
+      "number source → 42"
+    ],
+    [
+      "src9",
+      "out",
+      "solo"
+    ],
+    [
+      "lbl9",
+      "out",
+      "single value → "
+    ],
+    [
+      "lp9",
+      "item",
+      "solo"
+    ],
+    [
+      "cat9",
+      "out",
+      "single value → solo"
+    ],
+    [
+      "src10",
+      "out",
+      "a,,b"
+    ],
+    [
+      "lbl10",
+      "out",
+      "empty entries → "
+    ],
+    [
+      "lp10",
+      "item",
+      "a"
+    ],
+    [
+      "cat10",
+      "out",
+      "empty entries → a"
+    ],
+    [
+      "lbl10",
+      "out",
+      "empty entries → "
+    ],
+    [
+      "lp10",
+      "item",
+      ""
+    ],
+    [
+      "cat10",
+      "out",
+      "empty entries → "
+    ],
+    [
+      "lbl10",
+      "out",
+      "empty entries → "
+    ],
+    [
+      "lp10",
+      "item",
+      "b"
+    ],
+    [
+      "cat10",
+      "out",
+      "empty entries → b"
+    ],
+    [
+      "src11",
+      "out",
+      "[[\"x\"],[\"y\"]]"
+    ],
+    [
+      "lbl11",
+      "out",
+      "nested json arrays → "
+    ],
+    [
+      "lp11",
+      "item",
+      "[\"x\"]"
+    ],
+    [
+      "cat11",
+      "out",
+      "nested json arrays → [\"x\"]"
+    ],
+    [
+      "lbl11",
+      "out",
+      "nested json arrays → "
+    ],
+    [
+      "lp11",
+      "item",
+      "[\"y\"]"
+    ],
+    [
+      "cat11",
+      "out",
+      "nested json arrays → [\"y\"]"
+    ],
+    [
+      "lp0",
+      "item",
+      ""
+    ]
+  ]
+}

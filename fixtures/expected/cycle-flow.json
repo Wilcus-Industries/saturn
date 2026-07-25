@@ -1,0 +1,25 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "one"
+    },
+    {
+      "kind": "print",
+      "text": "two"
+    },
+    {
+      "kind": "error",
+      "text": "flow cycle detected at \"print\""
+    },
+    {
+      "kind": "error",
+      "text": "run aborted"
+    }
+  ],
+  "values": []
+}

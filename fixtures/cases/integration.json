@@ -1,0 +1,212 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "send",
+        "type": "integration:discord-webhook",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "webhookUrl": "https://example.invalid/hook",
+          "message": "literal message"
+        }
+      },
+      {
+        "id": "url",
+        "type": "string",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "value": "https://example.invalid/from-port"
+        }
+      },
+      {
+        "id": "msg",
+        "type": "number",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "value": "42"
+        }
+      },
+      {
+        "id": "send2",
+        "type": "integration:discord-webhook",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "webhookUrl": "https://example.invalid/ignored",
+          "message": "ignored"
+        }
+      },
+      {
+        "id": "read",
+        "type": "integration:http-request",
+        "x": 300,
+        "y": 0,
+        "config": {
+          "method": "GET",
+          "url": "https://example.invalid/data",
+          "headers": "",
+          "body": ""
+        }
+      },
+      {
+        "id": "show",
+        "type": "print",
+        "x": 360,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "big",
+        "type": "integration:http-request",
+        "x": 420,
+        "y": 0,
+        "config": {
+          "method": "GET",
+          "url": "https://example.invalid/big",
+          "headers": "",
+          "body": "",
+          "stub": "big"
+        }
+      },
+      {
+        "id": "showBig",
+        "type": "print",
+        "x": 480,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "url",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "send2",
+          "portId": "webhookUrl"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "msg",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "send2",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "read",
+          "portId": "response"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "big",
+          "portId": "response"
+        },
+        "to": {
+          "nodeId": "showBig",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "send",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "send",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "send2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "send2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "read",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "read",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "show",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "big",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "big",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "showBig",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

@@ -1,0 +1,182 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "pA",
+        "type": "print",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "message": "branch A"
+        }
+      },
+      {
+        "id": "pB",
+        "type": "print",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "message": "branch B"
+        }
+      },
+      {
+        "id": "aw",
+        "type": "await",
+        "x": 180,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s1",
+        "type": "string",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "value": "a"
+        }
+      },
+      {
+        "id": "s2",
+        "type": "number",
+        "x": 300,
+        "y": 0,
+        "config": {
+          "value": "2"
+        }
+      },
+      {
+        "id": "s3",
+        "type": "string",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "value": "c\"quoted\""
+        }
+      },
+      {
+        "id": "out",
+        "type": "print",
+        "x": 420,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "pA",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "pB",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "pA",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "aw",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "pB",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "aw",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "s3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "aw",
+          "portId": "values"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "s1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "aw",
+          "portId": "values"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "s2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "aw",
+          "portId": "values"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "aw",
+          "portId": "results"
+        },
+        "to": {
+          "nodeId": "out",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "aw",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "out",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

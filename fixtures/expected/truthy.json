@@ -1,0 +1,476 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "not(empty) → true"
+    },
+    {
+      "kind": "print",
+      "text": "not(false) → true"
+    },
+    {
+      "kind": "print",
+      "text": "not(zero) → true"
+    },
+    {
+      "kind": "print",
+      "text": "not(FALSE) → false"
+    },
+    {
+      "kind": "print",
+      "text": "not(space) → false"
+    },
+    {
+      "kind": "print",
+      "text": "not(x) → false"
+    },
+    {
+      "kind": "print",
+      "text": "not(0.0) → false"
+    },
+    {
+      "kind": "print",
+      "text": "not(n0) → true"
+    },
+    {
+      "kind": "print",
+      "text": "not(n-0) → true"
+    },
+    {
+      "kind": "print",
+      "text": "not(n5) → false"
+    },
+    {
+      "kind": "print",
+      "text": "not(n0.0) → true"
+    },
+    {
+      "kind": "print",
+      "text": "and(empty, x) → false"
+    },
+    {
+      "kind": "print",
+      "text": "and(x, empty) → false"
+    },
+    {
+      "kind": "print",
+      "text": "and(x, n5) → true"
+    },
+    {
+      "kind": "print",
+      "text": "or(empty, x) → true"
+    },
+    {
+      "kind": "print",
+      "text": "or(empty, n0) → false"
+    },
+    {
+      "kind": "print",
+      "text": "or(x, empty) → true"
+    },
+    {
+      "kind": "print",
+      "text": "not(and(x, n5)) → false"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (18 steps)"
+    }
+  ],
+  "values": [
+    [
+      "lbl0",
+      "out",
+      "not(empty) → "
+    ],
+    [
+      "s0",
+      "out",
+      ""
+    ],
+    [
+      "not0",
+      "out",
+      "true"
+    ],
+    [
+      "cat0",
+      "out",
+      "not(empty) → true"
+    ],
+    [
+      "lbl1",
+      "out",
+      "not(false) → "
+    ],
+    [
+      "s1",
+      "out",
+      "false"
+    ],
+    [
+      "not1",
+      "out",
+      "true"
+    ],
+    [
+      "cat1",
+      "out",
+      "not(false) → true"
+    ],
+    [
+      "lbl2",
+      "out",
+      "not(zero) → "
+    ],
+    [
+      "s2",
+      "out",
+      "0"
+    ],
+    [
+      "not2",
+      "out",
+      "true"
+    ],
+    [
+      "cat2",
+      "out",
+      "not(zero) → true"
+    ],
+    [
+      "lbl3",
+      "out",
+      "not(FALSE) → "
+    ],
+    [
+      "s3",
+      "out",
+      "FALSE"
+    ],
+    [
+      "not3",
+      "out",
+      "false"
+    ],
+    [
+      "cat3",
+      "out",
+      "not(FALSE) → false"
+    ],
+    [
+      "lbl4",
+      "out",
+      "not(space) → "
+    ],
+    [
+      "s4",
+      "out",
+      " "
+    ],
+    [
+      "not4",
+      "out",
+      "false"
+    ],
+    [
+      "cat4",
+      "out",
+      "not(space) → false"
+    ],
+    [
+      "lbl5",
+      "out",
+      "not(x) → "
+    ],
+    [
+      "s5",
+      "out",
+      "x"
+    ],
+    [
+      "not5",
+      "out",
+      "false"
+    ],
+    [
+      "cat5",
+      "out",
+      "not(x) → false"
+    ],
+    [
+      "lbl6",
+      "out",
+      "not(0.0) → "
+    ],
+    [
+      "s6",
+      "out",
+      "0.0"
+    ],
+    [
+      "not6",
+      "out",
+      "false"
+    ],
+    [
+      "cat6",
+      "out",
+      "not(0.0) → false"
+    ],
+    [
+      "lbl7",
+      "out",
+      "not(n0) → "
+    ],
+    [
+      "s7",
+      "out",
+      "0"
+    ],
+    [
+      "not7",
+      "out",
+      "true"
+    ],
+    [
+      "cat7",
+      "out",
+      "not(n0) → true"
+    ],
+    [
+      "lbl8",
+      "out",
+      "not(n-0) → "
+    ],
+    [
+      "s8",
+      "out",
+      "0"
+    ],
+    [
+      "not8",
+      "out",
+      "true"
+    ],
+    [
+      "cat8",
+      "out",
+      "not(n-0) → true"
+    ],
+    [
+      "lbl9",
+      "out",
+      "not(n5) → "
+    ],
+    [
+      "s9",
+      "out",
+      "5"
+    ],
+    [
+      "not9",
+      "out",
+      "false"
+    ],
+    [
+      "cat9",
+      "out",
+      "not(n5) → false"
+    ],
+    [
+      "lbl10",
+      "out",
+      "not(n0.0) → "
+    ],
+    [
+      "s10",
+      "out",
+      "0"
+    ],
+    [
+      "not10",
+      "out",
+      "true"
+    ],
+    [
+      "cat10",
+      "out",
+      "not(n0.0) → true"
+    ],
+    [
+      "lbl11",
+      "out",
+      "and(empty, x) → "
+    ],
+    [
+      "s0",
+      "out",
+      ""
+    ],
+    [
+      "o11",
+      "out",
+      "false"
+    ],
+    [
+      "cat11",
+      "out",
+      "and(empty, x) → false"
+    ],
+    [
+      "lbl12",
+      "out",
+      "and(x, empty) → "
+    ],
+    [
+      "s5",
+      "out",
+      "x"
+    ],
+    [
+      "s0",
+      "out",
+      ""
+    ],
+    [
+      "o12",
+      "out",
+      "false"
+    ],
+    [
+      "cat12",
+      "out",
+      "and(x, empty) → false"
+    ],
+    [
+      "lbl13",
+      "out",
+      "and(x, n5) → "
+    ],
+    [
+      "s5",
+      "out",
+      "x"
+    ],
+    [
+      "s9",
+      "out",
+      "5"
+    ],
+    [
+      "and-x-n5",
+      "out",
+      "true"
+    ],
+    [
+      "cat13",
+      "out",
+      "and(x, n5) → true"
+    ],
+    [
+      "lbl14",
+      "out",
+      "or(empty, x) → "
+    ],
+    [
+      "s0",
+      "out",
+      ""
+    ],
+    [
+      "s5",
+      "out",
+      "x"
+    ],
+    [
+      "o14",
+      "out",
+      "true"
+    ],
+    [
+      "cat14",
+      "out",
+      "or(empty, x) → true"
+    ],
+    [
+      "lbl15",
+      "out",
+      "or(empty, n0) → "
+    ],
+    [
+      "s0",
+      "out",
+      ""
+    ],
+    [
+      "s7",
+      "out",
+      "0"
+    ],
+    [
+      "o15",
+      "out",
+      "false"
+    ],
+    [
+      "cat15",
+      "out",
+      "or(empty, n0) → false"
+    ],
+    [
+      "lbl16",
+      "out",
+      "or(x, empty) → "
+    ],
+    [
+      "s5",
+      "out",
+      "x"
+    ],
+    [
+      "o16",
+      "out",
+      "true"
+    ],
+    [
+      "cat16",
+      "out",
+      "or(x, empty) → true"
+    ],
+    [
+      "lbl17",
+      "out",
+      "not(and(x, n5)) → "
+    ],
+    [
+      "s5",
+      "out",
+      "x"
+    ],
+    [
+      "s9",
+      "out",
+      "5"
+    ],
+    [
+      "and-x-n5",
+      "out",
+      "true"
+    ],
+    [
+      "n17",
+      "out",
+      "false"
+    ],
+    [
+      "cat17",
+      "out",
+      "not(and(x, n5)) → false"
+    ]
+  ]
+}

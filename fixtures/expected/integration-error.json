@@ -1,0 +1,21 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "info",
+      "text": "sending via send webhook…"
+    },
+    {
+      "kind": "error",
+      "text": "send webhook: stub discord-webhook refused"
+    },
+    {
+      "kind": "error",
+      "text": "run aborted"
+    }
+  ],
+  "values": []
+}

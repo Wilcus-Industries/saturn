@@ -1,0 +1,78 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "prompt",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": "hi"
+        }
+      },
+      {
+        "id": "a",
+        "type": "agent",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "model": "stub-error"
+        }
+      },
+      {
+        "id": "after",
+        "type": "print",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "message": "never printed"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "prompt",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "a",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "after",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

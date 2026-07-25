@@ -1,0 +1,45 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "b_literal 5 == 5 → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "no b_literal 5 == \"\" → false"
+    },
+    {
+      "kind": "print",
+      "text": "unknown op → false"
+    },
+    {
+      "kind": "error",
+      "text": "if: no operator selected"
+    },
+    {
+      "kind": "error",
+      "text": "run aborted"
+    }
+  ],
+  "values": [
+    [
+      "l",
+      "out",
+      "5"
+    ],
+    [
+      "l",
+      "out",
+      "5"
+    ],
+    [
+      "l",
+      "out",
+      "5"
+    ]
+  ]
+}

@@ -1,0 +1,980 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"true\" == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"true\" != → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"true\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"true\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"true\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"true\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"true\" contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / n1 == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / n1 != → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / n1 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / n1 > → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / n1 <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / n1 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / n1 contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / n0 == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / n0 != → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / n0 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / n0 > → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / n0 <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / n0 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / n0 contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"false\" == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"false\" != → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"false\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"false\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"false\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"false\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"false\" contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / false == → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / false != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / false < → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / false > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / false <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / false >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / false contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"1\" == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"1\" != → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"1\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"1\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"1\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"1\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "true / s\"1\" contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"\" == → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"\" != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"\" > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"\" <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "false / s\"\" contains → TRUE"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (98 steps)"
+    }
+  ],
+  "values": [
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r0",
+      "out",
+      "true"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r0",
+      "out",
+      "true"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r0",
+      "out",
+      "true"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r0",
+      "out",
+      "true"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r0",
+      "out",
+      "true"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r0",
+      "out",
+      "true"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r0",
+      "out",
+      "true"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r1",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r1",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r1",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r1",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r1",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r1",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r1",
+      "out",
+      "1"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r3",
+      "out",
+      "false"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r3",
+      "out",
+      "false"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r3",
+      "out",
+      "false"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r3",
+      "out",
+      "false"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r3",
+      "out",
+      "false"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r3",
+      "out",
+      "false"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r3",
+      "out",
+      "false"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r5",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r5",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r5",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r5",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r5",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r5",
+      "out",
+      "1"
+    ],
+    [
+      "srcEmpty",
+      "out",
+      ""
+    ],
+    [
+      "notT",
+      "out",
+      "true"
+    ],
+    [
+      "r5",
+      "out",
+      "1"
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r6",
+      "out",
+      ""
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r6",
+      "out",
+      ""
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r6",
+      "out",
+      ""
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r6",
+      "out",
+      ""
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r6",
+      "out",
+      ""
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r6",
+      "out",
+      ""
+    ],
+    [
+      "srcX",
+      "out",
+      "x"
+    ],
+    [
+      "notF",
+      "out",
+      "false"
+    ],
+    [
+      "r6",
+      "out",
+      ""
+    ]
+  ]
+}

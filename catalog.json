@@ -1,0 +1,1261 @@
+[
+  {
+    "key": "schedule",
+    "category": "events",
+    "label": "scheduled to run",
+    "emoji": "⏰",
+    "inputs": [],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ],
+    "config": [
+      {
+        "id": "cron",
+        "label": "schedule",
+        "input": "text",
+        "default": "0 9 * * *"
+      }
+    ]
+  },
+  {
+    "key": "run",
+    "category": "events",
+    "label": "on run",
+    "emoji": "▶",
+    "inputs": [],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ]
+  },
+  {
+    "key": "start",
+    "category": "events",
+    "label": "start",
+    "legacy": true,
+    "inputs": [],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ]
+  },
+  {
+    "key": "if",
+    "category": "logic",
+    "label": "if",
+    "inputs": [
+      {
+        "id": "l",
+        "label": "l",
+        "kind": "value"
+      },
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "r",
+        "label": "r",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "true",
+        "label": "true",
+        "kind": "flow"
+      },
+      {
+        "id": "false",
+        "label": "false",
+        "kind": "flow"
+      }
+    ],
+    "config": [
+      {
+        "id": "operator",
+        "label": "operator",
+        "input": "select",
+        "options": [
+          "==",
+          "!=",
+          "<",
+          ">",
+          "<=",
+          ">=",
+          "contains"
+        ],
+        "default": "=="
+      }
+    ]
+  },
+  {
+    "key": "loop",
+    "category": "logic",
+    "label": "loop",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "items",
+        "label": "items",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "body",
+        "label": "body",
+        "kind": "flow"
+      },
+      {
+        "id": "done",
+        "label": "done",
+        "kind": "flow"
+      },
+      {
+        "id": "item",
+        "label": "item",
+        "kind": "value"
+      }
+    ]
+  },
+  {
+    "key": "and",
+    "category": "logic",
+    "label": "and",
+    "inputs": [
+      {
+        "id": "a",
+        "label": "a",
+        "kind": "value"
+      },
+      {
+        "id": "b",
+        "label": "b",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "value"
+      }
+    ]
+  },
+  {
+    "key": "or",
+    "category": "logic",
+    "label": "or",
+    "inputs": [
+      {
+        "id": "a",
+        "label": "a",
+        "kind": "value"
+      },
+      {
+        "id": "b",
+        "label": "b",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "value"
+      }
+    ]
+  },
+  {
+    "key": "not",
+    "category": "logic",
+    "label": "not",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "value"
+      }
+    ]
+  },
+  {
+    "key": "string",
+    "category": "data",
+    "label": "string",
+    "inputs": [],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "value",
+        "label": "value",
+        "input": "text"
+      }
+    ]
+  },
+  {
+    "key": "number",
+    "category": "data",
+    "label": "number",
+    "inputs": [],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "value",
+        "label": "value",
+        "input": "number"
+      }
+    ]
+  },
+  {
+    "key": "literal",
+    "category": "data",
+    "label": "literal",
+    "legacy": true,
+    "inputs": [],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "valueType",
+        "label": "type",
+        "input": "select",
+        "options": [
+          "string",
+          "number"
+        ]
+      },
+      {
+        "id": "value",
+        "label": "value",
+        "input": "text"
+      }
+    ]
+  },
+  {
+    "key": "print",
+    "category": "data",
+    "label": "print",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "message",
+        "label": "message",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ],
+    "config": [
+      {
+        "id": "message",
+        "label": "message",
+        "input": "text",
+        "overriddenBy": "message"
+      }
+    ]
+  },
+  {
+    "key": "concat",
+    "category": "data",
+    "label": "concat",
+    "inputs": [
+      {
+        "id": "a",
+        "label": "a",
+        "kind": "value"
+      },
+      {
+        "id": "b",
+        "label": "b",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "value"
+      }
+    ]
+  },
+  {
+    "key": "extract",
+    "category": "data",
+    "label": "extract",
+    "inputs": [
+      {
+        "id": "value",
+        "label": "value",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "path",
+        "label": "path",
+        "input": "text",
+        "picker": "json-path"
+      }
+    ]
+  },
+  {
+    "key": "await",
+    "category": "logic",
+    "label": "await",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "values",
+        "label": "values",
+        "kind": "value",
+        "multi": true
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "results",
+        "label": "results",
+        "kind": "value"
+      }
+    ]
+  },
+  {
+    "key": "agent",
+    "category": "saturn",
+    "label": "agent",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "prompt",
+        "label": "prompt",
+        "kind": "value"
+      },
+      {
+        "id": "system",
+        "label": "system",
+        "kind": "value"
+      },
+      {
+        "id": "model",
+        "label": "model",
+        "kind": "value"
+      },
+      {
+        "id": "tools",
+        "label": "tools",
+        "kind": "value",
+        "multi": true,
+        "accepts": "tool"
+      },
+      {
+        "id": "skills",
+        "label": "skills",
+        "kind": "value",
+        "multi": true,
+        "accepts": "skill"
+      },
+      {
+        "id": "memory",
+        "label": "memory",
+        "kind": "value",
+        "accepts": "memory"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "result",
+        "label": "result",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "output",
+        "label": "output",
+        "input": "select",
+        "options": [
+          "text",
+          "image"
+        ],
+        "dynamicOptions": true
+      },
+      {
+        "id": "reasoning",
+        "label": "reasoning",
+        "input": "select",
+        "options": [
+          "off",
+          "low",
+          "medium",
+          "high"
+        ],
+        "dynamicOptions": true
+      },
+      {
+        "id": "system",
+        "label": "system",
+        "input": "textarea",
+        "overriddenBy": "system"
+      }
+    ]
+  },
+  {
+    "key": "model",
+    "category": "model",
+    "label": "model",
+    "inputs": [],
+    "outputs": [
+      {
+        "id": "model",
+        "label": "model",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "model",
+        "label": "model",
+        "input": "text",
+        "placeholder": "openai/gpt-4o-mini"
+      }
+    ]
+  },
+  {
+    "key": "integration:discord-webhook",
+    "category": "integration",
+    "label": "send webhook",
+    "group": "discord",
+    "section": "data",
+    "logoDomain": "discord.com",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "webhookUrl",
+        "label": "webhook url",
+        "kind": "value"
+      },
+      {
+        "id": "message",
+        "label": "message",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ],
+    "config": [
+      {
+        "id": "webhookUrl",
+        "label": "webhook url",
+        "input": "text",
+        "placeholder": "https://discord.com/api/webhooks/…",
+        "overriddenBy": "webhookUrl"
+      },
+      {
+        "id": "message",
+        "label": "message",
+        "input": "text",
+        "overriddenBy": "message"
+      }
+    ]
+  },
+  {
+    "key": "integration:discord-send-message",
+    "category": "integration",
+    "label": "send message",
+    "group": "discord",
+    "section": "data",
+    "logoDomain": "discord.com",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "kind": "value"
+      },
+      {
+        "id": "channelId",
+        "label": "channel id",
+        "kind": "value"
+      },
+      {
+        "id": "message",
+        "label": "message",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ],
+    "config": [
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "input": "text",
+        "placeholder": "your bot's token",
+        "overriddenBy": "botToken"
+      },
+      {
+        "id": "channelId",
+        "label": "channel id",
+        "input": "text",
+        "placeholder": "channel to post in",
+        "overriddenBy": "channelId"
+      },
+      {
+        "id": "message",
+        "label": "message",
+        "input": "text",
+        "overriddenBy": "message"
+      }
+    ]
+  },
+  {
+    "key": "integration:discord-read-messages",
+    "category": "integration",
+    "label": "read messages",
+    "group": "discord",
+    "section": "data",
+    "logoDomain": "discord.com",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "kind": "value"
+      },
+      {
+        "id": "channelId",
+        "label": "channel id",
+        "kind": "value"
+      },
+      {
+        "id": "count",
+        "label": "how many",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "messages",
+        "label": "messages",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "input": "text",
+        "placeholder": "your bot's token",
+        "overriddenBy": "botToken"
+      },
+      {
+        "id": "channelId",
+        "label": "channel id",
+        "input": "text",
+        "placeholder": "channel to read from",
+        "overriddenBy": "channelId"
+      },
+      {
+        "id": "count",
+        "label": "how many",
+        "input": "number",
+        "default": "20",
+        "overriddenBy": "count"
+      }
+    ]
+  },
+  {
+    "key": "integration:discord-typing",
+    "category": "integration",
+    "label": "typing status",
+    "group": "discord",
+    "section": "data",
+    "logoDomain": "discord.com",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "status",
+        "label": "typing",
+        "kind": "value"
+      },
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "kind": "value"
+      },
+      {
+        "id": "channelId",
+        "label": "channel id",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ],
+    "config": [
+      {
+        "id": "status",
+        "label": "typing",
+        "input": "select",
+        "options": [
+          "on",
+          "off"
+        ],
+        "default": "on",
+        "overriddenBy": "status"
+      },
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "input": "text",
+        "placeholder": "your bot's token",
+        "overriddenBy": "botToken"
+      },
+      {
+        "id": "channelId",
+        "label": "channel id",
+        "input": "text",
+        "placeholder": "channel to type in",
+        "overriddenBy": "channelId"
+      }
+    ]
+  },
+  {
+    "key": "integration:telegram-send-message",
+    "category": "integration",
+    "label": "send message",
+    "group": "telegram",
+    "section": "data",
+    "logoDomain": "telegram.org",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "kind": "value"
+      },
+      {
+        "id": "chatId",
+        "label": "chat id",
+        "kind": "value"
+      },
+      {
+        "id": "message",
+        "label": "message",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ],
+    "config": [
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "input": "text",
+        "placeholder": "from @BotFather",
+        "overriddenBy": "botToken"
+      },
+      {
+        "id": "chatId",
+        "label": "chat id",
+        "input": "text",
+        "placeholder": "chat to post in",
+        "overriddenBy": "chatId"
+      },
+      {
+        "id": "message",
+        "label": "message",
+        "input": "text",
+        "overriddenBy": "message"
+      }
+    ]
+  },
+  {
+    "key": "integration:telegram-typing",
+    "category": "integration",
+    "label": "typing status",
+    "group": "telegram",
+    "section": "data",
+    "logoDomain": "telegram.org",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "status",
+        "label": "typing",
+        "kind": "value"
+      },
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "kind": "value"
+      },
+      {
+        "id": "chatId",
+        "label": "chat id",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      }
+    ],
+    "config": [
+      {
+        "id": "status",
+        "label": "typing",
+        "input": "select",
+        "options": [
+          "on",
+          "off"
+        ],
+        "default": "on",
+        "overriddenBy": "status"
+      },
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "input": "text",
+        "placeholder": "from @BotFather",
+        "overriddenBy": "botToken"
+      },
+      {
+        "id": "chatId",
+        "label": "chat id",
+        "input": "text",
+        "placeholder": "chat to type in",
+        "overriddenBy": "chatId"
+      }
+    ]
+  },
+  {
+    "key": "integration:http-request",
+    "category": "integration",
+    "label": "http request",
+    "group": "http",
+    "section": "data",
+    "logoDomain": "",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "method",
+        "label": "method",
+        "kind": "value"
+      },
+      {
+        "id": "url",
+        "label": "url",
+        "kind": "value"
+      },
+      {
+        "id": "headers",
+        "label": "headers (json)",
+        "kind": "value"
+      },
+      {
+        "id": "body",
+        "label": "body",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "response",
+        "label": "response",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "method",
+        "label": "method",
+        "input": "select",
+        "options": [
+          "GET",
+          "POST",
+          "PUT",
+          "PATCH",
+          "DELETE"
+        ],
+        "default": "GET",
+        "overriddenBy": "method"
+      },
+      {
+        "id": "url",
+        "label": "url",
+        "input": "text",
+        "placeholder": "https://api.example.com/…",
+        "overriddenBy": "url"
+      },
+      {
+        "id": "headers",
+        "label": "headers (json)",
+        "input": "textarea",
+        "placeholder": "{\"authorization\": \"Bearer …\"}",
+        "overriddenBy": "headers"
+      },
+      {
+        "id": "body",
+        "label": "body",
+        "input": "textarea",
+        "placeholder": "request body (ignored for GET)",
+        "overriddenBy": "body"
+      }
+    ]
+  },
+  {
+    "key": "event:discord-mentioned",
+    "category": "events",
+    "label": "was mentioned",
+    "group": "discord",
+    "logoDomain": "discord.com",
+    "emoji": "💬",
+    "inputs": [
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "kind": "value"
+      },
+      {
+        "id": "guildId",
+        "label": "server id (optional)",
+        "kind": "value"
+      },
+      {
+        "id": "channelId",
+        "label": "channel id (optional)",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "payload",
+        "label": "payload",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "input": "text",
+        "placeholder": "your bot's token",
+        "overriddenBy": "botToken"
+      },
+      {
+        "id": "guildId",
+        "label": "server id (optional)",
+        "input": "text",
+        "placeholder": "filter to one server",
+        "overriddenBy": "guildId"
+      },
+      {
+        "id": "channelId",
+        "label": "channel id (optional)",
+        "input": "text",
+        "placeholder": "filter to one channel",
+        "overriddenBy": "channelId"
+      }
+    ]
+  },
+  {
+    "key": "event:telegram-message",
+    "category": "events",
+    "label": "got a message",
+    "group": "telegram",
+    "logoDomain": "telegram.org",
+    "emoji": "✈️",
+    "inputs": [
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "kind": "value"
+      },
+      {
+        "id": "chatId",
+        "label": "chat id (optional)",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "payload",
+        "label": "payload",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "botToken",
+        "label": "bot token",
+        "input": "text",
+        "placeholder": "from @BotFather",
+        "overriddenBy": "botToken"
+      },
+      {
+        "id": "chatId",
+        "label": "chat id (optional)",
+        "input": "text",
+        "placeholder": "filter to one chat",
+        "overriddenBy": "chatId"
+      }
+    ]
+  },
+  {
+    "key": "event:github-push",
+    "category": "events",
+    "label": "code pushed",
+    "group": "github",
+    "logoDomain": "github.com",
+    "emoji": "⬆️",
+    "inputs": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "kind": "value"
+      },
+      {
+        "id": "branch",
+        "label": "branch (optional)",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "payload",
+        "label": "payload",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "input": "text",
+        "placeholder": "owner/repo",
+        "overriddenBy": "repo"
+      },
+      {
+        "id": "branch",
+        "label": "branch (optional)",
+        "input": "text",
+        "placeholder": "filter to one branch",
+        "overriddenBy": "branch"
+      }
+    ]
+  },
+  {
+    "key": "event:github-issue",
+    "category": "events",
+    "label": "issue opened",
+    "group": "github",
+    "logoDomain": "github.com",
+    "emoji": "🐛",
+    "inputs": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "payload",
+        "label": "payload",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "input": "text",
+        "placeholder": "owner/repo",
+        "overriddenBy": "repo"
+      }
+    ]
+  },
+  {
+    "key": "event:github-pr",
+    "category": "events",
+    "label": "pull request opened",
+    "group": "github",
+    "logoDomain": "github.com",
+    "emoji": "🔀",
+    "inputs": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "payload",
+        "label": "payload",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "input": "text",
+        "placeholder": "owner/repo",
+        "overriddenBy": "repo"
+      }
+    ]
+  },
+  {
+    "key": "event:github-release",
+    "category": "events",
+    "label": "release published",
+    "group": "github",
+    "logoDomain": "github.com",
+    "emoji": "🏷️",
+    "inputs": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "payload",
+        "label": "payload",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "input": "text",
+        "placeholder": "owner/repo",
+        "overriddenBy": "repo"
+      }
+    ]
+  },
+  {
+    "key": "event:github-star",
+    "category": "events",
+    "label": "got a star",
+    "group": "github",
+    "logoDomain": "github.com",
+    "emoji": "⭐",
+    "inputs": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "payload",
+        "label": "payload",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "repo",
+        "label": "repository",
+        "input": "text",
+        "placeholder": "owner/repo",
+        "overriddenBy": "repo"
+      }
+    ]
+  },
+  {
+    "key": "event:webhook",
+    "category": "events",
+    "label": "webhook received",
+    "group": "webhook",
+    "logoDomain": "",
+    "emoji": "🪝",
+    "inputs": [],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "payload",
+        "label": "payload",
+        "kind": "value"
+      }
+    ],
+    "config": []
+  }
+]

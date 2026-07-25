@@ -1,15 +1,13 @@
 // Workflow designer data model: node catalog, graph types, validation and
 // connection rules. Shared by the designer canvas and server actions.
 
+import catalogJson from "@/catalog.json";
 import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS, parseToolExclusions } from "@/lib/agent";
 import { isValidCron } from "@/lib/cron";
 import {
     EVENT_PREFIX,
-    EXTENSION_EVENTS,
     EXTENSION_EVENTS_BY_KEY,
-    eventNodeKey,
     INTEGRATION_PREFIX,
-    INTEGRATIONS,
     INTEGRATIONS_BY_ID,
     integrationKey,
     integrationProviderId,
@@ -148,199 +146,48 @@ export type WorkflowRow = {
     updated_at: Date;
 };
 
-export const IF_OPERATORS = ["==", "!=", "<", ">", "<=", ">=", "contains"] as const;
-
-export const flowIn: PortSpec = { id: "in", label: "in", kind: "flow" };
-export const flowOut: PortSpec = { id: "out", label: "out", kind: "flow" };
 export const valuePort = (id: string, label = id): PortSpec => ({ id, label, kind: "value" });
-const v = valuePort;
-const text = (id: string, label = id): ConfigField => ({ id, label, input: "text" });
 
-export const CATALOG: CatalogEntry[] = [
-    // events — workflow entry points. Each is a trigger: a scheduled tick, and
-    // (future) a Discord mention etc. Entry resolution keys off the category,
-    // not the type string, so new events need no interpreter/designer change.
-    {
-        key: "schedule", category: "events", label: "scheduled to run", emoji: "⏰",
-        // cron is authored via the designer's cron popover (node.tsx event
-        // branch), not this inline field — the field just declares the config key
-        inputs: [], outputs: [flowOut],
-        config: [{ id: "cron", label: "schedule", input: "text", default: "0 9 * * *" }],
-    },
-    // manual entry point — fires only on run_workflow / designer test runs
-    // (cron runner keys on type "schedule", transports on event:<id> keys,
-    // so this type is invisible to both by construction)
-    {
-        key: "run", category: "events", label: "on run", emoji: "▶",
-        inputs: [], outputs: [flowOut],
-    },
-    // legacy entry point — hidden from the toolbox, still resolves so graphs
-    // saved before the events framework keep running (treated as an event node)
-    {
-        key: "start", category: "events", label: "start", legacy: true,
-        inputs: [], outputs: [flowOut],
-    },
-    // logic — control flow + boolean ops
-    {
-        key: "if", category: "logic", label: "if",
-        // l / r operands on the left edge with the flow "in" between them;
-        // rendered as a rounded square by node.tsx's if branch (geometry.ts
-        // isIfEntry). Port order here IS the left-edge top→bottom order.
-        inputs: [v("l"), flowIn, v("r")],
-        outputs: [
-            { id: "true", label: "true", kind: "flow" },
-            { id: "false", label: "false", kind: "flow" },
-        ],
-        config: [
-            { id: "operator", label: "operator", input: "select", options: IF_OPERATORS, default: "==" },
-        ],
-    },
-    {
-        key: "loop", category: "logic", label: "loop",
-        inputs: [flowIn, v("items")],
-        outputs: [
-            { id: "body", label: "body", kind: "flow" },
-            { id: "done", label: "done", kind: "flow" },
-            v("item"),
-        ],
-    },
-    {
-        key: "and", category: "logic", label: "and",
-        inputs: [v("a"), v("b")], outputs: [v("out")],
-    },
-    {
-        key: "or", category: "logic", label: "or",
-        inputs: [v("a"), v("b")], outputs: [v("out")],
-    },
-    {
-        key: "not", category: "logic", label: "not",
-        inputs: [v("in")], outputs: [v("out")],
-    },
-    {
-        // bare header-less value boxes; the box grows with its content and
-        // exposes a single value output (rendered by node.tsx's literal branch)
-        key: "string", category: "data", label: "string",
-        inputs: [], outputs: [v("out")],
-        config: [text("value")],
-    },
-    {
-        key: "number", category: "data", label: "number",
-        inputs: [], outputs: [v("out")],
-        config: [{ id: "value", label: "value", input: "number" }],
-    },
-    {
-        // legacy pre-split "literal" (config.valueType picks string/number) —
-        // still resolves + runs saved graphs, hidden from the toolbox
-        key: "literal", category: "data", label: "literal", legacy: true,
-        inputs: [], outputs: [v("out")],
-        config: [
-            { id: "valueType", label: "type", input: "select", options: ["string", "number"] },
-            text("value"),
-        ],
-    },
-    // data — values, extraction, output
-    {
-        // single message field with a paired port: a connected edge overrides
-        // the literal (the pre-2026-07 "value" port + prefix concat is a
-        // legacy interpreter fallback — see case "print")
-        key: "print", category: "data", label: "print",
-        inputs: [flowIn, v("message")], outputs: [flowOut],
-        config: [{ ...text("message"), overriddenBy: "message" }],
-    },
-    {
-        key: "concat", category: "data", label: "concat",
-        inputs: [v("a"), v("b")], outputs: [v("out")],
-    },
-    {
-        // pull one field out of a JSON value (e.g. an MCP tool result);
-        // path is dot-separated, numbers index arrays: "data.results.0.price"
-        key: "extract", category: "data", label: "extract",
-        inputs: [v("value")], outputs: [v("out")],
-        config: [{ ...text("path"), picker: "json-path" }],
-    },
-    {
-        // join barrier for parallel branches: runs once every incoming flow
-        // edge has arrived; "results" is a JSON array of the "values" edges'
-        // values in edge order
-        key: "await", category: "logic", label: "await",
-        inputs: [flowIn, { ...v("values"), multi: true }],
-        outputs: [flowOut, v("results")],
-    },
-
-    // saturn — LLM agent blocks, executed by the test-run interpreter via the
-    // callAgentModel server action (built-in credits, BYOK fallback). Grants
-    // are edges from chip nodes into the multi "tools" (mcp server nodes)
-    // and "skills" (skill nodes) ports. config.system is a first-class field
-    // authored via the node's system-prompt popover (the "system" input port
-    // still overrides it when wired). config.model is a legacy fallback honored
-    // by the interpreter when the "model" port has no edge.
-    {
-        key: "agent", category: "saturn", label: "agent",
-        inputs: [
-            flowIn, v("prompt"), v("system"), v("model"),
-            { ...v("tools"), multi: true, accepts: "tool" },
-            { ...v("skills"), multi: true, accepts: "skill" },
-            // single-edge (no multi): one memory store per agent, so
-            // edgesToReplace auto-swaps a second connection
-            { ...v("memory"), accepts: "memory" },
-        ],
-        // "result" carries the final text, or the generated image as a
-        // data:image/… URL when output=image
-        outputs: [flowOut, v("result")],
-        config: [
-            { id: "output", label: "output", input: "select", options: ["text", "image"], dynamicOptions: true },
-            { id: "reasoning", label: "reasoning", input: "select", options: ["off", "low", "medium", "high"], dynamicOptions: true },
-            // edited via the designer's system-prompt popover (a button, not an
-            // inline field); the same-id "system" input port overrides it when
-            // wired. input:"textarea" documents its shape for MCP get_catalog.
-            { id: "system", label: "system", input: "textarea", overriddenBy: "system" },
-        ],
-    },
-
-    // model — pure-value node emitting an OpenRouter model slug; connect its
-    // output to an agent's "model" input to override the agent's config.
-    // Always one static node type: toolbox chips for fetched OpenRouter
-    // models just prefill config.model, so graphs never reference per-model
-    // keys that could disappear when the list changes
-    {
-        key: "model", category: "model", label: "model",
-        inputs: [], outputs: [v("model")],
-        config: [{ id: "model", label: "model", input: "text", placeholder: "openai/gpt-4o-mini" }],
-    },
-
-    // integration — outbound message nodes generated from the provider
-    // descriptors in lib/integrations.ts; sends execute server-side in
-    // lib/integrations.server.ts via the interpreter's callIntegration hook
-    ...INTEGRATIONS.map((p): CatalogEntry => ({
-        key: integrationKey(p.id), category: "integration", label: p.label,
-        group: p.app, section: p.section, logoDomain: p.logoDomain,
-        // every config field gets a same-id value input port that overrides
-        // the literal when connected (overriddenBy auto-derived), so tokens /
-        // channel ids can be wired from upstream nodes
-        inputs: [flowIn, ...p.config.map((f) => v(f.id, f.label))],
-        // read-style actions declare a value output carrying the sender's result
-        outputs: p.output ? [flowOut, v(p.output.id, p.output.label)] : [flowOut],
-        config: p.config.map((f) => ({ ...f, overriddenBy: f.id })),
-    })),
-
-    // extension events — inbound trigger nodes generated from the platform
-    // descriptors in lib/integrations.ts (a Discord mention etc.). Delivery is
-    // real-time via the in-process gateway; the single "payload" value port
-    // carries the event as a JSON string. They render as normal rectangular
-    // nodes (no flow input — events are entry points) with one value input per
-    // config field, mirroring integration actions, so tokens/filters can be
-    // wired from variable/string nodes — resolved statically by
-    // getEventSubscriptions, never by the interpreter. No `section` — unlike
-    // integration actions they paint with the events color, and the `group`
-    // heads their Apps subsection.
-    ...EXTENSION_EVENTS.map((e): CatalogEntry => ({
-        key: eventNodeKey(e.id), category: "events", label: e.label,
-        group: e.app, logoDomain: e.logoDomain, emoji: e.emoji,
-        inputs: e.config.map((f) => v(f.id, f.label)),
-        outputs: [flowOut, v("payload")],
-        config: e.config.map((f) => ({ ...f, overriddenBy: f.id })),
-    })),
-];
+// The node catalog is data, not code: catalog.json is the single source of
+// truth, read here by import and by the Rust interpreter with include_str!, so
+// the two runtimes can never drift. It is a serialized snapshot — the
+// integration:* / event:* entries at its tail were generated from
+// lib/integrations.ts's INTEGRATIONS / EXTENSION_EVENTS, so changing a
+// descriptor there means regenerating the JSON.
+//
+// What the JSON can't say (it has no comments), per entry:
+// - events category = the entry points. Resolution keys off the category, not
+//   the type string, so a new event needs no interpreter/designer change.
+// - schedule: `cron` is authored via the designer's cron popover (node.tsx
+//   event branch), not the inline field — the field just declares the key.
+// - run: manual entry point. The cron runner keys on type "schedule" and
+//   transports on event:<id>, so this type is invisible to both by
+//   construction.
+// - start, literal: legacy. Hidden from the toolbox, still resolve so graphs
+//   saved before the events framework / the string+number split keep running.
+// - if: port order IS the left-edge top→bottom order (l, in, r); rendered as a
+//   rounded square by node.tsx's if branch (geometry.ts isIfEntry).
+// - string, number: bare header-less value boxes, node.tsx's literal branch.
+// - print: the "message" port overrides the literal; the pre-2026-07 "value"
+//   port + prefix concat survives only as an interpreter fallback.
+// - extract: dot-separated path, numbers index arrays ("data.results.0.price").
+// - await: join barrier for parallel branches, runs once every incoming flow
+//   edge arrived; "results" is a JSON array of the "values" edges in edge order.
+// - agent: grants are edges from chip nodes into the multi "tools"/"skills"
+//   ports; "memory" is single-edge (one store per agent) so edgesToReplace
+//   auto-swaps. config.system is authored via the system-prompt popover and the
+//   same-id port overrides it; config.model is the fallback when "model" is
+//   unwired. "result" carries a data:image/… URL when output=image.
+// - model: always one static node type — per-model toolbox chips just prefill
+//   config.model, so graphs never reference keys that vanish with the list.
+// - integration:*: every config field has a same-id value input that overrides
+//   the literal (overriddenBy), so tokens/ids can be wired; read-style actions
+//   add a value output carrying the sender's result.
+// - event:*: no flow input (they're entry points), one value input per config
+//   field, "payload" carries the event as a JSON string. Their config is
+//   resolved statically by getEventSubscriptions, never by the interpreter. No
+//   `section`: unlike integration actions they paint with the events color.
+export const CATALOG = catalogJson as CatalogEntry[];
 // mcp and skill nodes come exclusively from the user registry (lib/registry.ts)
 
 export const CATALOG_BY_KEY: Record<string, CatalogEntry> = Object.fromEntries(

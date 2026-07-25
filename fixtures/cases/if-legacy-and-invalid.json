@@ -1,0 +1,320 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "l",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": "5"
+        }
+      },
+      {
+        "id": "if1",
+        "type": "if",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "operator": "==",
+          "b_literal": "5"
+        }
+      },
+      {
+        "id": "t1",
+        "type": "print",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "message": "b_literal 5 == 5 → TRUE"
+        }
+      },
+      {
+        "id": "f1",
+        "type": "print",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "message": "b_literal 5 == 5 → false"
+        }
+      },
+      {
+        "id": "if2",
+        "type": "if",
+        "x": 300,
+        "y": 0,
+        "config": {
+          "operator": "=="
+        }
+      },
+      {
+        "id": "t2",
+        "type": "print",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "message": "no b_literal 5 == \"\" → TRUE"
+        }
+      },
+      {
+        "id": "f2",
+        "type": "print",
+        "x": 420,
+        "y": 0,
+        "config": {
+          "message": "no b_literal 5 == \"\" → false"
+        }
+      },
+      {
+        "id": "if3",
+        "type": "if",
+        "x": 480,
+        "y": 0,
+        "config": {
+          "operator": "~=",
+          "b_literal": "5"
+        }
+      },
+      {
+        "id": "t3",
+        "type": "print",
+        "x": 540,
+        "y": 0,
+        "config": {
+          "message": "unknown op → TRUE"
+        }
+      },
+      {
+        "id": "f3",
+        "type": "print",
+        "x": 600,
+        "y": 0,
+        "config": {
+          "message": "unknown op → false"
+        }
+      },
+      {
+        "id": "if4",
+        "type": "if",
+        "x": 660,
+        "y": 0,
+        "config": {
+          "operator": ""
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "l",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if1",
+          "portId": "l"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "if1",
+          "portId": "true"
+        },
+        "to": {
+          "nodeId": "t1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "if1",
+          "portId": "false"
+        },
+        "to": {
+          "nodeId": "f1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "l",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if2",
+          "portId": "l"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "t1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "f1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "if2",
+          "portId": "true"
+        },
+        "to": {
+          "nodeId": "t2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "if2",
+          "portId": "false"
+        },
+        "to": {
+          "nodeId": "f2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "l",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if3",
+          "portId": "l"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e10",
+        "from": {
+          "nodeId": "t2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if3",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e11",
+        "from": {
+          "nodeId": "f2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if3",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e12",
+        "from": {
+          "nodeId": "if3",
+          "portId": "true"
+        },
+        "to": {
+          "nodeId": "t3",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e13",
+        "from": {
+          "nodeId": "if3",
+          "portId": "false"
+        },
+        "to": {
+          "nodeId": "f3",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e14",
+        "from": {
+          "nodeId": "l",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if4",
+          "portId": "l"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e15",
+        "from": {
+          "nodeId": "t3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if4",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e16",
+        "from": {
+          "nodeId": "f3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "if4",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

@@ -1,0 +1,682 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "nested object [a.b.c] → 42"
+    },
+    {
+      "kind": "print",
+      "text": "array index [r.1.p] → 2"
+    },
+    {
+      "kind": "print",
+      "text": "root array [1] → 20"
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"b\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "missing key [b] → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"a.b\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "descend into scalar [a.b] → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: value is not JSON — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "not json [a] → "
+    },
+    {
+      "kind": "print",
+      "text": "empty path on object [] → {\"a\":1}"
+    },
+    {
+      "kind": "print",
+      "text": "empty path on json string [] → hi"
+    },
+    {
+      "kind": "print",
+      "text": "path to object [a] → {\"b\":1}"
+    },
+    {
+      "kind": "print",
+      "text": "path to array [a] → [1,2]"
+    },
+    {
+      "kind": "print",
+      "text": "path to null [a] → null"
+    },
+    {
+      "kind": "print",
+      "text": "path to false [a] → false"
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"__proto__\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "proto guard [__proto__] → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"constructor\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "constructor guard [constructor] → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"prototype\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "prototype guard [prototype] → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"5\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "index out of range [5] → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"-1\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "negative index [-1] → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"x\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "non-numeric index [x] → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"a.0\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "index into string [a.0] → "
+    },
+    {
+      "kind": "print",
+      "text": "json number root [] → 42"
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"length\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "array length is not a key [length] → "
+    },
+    {
+      "kind": "print",
+      "text": "empty path segment [a.] → 1"
+    },
+    {
+      "kind": "print",
+      "text": "path is trimmed [  a  ] → 1"
+    },
+    {
+      "kind": "print",
+      "text": "key order preserved [] → {\"b\":1,\"a\":2}"
+    },
+    {
+      "kind": "print",
+      "text": "deep number stays number [a] → 1000"
+    },
+    {
+      "kind": "print",
+      "text": "unicode value [a] → é🚀"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (26 steps)"
+    }
+  ],
+  "values": [
+    [
+      "lbl0",
+      "out",
+      "nested object [a.b.c] → "
+    ],
+    [
+      "src0",
+      "out",
+      "{\"a\":{\"b\":{\"c\":42}}}"
+    ],
+    [
+      "ex0",
+      "out",
+      "42"
+    ],
+    [
+      "cat0",
+      "out",
+      "nested object [a.b.c] → 42"
+    ],
+    [
+      "lbl1",
+      "out",
+      "array index [r.1.p] → "
+    ],
+    [
+      "src1",
+      "out",
+      "{\"r\":[{\"p\":1.5},{\"p\":2}]}"
+    ],
+    [
+      "ex1",
+      "out",
+      "2"
+    ],
+    [
+      "cat1",
+      "out",
+      "array index [r.1.p] → 2"
+    ],
+    [
+      "lbl2",
+      "out",
+      "root array [1] → "
+    ],
+    [
+      "src2",
+      "out",
+      "[10,20,30]"
+    ],
+    [
+      "ex2",
+      "out",
+      "20"
+    ],
+    [
+      "cat2",
+      "out",
+      "root array [1] → 20"
+    ],
+    [
+      "lbl3",
+      "out",
+      "missing key [b] → "
+    ],
+    [
+      "src3",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "ex3",
+      "out",
+      ""
+    ],
+    [
+      "cat3",
+      "out",
+      "missing key [b] → "
+    ],
+    [
+      "lbl4",
+      "out",
+      "descend into scalar [a.b] → "
+    ],
+    [
+      "src4",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "ex4",
+      "out",
+      ""
+    ],
+    [
+      "cat4",
+      "out",
+      "descend into scalar [a.b] → "
+    ],
+    [
+      "lbl5",
+      "out",
+      "not json [a] → "
+    ],
+    [
+      "src5",
+      "out",
+      "not json"
+    ],
+    [
+      "ex5",
+      "out",
+      ""
+    ],
+    [
+      "cat5",
+      "out",
+      "not json [a] → "
+    ],
+    [
+      "lbl6",
+      "out",
+      "empty path on object [] → "
+    ],
+    [
+      "src6",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "ex6",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "cat6",
+      "out",
+      "empty path on object [] → {\"a\":1}"
+    ],
+    [
+      "lbl7",
+      "out",
+      "empty path on json string [] → "
+    ],
+    [
+      "src7",
+      "out",
+      "\"hi\""
+    ],
+    [
+      "ex7",
+      "out",
+      "hi"
+    ],
+    [
+      "cat7",
+      "out",
+      "empty path on json string [] → hi"
+    ],
+    [
+      "lbl8",
+      "out",
+      "path to object [a] → "
+    ],
+    [
+      "src8",
+      "out",
+      "{\"a\":{\"b\":1}}"
+    ],
+    [
+      "ex8",
+      "out",
+      "{\"b\":1}"
+    ],
+    [
+      "cat8",
+      "out",
+      "path to object [a] → {\"b\":1}"
+    ],
+    [
+      "lbl9",
+      "out",
+      "path to array [a] → "
+    ],
+    [
+      "src9",
+      "out",
+      "{\"a\":[1,2]}"
+    ],
+    [
+      "ex9",
+      "out",
+      "[1,2]"
+    ],
+    [
+      "cat9",
+      "out",
+      "path to array [a] → [1,2]"
+    ],
+    [
+      "lbl10",
+      "out",
+      "path to null [a] → "
+    ],
+    [
+      "src10",
+      "out",
+      "{\"a\":null}"
+    ],
+    [
+      "ex10",
+      "out",
+      "null"
+    ],
+    [
+      "cat10",
+      "out",
+      "path to null [a] → null"
+    ],
+    [
+      "lbl11",
+      "out",
+      "path to false [a] → "
+    ],
+    [
+      "src11",
+      "out",
+      "{\"a\":false}"
+    ],
+    [
+      "ex11",
+      "out",
+      "false"
+    ],
+    [
+      "cat11",
+      "out",
+      "path to false [a] → false"
+    ],
+    [
+      "lbl12",
+      "out",
+      "proto guard [__proto__] → "
+    ],
+    [
+      "src12",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "ex12",
+      "out",
+      ""
+    ],
+    [
+      "cat12",
+      "out",
+      "proto guard [__proto__] → "
+    ],
+    [
+      "lbl13",
+      "out",
+      "constructor guard [constructor] → "
+    ],
+    [
+      "src13",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "ex13",
+      "out",
+      ""
+    ],
+    [
+      "cat13",
+      "out",
+      "constructor guard [constructor] → "
+    ],
+    [
+      "lbl14",
+      "out",
+      "prototype guard [prototype] → "
+    ],
+    [
+      "src14",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "ex14",
+      "out",
+      ""
+    ],
+    [
+      "cat14",
+      "out",
+      "prototype guard [prototype] → "
+    ],
+    [
+      "lbl15",
+      "out",
+      "index out of range [5] → "
+    ],
+    [
+      "src15",
+      "out",
+      "[1,2]"
+    ],
+    [
+      "ex15",
+      "out",
+      ""
+    ],
+    [
+      "cat15",
+      "out",
+      "index out of range [5] → "
+    ],
+    [
+      "lbl16",
+      "out",
+      "negative index [-1] → "
+    ],
+    [
+      "src16",
+      "out",
+      "[1,2]"
+    ],
+    [
+      "ex16",
+      "out",
+      ""
+    ],
+    [
+      "cat16",
+      "out",
+      "negative index [-1] → "
+    ],
+    [
+      "lbl17",
+      "out",
+      "non-numeric index [x] → "
+    ],
+    [
+      "src17",
+      "out",
+      "[1,2]"
+    ],
+    [
+      "ex17",
+      "out",
+      ""
+    ],
+    [
+      "cat17",
+      "out",
+      "non-numeric index [x] → "
+    ],
+    [
+      "lbl18",
+      "out",
+      "index into string [a.0] → "
+    ],
+    [
+      "src18",
+      "out",
+      "{\"a\":\"hi\"}"
+    ],
+    [
+      "ex18",
+      "out",
+      ""
+    ],
+    [
+      "cat18",
+      "out",
+      "index into string [a.0] → "
+    ],
+    [
+      "lbl19",
+      "out",
+      "json number root [] → "
+    ],
+    [
+      "src19",
+      "out",
+      "42"
+    ],
+    [
+      "ex19",
+      "out",
+      "42"
+    ],
+    [
+      "cat19",
+      "out",
+      "json number root [] → 42"
+    ],
+    [
+      "lbl20",
+      "out",
+      "array length is not a key [length] → "
+    ],
+    [
+      "src20",
+      "out",
+      "[1,2]"
+    ],
+    [
+      "ex20",
+      "out",
+      ""
+    ],
+    [
+      "cat20",
+      "out",
+      "array length is not a key [length] → "
+    ],
+    [
+      "lbl21",
+      "out",
+      "empty path segment [a.] → "
+    ],
+    [
+      "src21",
+      "out",
+      "{\"a\":{\"\":1}}"
+    ],
+    [
+      "ex21",
+      "out",
+      "1"
+    ],
+    [
+      "cat21",
+      "out",
+      "empty path segment [a.] → 1"
+    ],
+    [
+      "lbl22",
+      "out",
+      "path is trimmed [  a  ] → "
+    ],
+    [
+      "src22",
+      "out",
+      "{\"a\":1}"
+    ],
+    [
+      "ex22",
+      "out",
+      "1"
+    ],
+    [
+      "cat22",
+      "out",
+      "path is trimmed [  a  ] → 1"
+    ],
+    [
+      "lbl23",
+      "out",
+      "key order preserved [] → "
+    ],
+    [
+      "src23",
+      "out",
+      "{\"b\":1,\"a\":2}"
+    ],
+    [
+      "ex23",
+      "out",
+      "{\"b\":1,\"a\":2}"
+    ],
+    [
+      "cat23",
+      "out",
+      "key order preserved [] → {\"b\":1,\"a\":2}"
+    ],
+    [
+      "lbl24",
+      "out",
+      "deep number stays number [a] → "
+    ],
+    [
+      "src24",
+      "out",
+      "{\"a\":1e3}"
+    ],
+    [
+      "ex24",
+      "out",
+      "1000"
+    ],
+    [
+      "cat24",
+      "out",
+      "deep number stays number [a] → 1000"
+    ],
+    [
+      "lbl25",
+      "out",
+      "unicode value [a] → "
+    ],
+    [
+      "src25",
+      "out",
+      "{\"a\":\"e\\u0301\\ud83d\\ude80\"}"
+    ],
+    [
+      "ex25",
+      "out",
+      "é🚀"
+    ],
+    [
+      "cat25",
+      "out",
+      "unicode value [a] → é🚀"
+    ]
+  ]
+}

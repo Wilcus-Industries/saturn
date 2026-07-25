@@ -1,0 +1,226 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "warn",
+      "text": "and: input \"a\" not connected — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "and → false"
+    },
+    {
+      "kind": "warn",
+      "text": "or: input \"a\" not connected — using \"\""
+    },
+    {
+      "kind": "warn",
+      "text": "or: input \"b\" not connected — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "or → false"
+    },
+    {
+      "kind": "warn",
+      "text": "not: input \"in\" not connected — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "not → true"
+    },
+    {
+      "kind": "warn",
+      "text": "concat: input \"a\" not connected — using \"\""
+    },
+    {
+      "kind": "warn",
+      "text": "concat: input \"b\" not connected — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "concat → "
+    },
+    {
+      "kind": "warn",
+      "text": "extract: input \"value\" not connected — using \"\""
+    },
+    {
+      "kind": "warn",
+      "text": "extract: value is not JSON — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "extract → "
+    },
+    {
+      "kind": "warn",
+      "text": "agent: \"result\" read before the node ran — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "agent result → "
+    },
+    {
+      "kind": "warn",
+      "text": "await: \"results\" read before the node ran — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "await results → "
+    },
+    {
+      "kind": "warn",
+      "text": "loop \"item\" read outside an iteration — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "loop item → "
+    },
+    {
+      "kind": "warn",
+      "text": "if: input \"l\" not connected — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "if unconnected → TRUE"
+    },
+    {
+      "kind": "warn",
+      "text": "loop: input \"items\" not connected — using \"\""
+    },
+    {
+      "kind": "warn",
+      "text": "\"no-such-type\" skipped"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (12 steps)"
+    }
+  ],
+  "values": [
+    [
+      "lbl0",
+      "out",
+      "and → "
+    ],
+    [
+      "u0",
+      "out",
+      "false"
+    ],
+    [
+      "cat0",
+      "out",
+      "and → false"
+    ],
+    [
+      "lbl1",
+      "out",
+      "or → "
+    ],
+    [
+      "u1",
+      "out",
+      "false"
+    ],
+    [
+      "cat1",
+      "out",
+      "or → false"
+    ],
+    [
+      "lbl2",
+      "out",
+      "not → "
+    ],
+    [
+      "u2",
+      "out",
+      "true"
+    ],
+    [
+      "cat2",
+      "out",
+      "not → true"
+    ],
+    [
+      "lbl3",
+      "out",
+      "concat → "
+    ],
+    [
+      "u3",
+      "out",
+      ""
+    ],
+    [
+      "cat3",
+      "out",
+      "concat → "
+    ],
+    [
+      "lbl4",
+      "out",
+      "extract → "
+    ],
+    [
+      "u4",
+      "out",
+      ""
+    ],
+    [
+      "cat4",
+      "out",
+      "extract → "
+    ],
+    [
+      "lbl5",
+      "out",
+      "agent result → "
+    ],
+    [
+      "ag",
+      "result",
+      ""
+    ],
+    [
+      "cat5",
+      "out",
+      "agent result → "
+    ],
+    [
+      "lbl6",
+      "out",
+      "await results → "
+    ],
+    [
+      "aw",
+      "results",
+      ""
+    ],
+    [
+      "cat6",
+      "out",
+      "await results → "
+    ],
+    [
+      "lbl7",
+      "out",
+      "loop item → "
+    ],
+    [
+      "lp",
+      "item",
+      ""
+    ],
+    [
+      "cat7",
+      "out",
+      "loop item → "
+    ]
+  ]
+}

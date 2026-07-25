@@ -1,0 +1,96 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent → agent[user:14](108#78c26120)"
+    },
+    {
+      "kind": "print",
+      "text": "agent[user:14](108#78c26120)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/other…"
+    },
+    {
+      "kind": "info",
+      "text": "agent → agent[user:14](108#50d8d607)"
+    },
+    {
+      "kind": "print",
+      "text": "agent[user:14](108#50d8d607)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent → agent[user:10](114#ff5740c4)"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (5 steps)"
+    }
+  ],
+  "values": [
+    [
+      "prompt",
+      "out",
+      "summarise this"
+    ],
+    [
+      "a1",
+      "result",
+      "agent[user:14](108#78c26120)"
+    ],
+    [
+      "a1",
+      "result",
+      "agent[user:14](108#78c26120)"
+    ],
+    [
+      "prompt",
+      "out",
+      "summarise this"
+    ],
+    [
+      "sys",
+      "out",
+      "from the port"
+    ],
+    [
+      "mdl",
+      "model",
+      "stub/other"
+    ],
+    [
+      "a2",
+      "result",
+      "agent[user:14](108#50d8d607)"
+    ],
+    [
+      "a2",
+      "result",
+      "agent[user:14](108#50d8d607)"
+    ],
+    [
+      "blank",
+      "out",
+      ""
+    ],
+    [
+      "a3",
+      "result",
+      "agent[user:10](114#ff5740c4)"
+    ]
+  ]
+}

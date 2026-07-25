@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- Throwaway. Exists only to prove IPC + streamed console events against the
+     Rust interpreter. Phase F points build.frontendDist at the exported SPA and
+     deletes this. -->
+<meta charset="utf-8" />
+<title>Saturn — Phase B</title>
+<style>
+  body { font: 14px ui-monospace, monospace; margin: 2rem; background: #111; color: #eee; }
+  button { font: inherit; padding: .3rem .6rem; }
+  li { margin: .2rem 0; }
+  #log { white-space: pre-wrap; margin-top: 1rem; }
+  .print { color: #eee; }
+  .info { color: #79a; }
+  .warn { color: #db6; }
+  .error { color: #e66; }
+</style>
+<button id="new">create slice workflow</button>
+<ul id="list"></ul>
+<div id="log"></div>
+<script type="module">
+  const { invoke } = window.__TAURI__.core;
+  const { listen } = window.__TAURI__.event;
+  const log = document.getElementById("log");
+  const say = (kind, s) => {
+    const line = document.createElement("div");
+    line.className = kind;
+    line.textContent = s;
+    log.append(line);
+  };
+
+  // streamed as the walk produces them, not batched at the end
+  listen("run-log", (e) => say(e.payload.kind, e.payload.text));
+  listen("run-finished", (e) => say("info", `— ${e.payload.status}`));
+
+  // schedule -> http request -> print, the Phase B vertical slice
+  const slice = {
+    nodes: [
+      { id: "s", type: "schedule", x: 40, y: 40, config: { cron: "*/5 * * * *" } },
+      { id: "h", type: "integration:http-request", x: 40, y: 200,
+        config: { method: "GET", url: "https://api.github.com/zen" } },
+      { id: "p", type: "print", x: 40, y: 400, config: { message: "" } },
+    ],
+    edges: [
+      { id: "e1", from: { nodeId: "s", portId: "out" }, to: { nodeId: "h", portId: "in" }, kind: "flow" },
+      { id: "e2", from: { nodeId: "h", portId: "out" }, to: { nodeId: "p", portId: "in" }, kind: "flow" },
+      { id: "e3", from: { nodeId: "h", portId: "response" }, to: { nodeId: "p", portId: "message" }, kind: "value" },
+    ],
+  };
+
+  async function refresh() {
+    const rows = await invoke("list_workflows");
+    document.getElementById("list").replaceChildren(
+      ...rows.map((w) => {
+        const li = document.createElement("li");
+        li.textContent = `${w.emoji} ${w.name} `;
+        const b = document.createElement("button");
+        b.textContent = "run";
+        b.onclick = () => invoke("test_run", { workflowId: w.id });
+        li.append(b);
+        return li;
+      }),
+    );
+  }
+
+  document.getElementById("new").onclick = async () => {
+    await invoke("create_workflow", { name: `slice ${new Date().toLocaleTimeString()}`, graph: slice });
+    refresh();
+  };
+  refresh();
+</script>

@@ -1,0 +1,39 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "body a"
+    },
+    {
+      "kind": "print",
+      "text": "body b"
+    },
+    {
+      "kind": "print",
+      "text": "body a"
+    },
+    {
+      "kind": "print",
+      "text": "body b"
+    },
+    {
+      "kind": "print",
+      "text": "body b"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (6 steps)"
+    }
+  ],
+  "values": [
+    [
+      "items",
+      "out",
+      "1,2"
+    ]
+  ]
+}

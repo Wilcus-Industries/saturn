@@ -1,0 +1,69 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p1",
+        "type": "print",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "message": "one"
+        }
+      },
+      {
+        "id": "p2",
+        "type": "print",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "message": "two"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "p1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "p2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

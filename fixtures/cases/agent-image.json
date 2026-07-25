@@ -1,0 +1,283 @@
+{
+  "entries": [
+    {
+      "key": "mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:*",
+      "category": "mcp",
+      "label": "search server",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out",
+          "kind": "value"
+        }
+      ],
+      "toolName": "*",
+      "tools": [
+        {
+          "name": "search"
+        },
+        {
+          "name": "big"
+        },
+        {
+          "name": "boom"
+        }
+      ]
+    },
+    {
+      "key": "memory:cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "category": "memory",
+      "label": "notes",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out",
+          "kind": "value"
+        }
+      ]
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "chip",
+        "type": "mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:*",
+        "x": 60,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "mem",
+        "type": "memory:cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "x": 120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "prompt",
+        "type": "string",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "value": "draw a moon"
+        }
+      },
+      {
+        "id": "a",
+        "type": "agent",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "model": "stub/model",
+          "output": "image"
+        }
+      },
+      {
+        "id": "show",
+        "type": "print",
+        "x": 300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "imgPrompt",
+        "type": "string",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "value": "data:image/png;base64,QUJD"
+        }
+      },
+      {
+        "id": "b",
+        "type": "agent",
+        "x": 420,
+        "y": 0,
+        "config": {
+          "model": "stub/model"
+        }
+      },
+      {
+        "id": "imgAsk",
+        "type": "string",
+        "x": 480,
+        "y": 0,
+        "config": {
+          "value": "IMG a moon"
+        }
+      },
+      {
+        "id": "c",
+        "type": "agent",
+        "x": 540,
+        "y": 0,
+        "config": {
+          "model": "stub/model",
+          "output": "image"
+        }
+      },
+      {
+        "id": "showC",
+        "type": "print",
+        "x": 600,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "prompt",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "chip",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "mem",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "memory"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "a",
+          "portId": "result"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "imgPrompt",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "b",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "imgAsk",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "c",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "c",
+          "portId": "result"
+        },
+        "to": {
+          "nodeId": "showC",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "a",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "show",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "b",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e10",
+        "from": {
+          "nodeId": "b",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "c",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e11",
+        "from": {
+          "nodeId": "c",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "showC",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "branch A arrives"
+    },
+    {
+      "kind": "print",
+      "text": "branch B diverged past the barrier"
+    },
+    {
+      "kind": "warn",
+      "text": "await never completed (1/2 branches)"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (4 steps)"
+    }
+  ],
+  "values": [
+    [
+      "l",
+      "out",
+      "1"
+    ]
+  ]
+}

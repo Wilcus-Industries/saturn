@@ -1,0 +1,417 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "string with no config → "
+    },
+    {
+      "kind": "print",
+      "text": "number blank → 0"
+    },
+    {
+      "kind": "warn",
+      "text": "number \"abc\" is not a number — using 0"
+    },
+    {
+      "kind": "print",
+      "text": "number not a number → 0"
+    },
+    {
+      "kind": "print",
+      "text": "number padded → 7"
+    },
+    {
+      "kind": "print",
+      "text": "number exponent → 1000"
+    },
+    {
+      "kind": "print",
+      "text": "number hex → 31"
+    },
+    {
+      "kind": "warn",
+      "text": "number \"1_000\" is not a number — using 0"
+    },
+    {
+      "kind": "print",
+      "text": "number underscore → 0"
+    },
+    {
+      "kind": "print",
+      "text": "number negative float → -2.5"
+    },
+    {
+      "kind": "print",
+      "text": "number infinity → Infinity"
+    },
+    {
+      "kind": "print",
+      "text": "literal typed number → 5"
+    },
+    {
+      "kind": "warn",
+      "text": "literal \"x\" is not a number — using 0"
+    },
+    {
+      "kind": "print",
+      "text": "literal typed number bad → 0"
+    },
+    {
+      "kind": "print",
+      "text": "literal typed number padded → 5"
+    },
+    {
+      "kind": "print",
+      "text": "literal typed string → 5"
+    },
+    {
+      "kind": "print",
+      "text": "literal untyped → 5"
+    },
+    {
+      "kind": "print",
+      "text": "literal untyped blank → "
+    },
+    {
+      "kind": "print",
+      "text": "model slug → openai/gpt-4o-mini"
+    },
+    {
+      "kind": "print",
+      "text": "concat s\"a\" + n1 → a1"
+    },
+    {
+      "kind": "print",
+      "text": "concat n1 + n1 → 11"
+    },
+    {
+      "kind": "print",
+      "text": "concat true + s\"a\" → truea"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (19 steps)"
+    }
+  ],
+  "values": [
+    [
+      "lbl0",
+      "out",
+      "string with no config → "
+    ],
+    [
+      "s0",
+      "out",
+      ""
+    ],
+    [
+      "cat0",
+      "out",
+      "string with no config → "
+    ],
+    [
+      "lbl1",
+      "out",
+      "number blank → "
+    ],
+    [
+      "s1",
+      "out",
+      "0"
+    ],
+    [
+      "cat1",
+      "out",
+      "number blank → 0"
+    ],
+    [
+      "lbl2",
+      "out",
+      "number not a number → "
+    ],
+    [
+      "s2",
+      "out",
+      "0"
+    ],
+    [
+      "cat2",
+      "out",
+      "number not a number → 0"
+    ],
+    [
+      "lbl3",
+      "out",
+      "number padded → "
+    ],
+    [
+      "s3",
+      "out",
+      "7"
+    ],
+    [
+      "cat3",
+      "out",
+      "number padded → 7"
+    ],
+    [
+      "lbl4",
+      "out",
+      "number exponent → "
+    ],
+    [
+      "s4",
+      "out",
+      "1000"
+    ],
+    [
+      "cat4",
+      "out",
+      "number exponent → 1000"
+    ],
+    [
+      "lbl5",
+      "out",
+      "number hex → "
+    ],
+    [
+      "s5",
+      "out",
+      "31"
+    ],
+    [
+      "cat5",
+      "out",
+      "number hex → 31"
+    ],
+    [
+      "lbl6",
+      "out",
+      "number underscore → "
+    ],
+    [
+      "s6",
+      "out",
+      "0"
+    ],
+    [
+      "cat6",
+      "out",
+      "number underscore → 0"
+    ],
+    [
+      "lbl7",
+      "out",
+      "number negative float → "
+    ],
+    [
+      "s7",
+      "out",
+      "-2.5"
+    ],
+    [
+      "cat7",
+      "out",
+      "number negative float → -2.5"
+    ],
+    [
+      "lbl8",
+      "out",
+      "number infinity → "
+    ],
+    [
+      "s8",
+      "out",
+      "Infinity"
+    ],
+    [
+      "cat8",
+      "out",
+      "number infinity → Infinity"
+    ],
+    [
+      "lbl9",
+      "out",
+      "literal typed number → "
+    ],
+    [
+      "s9",
+      "out",
+      "5"
+    ],
+    [
+      "cat9",
+      "out",
+      "literal typed number → 5"
+    ],
+    [
+      "lbl10",
+      "out",
+      "literal typed number bad → "
+    ],
+    [
+      "s10",
+      "out",
+      "0"
+    ],
+    [
+      "cat10",
+      "out",
+      "literal typed number bad → 0"
+    ],
+    [
+      "lbl11",
+      "out",
+      "literal typed number padded → "
+    ],
+    [
+      "s11",
+      "out",
+      "5"
+    ],
+    [
+      "cat11",
+      "out",
+      "literal typed number padded → 5"
+    ],
+    [
+      "lbl12",
+      "out",
+      "literal typed string → "
+    ],
+    [
+      "s12",
+      "out",
+      "5"
+    ],
+    [
+      "cat12",
+      "out",
+      "literal typed string → 5"
+    ],
+    [
+      "lbl13",
+      "out",
+      "literal untyped → "
+    ],
+    [
+      "s13",
+      "out",
+      "5"
+    ],
+    [
+      "cat13",
+      "out",
+      "literal untyped → 5"
+    ],
+    [
+      "lbl14",
+      "out",
+      "literal untyped blank → "
+    ],
+    [
+      "s14",
+      "out",
+      ""
+    ],
+    [
+      "cat14",
+      "out",
+      "literal untyped blank → "
+    ],
+    [
+      "lbl15",
+      "out",
+      "model slug → "
+    ],
+    [
+      "s15",
+      "model",
+      "openai/gpt-4o-mini"
+    ],
+    [
+      "cat15",
+      "out",
+      "model slug → openai/gpt-4o-mini"
+    ],
+    [
+      "lbl16",
+      "out",
+      "concat s\"a\" + n1 → "
+    ],
+    [
+      "cs",
+      "out",
+      "a"
+    ],
+    [
+      "cn",
+      "out",
+      "1"
+    ],
+    [
+      "k1",
+      "out",
+      "a1"
+    ],
+    [
+      "cat16",
+      "out",
+      "concat s\"a\" + n1 → a1"
+    ],
+    [
+      "lbl17",
+      "out",
+      "concat n1 + n1 → "
+    ],
+    [
+      "cn",
+      "out",
+      "1"
+    ],
+    [
+      "k2",
+      "out",
+      "11"
+    ],
+    [
+      "cat17",
+      "out",
+      "concat n1 + n1 → 11"
+    ],
+    [
+      "lbl18",
+      "out",
+      "concat true + s\"a\" → "
+    ],
+    [
+      "cbSrc",
+      "out",
+      ""
+    ],
+    [
+      "cb",
+      "out",
+      "true"
+    ],
+    [
+      "cs",
+      "out",
+      "a"
+    ],
+    [
+      "k3",
+      "out",
+      "truea"
+    ],
+    [
+      "cat18",
+      "out",
+      "concat true + s\"a\" → truea"
+    ]
+  ]
+}

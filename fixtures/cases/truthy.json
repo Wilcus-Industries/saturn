@@ -1,0 +1,1806 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s0",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": ""
+        }
+      },
+      {
+        "id": "not0",
+        "type": "not",
+        "x": 120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl0",
+        "type": "string",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "value": "not(empty) → "
+        }
+      },
+      {
+        "id": "cat0",
+        "type": "concat",
+        "x": 240,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p0",
+        "type": "print",
+        "x": 300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s1",
+        "type": "string",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "value": "false"
+        }
+      },
+      {
+        "id": "not1",
+        "type": "not",
+        "x": 420,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl1",
+        "type": "string",
+        "x": 480,
+        "y": 0,
+        "config": {
+          "value": "not(false) → "
+        }
+      },
+      {
+        "id": "cat1",
+        "type": "concat",
+        "x": 540,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p1",
+        "type": "print",
+        "x": 600,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s2",
+        "type": "string",
+        "x": 660,
+        "y": 0,
+        "config": {
+          "value": "0"
+        }
+      },
+      {
+        "id": "not2",
+        "type": "not",
+        "x": 720,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl2",
+        "type": "string",
+        "x": 780,
+        "y": 0,
+        "config": {
+          "value": "not(zero) → "
+        }
+      },
+      {
+        "id": "cat2",
+        "type": "concat",
+        "x": 840,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p2",
+        "type": "print",
+        "x": 900,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s3",
+        "type": "string",
+        "x": 960,
+        "y": 0,
+        "config": {
+          "value": "FALSE"
+        }
+      },
+      {
+        "id": "not3",
+        "type": "not",
+        "x": 1020,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl3",
+        "type": "string",
+        "x": 1080,
+        "y": 0,
+        "config": {
+          "value": "not(FALSE) → "
+        }
+      },
+      {
+        "id": "cat3",
+        "type": "concat",
+        "x": 1140,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p3",
+        "type": "print",
+        "x": 1200,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s4",
+        "type": "string",
+        "x": 1260,
+        "y": 0,
+        "config": {
+          "value": " "
+        }
+      },
+      {
+        "id": "not4",
+        "type": "not",
+        "x": 1320,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl4",
+        "type": "string",
+        "x": 1380,
+        "y": 0,
+        "config": {
+          "value": "not(space) → "
+        }
+      },
+      {
+        "id": "cat4",
+        "type": "concat",
+        "x": 1440,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p4",
+        "type": "print",
+        "x": 1500,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s5",
+        "type": "string",
+        "x": 1560,
+        "y": 0,
+        "config": {
+          "value": "x"
+        }
+      },
+      {
+        "id": "not5",
+        "type": "not",
+        "x": 1620,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl5",
+        "type": "string",
+        "x": 1680,
+        "y": 0,
+        "config": {
+          "value": "not(x) → "
+        }
+      },
+      {
+        "id": "cat5",
+        "type": "concat",
+        "x": 1740,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p5",
+        "type": "print",
+        "x": 1800,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s6",
+        "type": "string",
+        "x": 1860,
+        "y": 0,
+        "config": {
+          "value": "0.0"
+        }
+      },
+      {
+        "id": "not6",
+        "type": "not",
+        "x": 1920,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl6",
+        "type": "string",
+        "x": 1980,
+        "y": 0,
+        "config": {
+          "value": "not(0.0) → "
+        }
+      },
+      {
+        "id": "cat6",
+        "type": "concat",
+        "x": 2040,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p6",
+        "type": "print",
+        "x": 2100,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s7",
+        "type": "number",
+        "x": 2160,
+        "y": 0,
+        "config": {
+          "value": "0"
+        }
+      },
+      {
+        "id": "not7",
+        "type": "not",
+        "x": 2220,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl7",
+        "type": "string",
+        "x": 2280,
+        "y": 0,
+        "config": {
+          "value": "not(n0) → "
+        }
+      },
+      {
+        "id": "cat7",
+        "type": "concat",
+        "x": 2340,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p7",
+        "type": "print",
+        "x": 2400,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s8",
+        "type": "number",
+        "x": 2460,
+        "y": 0,
+        "config": {
+          "value": "-0"
+        }
+      },
+      {
+        "id": "not8",
+        "type": "not",
+        "x": 2520,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl8",
+        "type": "string",
+        "x": 2580,
+        "y": 0,
+        "config": {
+          "value": "not(n-0) → "
+        }
+      },
+      {
+        "id": "cat8",
+        "type": "concat",
+        "x": 2640,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p8",
+        "type": "print",
+        "x": 2700,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s9",
+        "type": "number",
+        "x": 2760,
+        "y": 0,
+        "config": {
+          "value": "5"
+        }
+      },
+      {
+        "id": "not9",
+        "type": "not",
+        "x": 2820,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl9",
+        "type": "string",
+        "x": 2880,
+        "y": 0,
+        "config": {
+          "value": "not(n5) → "
+        }
+      },
+      {
+        "id": "cat9",
+        "type": "concat",
+        "x": 2940,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p9",
+        "type": "print",
+        "x": 3000,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s10",
+        "type": "number",
+        "x": 3060,
+        "y": 0,
+        "config": {
+          "value": "0.0"
+        }
+      },
+      {
+        "id": "not10",
+        "type": "not",
+        "x": 3120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl10",
+        "type": "string",
+        "x": 3180,
+        "y": 0,
+        "config": {
+          "value": "not(n0.0) → "
+        }
+      },
+      {
+        "id": "cat10",
+        "type": "concat",
+        "x": 3240,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p10",
+        "type": "print",
+        "x": 3300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "o11",
+        "type": "and",
+        "x": 3360,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl11",
+        "type": "string",
+        "x": 3420,
+        "y": 0,
+        "config": {
+          "value": "and(empty, x) → "
+        }
+      },
+      {
+        "id": "cat11",
+        "type": "concat",
+        "x": 3480,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p11",
+        "type": "print",
+        "x": 3540,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "o12",
+        "type": "and",
+        "x": 3600,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl12",
+        "type": "string",
+        "x": 3660,
+        "y": 0,
+        "config": {
+          "value": "and(x, empty) → "
+        }
+      },
+      {
+        "id": "cat12",
+        "type": "concat",
+        "x": 3720,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p12",
+        "type": "print",
+        "x": 3780,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "and-x-n5",
+        "type": "and",
+        "x": 3840,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl13",
+        "type": "string",
+        "x": 3900,
+        "y": 0,
+        "config": {
+          "value": "and(x, n5) → "
+        }
+      },
+      {
+        "id": "cat13",
+        "type": "concat",
+        "x": 3960,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p13",
+        "type": "print",
+        "x": 4020,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "o14",
+        "type": "or",
+        "x": 4080,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl14",
+        "type": "string",
+        "x": 4140,
+        "y": 0,
+        "config": {
+          "value": "or(empty, x) → "
+        }
+      },
+      {
+        "id": "cat14",
+        "type": "concat",
+        "x": 4200,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p14",
+        "type": "print",
+        "x": 4260,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "o15",
+        "type": "or",
+        "x": 4320,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl15",
+        "type": "string",
+        "x": 4380,
+        "y": 0,
+        "config": {
+          "value": "or(empty, n0) → "
+        }
+      },
+      {
+        "id": "cat15",
+        "type": "concat",
+        "x": 4440,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p15",
+        "type": "print",
+        "x": 4500,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "o16",
+        "type": "or",
+        "x": 4560,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl16",
+        "type": "string",
+        "x": 4620,
+        "y": 0,
+        "config": {
+          "value": "or(x, empty) → "
+        }
+      },
+      {
+        "id": "cat16",
+        "type": "concat",
+        "x": 4680,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p16",
+        "type": "print",
+        "x": 4740,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "n17",
+        "type": "not",
+        "x": 4800,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl17",
+        "type": "string",
+        "x": 4860,
+        "y": 0,
+        "config": {
+          "value": "not(and(x, n5)) → "
+        }
+      },
+      {
+        "id": "cat17",
+        "type": "concat",
+        "x": 4920,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p17",
+        "type": "print",
+        "x": 4980,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "s0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not0",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "lbl0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat0",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "not0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat0",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "cat0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p0",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "s1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not1",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "lbl1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat1",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "not1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat1",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "cat1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "s2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not2",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "lbl2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat2",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e10",
+        "from": {
+          "nodeId": "not2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat2",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e11",
+        "from": {
+          "nodeId": "cat2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e12",
+        "from": {
+          "nodeId": "s3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not3",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e13",
+        "from": {
+          "nodeId": "lbl3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat3",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e14",
+        "from": {
+          "nodeId": "not3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat3",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e15",
+        "from": {
+          "nodeId": "cat3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p3",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e16",
+        "from": {
+          "nodeId": "s4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not4",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e17",
+        "from": {
+          "nodeId": "lbl4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat4",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e18",
+        "from": {
+          "nodeId": "not4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat4",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e19",
+        "from": {
+          "nodeId": "cat4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p4",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e20",
+        "from": {
+          "nodeId": "s5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not5",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e21",
+        "from": {
+          "nodeId": "lbl5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat5",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e22",
+        "from": {
+          "nodeId": "not5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat5",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e23",
+        "from": {
+          "nodeId": "cat5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p5",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e24",
+        "from": {
+          "nodeId": "s6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not6",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e25",
+        "from": {
+          "nodeId": "lbl6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat6",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e26",
+        "from": {
+          "nodeId": "not6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat6",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e27",
+        "from": {
+          "nodeId": "cat6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p6",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e28",
+        "from": {
+          "nodeId": "s7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not7",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e29",
+        "from": {
+          "nodeId": "lbl7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat7",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e30",
+        "from": {
+          "nodeId": "not7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat7",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e31",
+        "from": {
+          "nodeId": "cat7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p7",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e32",
+        "from": {
+          "nodeId": "s8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not8",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e33",
+        "from": {
+          "nodeId": "lbl8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat8",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e34",
+        "from": {
+          "nodeId": "not8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat8",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e35",
+        "from": {
+          "nodeId": "cat8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p8",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e36",
+        "from": {
+          "nodeId": "s9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not9",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e37",
+        "from": {
+          "nodeId": "lbl9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat9",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e38",
+        "from": {
+          "nodeId": "not9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat9",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e39",
+        "from": {
+          "nodeId": "cat9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p9",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e40",
+        "from": {
+          "nodeId": "s10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "not10",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e41",
+        "from": {
+          "nodeId": "lbl10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat10",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e42",
+        "from": {
+          "nodeId": "not10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat10",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e43",
+        "from": {
+          "nodeId": "cat10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p10",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e44",
+        "from": {
+          "nodeId": "s0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o11",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e45",
+        "from": {
+          "nodeId": "s5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o11",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e46",
+        "from": {
+          "nodeId": "lbl11",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat11",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e47",
+        "from": {
+          "nodeId": "o11",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat11",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e48",
+        "from": {
+          "nodeId": "cat11",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p11",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e49",
+        "from": {
+          "nodeId": "s5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o12",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e50",
+        "from": {
+          "nodeId": "s0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o12",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e51",
+        "from": {
+          "nodeId": "lbl12",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat12",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e52",
+        "from": {
+          "nodeId": "o12",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat12",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e53",
+        "from": {
+          "nodeId": "cat12",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p12",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e54",
+        "from": {
+          "nodeId": "s5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "and-x-n5",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e55",
+        "from": {
+          "nodeId": "s9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "and-x-n5",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e56",
+        "from": {
+          "nodeId": "lbl13",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat13",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e57",
+        "from": {
+          "nodeId": "and-x-n5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat13",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e58",
+        "from": {
+          "nodeId": "cat13",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p13",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e59",
+        "from": {
+          "nodeId": "s0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o14",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e60",
+        "from": {
+          "nodeId": "s5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o14",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e61",
+        "from": {
+          "nodeId": "lbl14",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat14",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e62",
+        "from": {
+          "nodeId": "o14",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat14",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e63",
+        "from": {
+          "nodeId": "cat14",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p14",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e64",
+        "from": {
+          "nodeId": "s0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o15",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e65",
+        "from": {
+          "nodeId": "s7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o15",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e66",
+        "from": {
+          "nodeId": "lbl15",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat15",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e67",
+        "from": {
+          "nodeId": "o15",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat15",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e68",
+        "from": {
+          "nodeId": "cat15",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p15",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e69",
+        "from": {
+          "nodeId": "s5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o16",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e70",
+        "from": {
+          "nodeId": "s0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "o16",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e71",
+        "from": {
+          "nodeId": "lbl16",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat16",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e72",
+        "from": {
+          "nodeId": "o16",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat16",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e73",
+        "from": {
+          "nodeId": "cat16",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p16",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e74",
+        "from": {
+          "nodeId": "and-x-n5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "n17",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e75",
+        "from": {
+          "nodeId": "lbl17",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat17",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e76",
+        "from": {
+          "nodeId": "n17",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat17",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e77",
+        "from": {
+          "nodeId": "cat17",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p17",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e78",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p0",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e79",
+        "from": {
+          "nodeId": "p0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e80",
+        "from": {
+          "nodeId": "p1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e81",
+        "from": {
+          "nodeId": "p2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p3",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e82",
+        "from": {
+          "nodeId": "p3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p4",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e83",
+        "from": {
+          "nodeId": "p4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p5",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e84",
+        "from": {
+          "nodeId": "p5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p6",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e85",
+        "from": {
+          "nodeId": "p6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p7",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e86",
+        "from": {
+          "nodeId": "p7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p8",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e87",
+        "from": {
+          "nodeId": "p8",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p9",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e88",
+        "from": {
+          "nodeId": "p9",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p10",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e89",
+        "from": {
+          "nodeId": "p10",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p11",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e90",
+        "from": {
+          "nodeId": "p11",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p12",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e91",
+        "from": {
+          "nodeId": "p12",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p13",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e92",
+        "from": {
+          "nodeId": "p13",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p14",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e93",
+        "from": {
+          "nodeId": "p14",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p15",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e94",
+        "from": {
+          "nodeId": "p15",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p16",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e95",
+        "from": {
+          "nodeId": "p16",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p17",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

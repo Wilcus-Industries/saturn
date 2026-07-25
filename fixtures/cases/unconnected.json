@@ -1,0 +1,798 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "u0",
+        "type": "and",
+        "x": 60,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl0",
+        "type": "string",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "value": "and → "
+        }
+      },
+      {
+        "id": "cat0",
+        "type": "concat",
+        "x": 180,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p0",
+        "type": "print",
+        "x": 240,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "u1",
+        "type": "or",
+        "x": 300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl1",
+        "type": "string",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "value": "or → "
+        }
+      },
+      {
+        "id": "cat1",
+        "type": "concat",
+        "x": 420,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p1",
+        "type": "print",
+        "x": 480,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "u2",
+        "type": "not",
+        "x": 540,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl2",
+        "type": "string",
+        "x": 600,
+        "y": 0,
+        "config": {
+          "value": "not → "
+        }
+      },
+      {
+        "id": "cat2",
+        "type": "concat",
+        "x": 660,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p2",
+        "type": "print",
+        "x": 720,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "u3",
+        "type": "concat",
+        "x": 780,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl3",
+        "type": "string",
+        "x": 840,
+        "y": 0,
+        "config": {
+          "value": "concat → "
+        }
+      },
+      {
+        "id": "cat3",
+        "type": "concat",
+        "x": 900,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p3",
+        "type": "print",
+        "x": 960,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "u4",
+        "type": "extract",
+        "x": 1020,
+        "y": 0,
+        "config": {
+          "path": "a"
+        }
+      },
+      {
+        "id": "lbl4",
+        "type": "string",
+        "x": 1080,
+        "y": 0,
+        "config": {
+          "value": "extract → "
+        }
+      },
+      {
+        "id": "cat4",
+        "type": "concat",
+        "x": 1140,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p4",
+        "type": "print",
+        "x": 1200,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "ag",
+        "type": "agent",
+        "x": 1260,
+        "y": 0,
+        "config": {
+          "model": "stub/model"
+        }
+      },
+      {
+        "id": "lbl5",
+        "type": "string",
+        "x": 1320,
+        "y": 0,
+        "config": {
+          "value": "agent result → "
+        }
+      },
+      {
+        "id": "cat5",
+        "type": "concat",
+        "x": 1380,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p5",
+        "type": "print",
+        "x": 1440,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "aw",
+        "type": "await",
+        "x": 1500,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl6",
+        "type": "string",
+        "x": 1560,
+        "y": 0,
+        "config": {
+          "value": "await results → "
+        }
+      },
+      {
+        "id": "cat6",
+        "type": "concat",
+        "x": 1620,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p6",
+        "type": "print",
+        "x": 1680,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lp",
+        "type": "loop",
+        "x": 1740,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lbl7",
+        "type": "string",
+        "x": 1800,
+        "y": 0,
+        "config": {
+          "value": "loop item → "
+        }
+      },
+      {
+        "id": "cat7",
+        "type": "concat",
+        "x": 1860,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p7",
+        "type": "print",
+        "x": 1920,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "gate",
+        "type": "if",
+        "x": 1980,
+        "y": 0,
+        "config": {
+          "operator": "=="
+        }
+      },
+      {
+        "id": "gt",
+        "type": "print",
+        "x": 2040,
+        "y": 0,
+        "config": {
+          "message": "if unconnected → TRUE"
+        }
+      },
+      {
+        "id": "gf",
+        "type": "print",
+        "x": 2100,
+        "y": 0,
+        "config": {
+          "message": "if unconnected → false"
+        }
+      },
+      {
+        "id": "lp2",
+        "type": "loop",
+        "x": 2160,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "lp2body",
+        "type": "print",
+        "x": 2220,
+        "y": 0,
+        "config": {
+          "message": "never"
+        }
+      },
+      {
+        "id": "ghost",
+        "type": "no-such-type",
+        "x": 2280,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "never",
+        "type": "print",
+        "x": 2340,
+        "y": 0,
+        "config": {
+          "message": "never"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "lbl0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat0",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "u0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat0",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "cat0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p0",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "lbl1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat1",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "u1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat1",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "cat1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "lbl2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat2",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "u2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat2",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "cat2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "lbl3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat3",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e10",
+        "from": {
+          "nodeId": "u3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat3",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e11",
+        "from": {
+          "nodeId": "cat3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p3",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e12",
+        "from": {
+          "nodeId": "lbl4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat4",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e13",
+        "from": {
+          "nodeId": "u4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat4",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e14",
+        "from": {
+          "nodeId": "cat4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p4",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e15",
+        "from": {
+          "nodeId": "lbl5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat5",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e16",
+        "from": {
+          "nodeId": "ag",
+          "portId": "result"
+        },
+        "to": {
+          "nodeId": "cat5",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e17",
+        "from": {
+          "nodeId": "cat5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p5",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e18",
+        "from": {
+          "nodeId": "lbl6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat6",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e19",
+        "from": {
+          "nodeId": "aw",
+          "portId": "results"
+        },
+        "to": {
+          "nodeId": "cat6",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e20",
+        "from": {
+          "nodeId": "cat6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p6",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e21",
+        "from": {
+          "nodeId": "lbl7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "cat7",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e22",
+        "from": {
+          "nodeId": "lp",
+          "portId": "item"
+        },
+        "to": {
+          "nodeId": "cat7",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e23",
+        "from": {
+          "nodeId": "cat7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p7",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e24",
+        "from": {
+          "nodeId": "gate",
+          "portId": "true"
+        },
+        "to": {
+          "nodeId": "gt",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e25",
+        "from": {
+          "nodeId": "gate",
+          "portId": "false"
+        },
+        "to": {
+          "nodeId": "gf",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e26",
+        "from": {
+          "nodeId": "lp2",
+          "portId": "body"
+        },
+        "to": {
+          "nodeId": "lp2body",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e27",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p0",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e28",
+        "from": {
+          "nodeId": "p0",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e29",
+        "from": {
+          "nodeId": "p1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e30",
+        "from": {
+          "nodeId": "p2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p3",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e31",
+        "from": {
+          "nodeId": "p3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p4",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e32",
+        "from": {
+          "nodeId": "p4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p5",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e33",
+        "from": {
+          "nodeId": "p5",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p6",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e34",
+        "from": {
+          "nodeId": "p6",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p7",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e35",
+        "from": {
+          "nodeId": "p7",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "gate",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e36",
+        "from": {
+          "nodeId": "gt",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "lp2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e37",
+        "from": {
+          "nodeId": "gf",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "lp2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e38",
+        "from": {
+          "nodeId": "lp2",
+          "portId": "done"
+        },
+        "to": {
+          "nodeId": "ghost",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e39",
+        "from": {
+          "nodeId": "ghost",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "never",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

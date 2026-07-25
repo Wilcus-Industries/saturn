@@ -1,0 +1,798 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / n0 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / n0 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / n0 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / n0 > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / n0 <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / n0 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / n0 contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / n0 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / n0 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / n0 < → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / n0 > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / n0 <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / n0 >= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / n0 contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\" \" / n0 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\" \" / n0 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\" \" / n0 < → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\" \" / n0 > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\" \" / n0 <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\" \" / n0 >= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\" \" / n0 contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"\" == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"\" != → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"\" contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"abd\" == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"abd\" != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"abd\" < → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"abd\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"abd\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"abd\" >= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"abd\" contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Z\" / s\"a\" == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Z\" / s\"a\" != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Z\" / s\"a\" < → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Z\" / s\"a\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Z\" / s\"a\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Z\" / s\"a\" >= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Z\" / s\"a\" contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"NaN\" / s\"NaN\" == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"NaN\" / s\"NaN\" != → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"NaN\" / s\"NaN\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"NaN\" / s\"NaN\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"NaN\" / s\"NaN\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"NaN\" / s\"NaN\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"NaN\" / s\"NaN\" contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Infinity\" / n1 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Infinity\" / n1 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Infinity\" / n1 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Infinity\" / n1 > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Infinity\" / n1 <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Infinity\" / n1 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"Infinity\" / n1 contains → false"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (112 steps)"
+    }
+  ],
+  "values": [
+    [
+      "l0",
+      "out",
+      "abc"
+    ],
+    [
+      "r0",
+      "out",
+      "0"
+    ],
+    [
+      "l0",
+      "out",
+      "abc"
+    ],
+    [
+      "r0",
+      "out",
+      "0"
+    ],
+    [
+      "l0",
+      "out",
+      "abc"
+    ],
+    [
+      "r0",
+      "out",
+      "0"
+    ],
+    [
+      "l0",
+      "out",
+      "abc"
+    ],
+    [
+      "r0",
+      "out",
+      "0"
+    ],
+    [
+      "l0",
+      "out",
+      "abc"
+    ],
+    [
+      "r0",
+      "out",
+      "0"
+    ],
+    [
+      "l0",
+      "out",
+      "abc"
+    ],
+    [
+      "r0",
+      "out",
+      "0"
+    ],
+    [
+      "l0",
+      "out",
+      "abc"
+    ],
+    [
+      "r0",
+      "out",
+      "0"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "0"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "0"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "0"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "0"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "0"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "0"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "0"
+    ],
+    [
+      "l2",
+      "out",
+      " "
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "l2",
+      "out",
+      " "
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "l2",
+      "out",
+      " "
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "l2",
+      "out",
+      " "
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "l2",
+      "out",
+      " "
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "l2",
+      "out",
+      " "
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "l2",
+      "out",
+      " "
+    ],
+    [
+      "r2",
+      "out",
+      "0"
+    ],
+    [
+      "l3",
+      "out",
+      ""
+    ],
+    [
+      "r3",
+      "out",
+      ""
+    ],
+    [
+      "l3",
+      "out",
+      ""
+    ],
+    [
+      "r3",
+      "out",
+      ""
+    ],
+    [
+      "l3",
+      "out",
+      ""
+    ],
+    [
+      "r3",
+      "out",
+      ""
+    ],
+    [
+      "l3",
+      "out",
+      ""
+    ],
+    [
+      "r3",
+      "out",
+      ""
+    ],
+    [
+      "l3",
+      "out",
+      ""
+    ],
+    [
+      "r3",
+      "out",
+      ""
+    ],
+    [
+      "l3",
+      "out",
+      ""
+    ],
+    [
+      "r3",
+      "out",
+      ""
+    ],
+    [
+      "l3",
+      "out",
+      ""
+    ],
+    [
+      "r3",
+      "out",
+      ""
+    ],
+    [
+      "l4",
+      "out",
+      "abc"
+    ],
+    [
+      "r4",
+      "out",
+      "abd"
+    ],
+    [
+      "l4",
+      "out",
+      "abc"
+    ],
+    [
+      "r4",
+      "out",
+      "abd"
+    ],
+    [
+      "l4",
+      "out",
+      "abc"
+    ],
+    [
+      "r4",
+      "out",
+      "abd"
+    ],
+    [
+      "l4",
+      "out",
+      "abc"
+    ],
+    [
+      "r4",
+      "out",
+      "abd"
+    ],
+    [
+      "l4",
+      "out",
+      "abc"
+    ],
+    [
+      "r4",
+      "out",
+      "abd"
+    ],
+    [
+      "l4",
+      "out",
+      "abc"
+    ],
+    [
+      "r4",
+      "out",
+      "abd"
+    ],
+    [
+      "l4",
+      "out",
+      "abc"
+    ],
+    [
+      "r4",
+      "out",
+      "abd"
+    ],
+    [
+      "l5",
+      "out",
+      "Z"
+    ],
+    [
+      "r5",
+      "out",
+      "a"
+    ],
+    [
+      "l5",
+      "out",
+      "Z"
+    ],
+    [
+      "r5",
+      "out",
+      "a"
+    ],
+    [
+      "l5",
+      "out",
+      "Z"
+    ],
+    [
+      "r5",
+      "out",
+      "a"
+    ],
+    [
+      "l5",
+      "out",
+      "Z"
+    ],
+    [
+      "r5",
+      "out",
+      "a"
+    ],
+    [
+      "l5",
+      "out",
+      "Z"
+    ],
+    [
+      "r5",
+      "out",
+      "a"
+    ],
+    [
+      "l5",
+      "out",
+      "Z"
+    ],
+    [
+      "r5",
+      "out",
+      "a"
+    ],
+    [
+      "l5",
+      "out",
+      "Z"
+    ],
+    [
+      "r5",
+      "out",
+      "a"
+    ],
+    [
+      "l6",
+      "out",
+      "NaN"
+    ],
+    [
+      "r6",
+      "out",
+      "NaN"
+    ],
+    [
+      "l6",
+      "out",
+      "NaN"
+    ],
+    [
+      "r6",
+      "out",
+      "NaN"
+    ],
+    [
+      "l6",
+      "out",
+      "NaN"
+    ],
+    [
+      "r6",
+      "out",
+      "NaN"
+    ],
+    [
+      "l6",
+      "out",
+      "NaN"
+    ],
+    [
+      "r6",
+      "out",
+      "NaN"
+    ],
+    [
+      "l6",
+      "out",
+      "NaN"
+    ],
+    [
+      "r6",
+      "out",
+      "NaN"
+    ],
+    [
+      "l6",
+      "out",
+      "NaN"
+    ],
+    [
+      "r6",
+      "out",
+      "NaN"
+    ],
+    [
+      "l6",
+      "out",
+      "NaN"
+    ],
+    [
+      "r6",
+      "out",
+      "NaN"
+    ],
+    [
+      "l7",
+      "out",
+      "Infinity"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "Infinity"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "Infinity"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "Infinity"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "Infinity"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "Infinity"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "Infinity"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ]
+  ]
+}
