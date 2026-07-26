@@ -56,9 +56,8 @@ export default function Sessions() {
             </div>
 
             <p className={"font-mono text-sm text-gray-400"}>
-                every conversation with Saturn Agent. wire one into an agent node&apos;s session
-                port in the designer and that agent keeps talking here — its runs read the chat
-                back and append to it.
+                sessions store transcripts of agent conversation. Used for Saturn Agent instances
+                and can be used for custom agents as well.
             </p>
 
             {loading && <Loading what={"loading sessions"} />}
