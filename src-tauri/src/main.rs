@@ -261,9 +261,11 @@ fn trimmed_secret<'a>(
     Ok(value)
 }
 
-/// The GitHub poller's PAT, same write-only convention. Optional — without one
-/// the poller still works on public repos, at the 60 req/hr unauthenticated
-/// budget instead of 5,000.
+/// The GitHub poller's PAT, same write-only convention. Optional for push,
+/// issue, pr and release — those poll public repos fine at the 60 req/hr
+/// unauthenticated budget instead of 5,000. **Required for `github-star`**,
+/// which cannot 304 and would overrun that budget on its own, parking every
+/// other watch with it; `github::Resource::pollable` skips it without one.
 #[tauri::command]
 fn has_github_pat() -> bool {
     secrets::has(&KEYCHAIN, &Secret::GithubPat)

@@ -15,10 +15,10 @@ import {
     integrationProviderId,
 } from "@/lib/integrations";
 
-// github event node types (event:github-push, …). The central GitHub App
-// webhook is the only delivery path, so these fire only once the owner has a
-// linked installation — validateGraphStrict warns on them otherwise.
-const isGithubEventKey = (type: string): boolean => type.startsWith("event:github-");
+// The one GitHub event that a PAT is not optional for. Shared with the designer
+// toolbox, which greys the chip out on the same condition — two spellings of
+// this string would drift into a chip you can place but that never polls.
+export const STAR_EVENT_KEY = "event:github-star";
 
 export type PortKind = "flow" | "value";
 export type NodeCategory =
@@ -425,9 +425,9 @@ const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
 export function validateGraphStrict(
     graph: WorkflowGraph,
     byKey: Record<string, CatalogEntry>,
-    // githubLinked false = warn on github event nodes (owner has no linked
-    // installation, so the webhook path drops every delivery). Absent leaves
-    // github nodes unwarned, so every existing caller is unchanged.
+    // githubLinked false = no GitHub PAT is set, which only `github-star` cares
+    // about (see the star warning below). Absent leaves star nodes unwarned, so
+    // every existing caller is unchanged.
     opts?: { githubLinked?: boolean },
 ): { errors: string[]; warnings: string[]; issues: ValidationIssue[] } {
     const issues: ValidationIssue[] = [];
@@ -656,14 +656,18 @@ export function validateGraphStrict(
         }
     }
 
-    // github events fire only through the central GitHub App webhook, which
-    // drops every delivery until the owner links an installation in settings
+    // Only star needs the PAT. Its page-1 stargazers fetch deliberately skips
+    // if-none-match, so it cannot 304, and ~120 counted requests/hour overruns
+    // GitHub's 60/hr unauthenticated budget — which parks every other watch too,
+    // because the rate limit is per-token and the poller holds one. The toolbox
+    // greys the chip out; this catches a node placed before the PAT was removed.
+    // src-tauri/src/github.rs Resource::pollable is the guard that enforces it.
     if (opts?.githubLinked === false) {
         for (const node of graph.nodes) {
-            if (!isGithubEventKey(node.type)) continue;
+            if (node.type !== STAR_EVENT_KEY) continue;
             const label = EXTENSION_EVENTS_BY_KEY[node.type]?.label ?? node.type;
             warn(
-                `${label} "${node.id}" has no linked GitHub App installation — it will never fire; link one in settings`,
+                `${label} "${node.id}" needs a GitHub token — without one it is not polled at all; add one in settings`,
                 { nodeId: node.id },
             );
         }

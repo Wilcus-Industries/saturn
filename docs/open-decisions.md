@@ -10,9 +10,9 @@ Three sections:
 
 1. **Needs a call** — a product or design question with no obviously right
    answer. Nothing below is blocking today; each one has a live default that
-   will simply persist if nobody decides otherwise. **§1.1 and §1.5 were decided
-   on 2026-07-25 and are kept here, marked, rather than deleted — the reasoning
-   for a call already made is the part a future reader needs.**
+   will simply persist if nobody decides otherwise. **§1.1, §1.2 and §1.5 were
+   decided on 2026-07-25 and are kept here, marked, rather than deleted — the
+   reasoning for a call already made is the part a future reader needs.**
 2. **Known divergences** — the Rust deliberately does something the TypeScript
    did not. Decided already; recorded so a future reader does not "fix" them.
 3. **Deferred work** — things that are just not built yet, and what unblocks
@@ -59,7 +59,49 @@ The thundering-herd half was already fixed separately — delivery is
 Covered by `github::tests::stale_events_are_acked_but_never_dispatched`, which
 asserts both sides of the boundary and an identical cursor either way.
 
-### 1.2 `github-star` cannot work unauthenticated
+### 1.2 `github-star` cannot work unauthenticated — DECIDED: PAT required
+
+**Decided 2026-07-25: star requires a PAT, everywhere.** Of the three options
+below, the first — with the grey-out the UI half always needed.
+
+Three layers, deliberately, because each catches a case the others cannot:
+
+1. **`github::Resource::pollable(token)`** — `self != Star || !token.is_empty()`,
+   checked in `Poller::cycle`'s watch loop next to the `retry_at` skip. This is
+   the one that matters: a star node **already saved in a graph** would otherwise
+   keep polling no matter what the UI shows. `continue`, not `return`, so the
+   other watches in the pass still run. Warned once per process via
+   `star_warned`, re-armed when the token changes — the loop runs every 30s.
+2. **The toolbox chip is greyed out** when `has_github_pat` is false, using the
+   same `cursor-not-allowed opacity-40` affordance as the one-event rule.
+   `Chip`'s `enabled: boolean` became `disabled?: string` (undefined = enabled,
+   a string = the tooltip) so the two reasons can say which applies — net fewer
+   props, since the always-enabled call sites dropped theirs.
+3. **`validateGraphStrict` warns** on a placed star node when no PAT is set,
+   surfacing in the issues panel and as a per-node dot. This branch already
+   existed but was dead and stale — it warned on *every* `event:github-*` node
+   about "no linked GitHub App installation", infrastructure decommissioned in
+   the desktop pivot, and `designer.tsx` deliberately never passed the flag.
+   Repointed at star, reworded, and wired up. It catches the one case the chip
+   cannot: a node placed before the PAT was removed.
+
+`STAR_EVENT_KEY` in `lib/workflow.ts` is shared by layers 2 and 3 — two spellings
+of that string would drift into a chip you can place but that never polls.
+
+**Why star and nothing else:** page 1 of `/stargazers` is fetched *without*
+`if-none-match` on purpose (it holds the oldest stars and would 304 forever), so
+it cannot 304, and at `POLL_S = 30` one watch is ~120 counted requests/hour
+against a 60/hr unauthenticated budget. `resume_at` is global — correctly, one
+PAT, one budget — so the resulting 403 parks push, issue, pr and release too.
+Since §1.1 shipped, events arriving during that park are **discarded**, not
+delayed. An unauthenticated star watch was not noisy; it was lossy for
+everything else.
+
+Covered by `github::tests::star_watches_are_not_polled_without_a_token`.
+
+The original analysis follows.
+
+
 
 Page 1 of `/stargazers` is fetched **without** `if-none-match` on purpose — it
 holds the oldest stars and would 304 forever. But a 200 costs rate-limit quota

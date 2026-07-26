@@ -34,8 +34,10 @@
 //! dispatches only what is younger than `SKIP_OLDER_THAN_S`.
 //!
 //! Auth is one fine-grained read-only PAT in the Keychain, shared by every
-//! watch. It is optional (public repos poll unauthenticated at 60 req/hr, and
-//! 304s are free either way); a malformed one is treated exactly like a 401.
+//! watch. It is optional for four of the five resources (public repos poll
+//! unauthenticated at 60 req/hr, and 304s are free either way); a malformed one
+//! is treated exactly like a 401. `github-star` is the exception — it cannot be
+//! polled without a PAT and is skipped, see `Resource::pollable`.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -271,6 +273,19 @@ impl Resource {
             Resource::Release => "github-release",
             Resource::Star => "github-star",
         }
+    }
+
+    /// `github-star` is the one resource that cannot run unauthenticated. Page 1
+    /// of `/stargazers` is fetched without an ETag by design (see `poll_watch`), so
+    /// every poll costs rate-limit quota where the other four spend 304s that
+    /// cost none — ~120 counted requests/hour for one watch against a 60/hour
+    /// anonymous budget. The 403 that follows parks *every* watch through the
+    /// global `resume_at`, and anything landing during a park longer than
+    /// `SKIP_OLDER_THAN_S` is dropped rather than delayed. One unauthenticated
+    /// star watch therefore makes every other watch lossy. The toolbox greys the
+    /// chip out; this is the guard for graphs that already hold one.
+    fn pollable(self, token: &str) -> bool {
+        self != Resource::Star || !token.is_empty()
     }
 
     fn accept(self) -> &'static str {
@@ -785,6 +800,10 @@ struct Poller {
     /// The token value a 401 (or a charset rejection) killed. Cleared when the
     /// stored PAT changes, which is the only thing that can fix it.
     dead_token: Option<String>,
+    /// Whether the "star needs a PAT" line has been printed for the current
+    /// no-token state. The pass runs every 30s and would otherwise log it
+    /// forever; re-armed the moment a PAT appears, so removing one warns again.
+    star_warned: bool,
 }
 
 fn tag(watch: &Watch) -> String {
@@ -873,6 +892,7 @@ impl Poller {
             interval: Duration::from_secs(POLL_S),
             resume_at: None,
             dead_token: None,
+            star_warned: false,
         }
     }
 
@@ -1168,6 +1188,8 @@ impl Poller {
 
         let token =
             js::trim(&secrets::get(&KEYCHAIN, &Secret::GithubPat).unwrap_or_default()).to_string();
+        // re-arm the once-per-state-change star warning as soon as a PAT exists
+        self.star_warned &= token.is_empty();
         if self.dead_token.as_deref() == Some(token.as_str()) {
             return; // 401 tombstone — only a different token value revives it
         }
@@ -1189,6 +1211,17 @@ impl Poller {
         for index in 0..self.watches.len() {
             let key = self.watches[index].key.clone();
             if self.state.get(&key).and_then(|s| s.retry_at).is_some_and(|at| now < at) {
+                continue;
+            }
+            // a star watch with no PAT would burn the anonymous budget and park
+            // every other watch — logged once, not once per 30s pass
+            if !self.watches[index].resource.pollable(&token) {
+                if !self.star_warned {
+                    self.star_warned = true;
+                    eprintln!(
+                        "[github] github-star needs an access token — not polling it (unauthenticated it would spend the whole 60/hr budget and stall every other watch); add one in settings"
+                    );
+                }
                 continue;
             }
             self.poll_watch(app, &store, &client, &token, index);
@@ -1315,6 +1348,22 @@ mod tests {
 
         p.tombstone("ghp_realtoken");
         assert_eq!(p.dead_token.as_deref(), Some("ghp_realtoken"));
+    }
+
+    /// `cycle` skips a watch whose resource is not `pollable` with the current
+    /// token, and stars are the only resource that ever isn't: page 1 of
+    /// `/stargazers` is fetched with no ETag (see `poll_watch`), so one
+    /// unauthenticated star watch spends ~120 requests/hour against a 60/hour
+    /// budget, and the 403 parks every other watch through the global
+    /// `resume_at` — during which `SKIP_OLDER_THAN_S` drops their events
+    /// outright. The other four are conditional and free either way.
+    #[test]
+    fn star_watches_are_not_polled_without_a_token() {
+        assert!(!Resource::Star.pollable(""), "would burn the whole anonymous budget");
+        assert!(Resource::Star.pollable("ghp_0123456789abcdefghij"));
+        for resource in [Resource::Push, Resource::Issue, Resource::Pr, Resource::Release] {
+            assert!(resource.pollable(""), "{} polls fine unauthenticated", resource.as_str());
+        }
     }
 
     /// The fixture clock: one minute after the `2026-07-18T12:34:56Z` the

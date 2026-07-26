@@ -164,11 +164,12 @@ export default function Designer({
     // re-running it per settled edit is cheap. Suppressed on an empty graph so a
     // fresh workflow doesn't nag ("no event node") before anything is placed.
     const deferredGraph = useDeferredValue(present);
-    // no githubLinked option: the GitHub App is gone and the PAT-based poller
-    // fires github events with or without a token — nothing left to warn about
+    // githubLinked matters for exactly one node: github-star is not polled at
+    // all without a PAT (github.rs Resource::pollable). Push/issue/pr/release
+    // fire either way, so nothing else warns.
     const validation = useMemo(
-        () => validateGraphStrict(deferredGraph, byKey),
-        [deferredGraph, byKey],
+        () => validateGraphStrict(deferredGraph, byKey, { githubLinked }),
+        [deferredGraph, byKey, githubLinked],
     );
     const issues = useMemo<ValidationIssue[]>(
         () => (deferredGraph.nodes.length === 0 ? [] : validation.issues),

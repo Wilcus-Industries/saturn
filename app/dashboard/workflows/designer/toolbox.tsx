@@ -10,6 +10,7 @@ import {
     entryStyles,
     MODEL_PRESET,
     type NodeCategory,
+    STAR_EVENT_KEY,
 } from "@/lib/workflow";
 import type { OpenrouterModel } from "./designer";
 import EntryIcon from "./entryIcon";
@@ -48,6 +49,14 @@ type CategorySection = { category: NodeCategory; heading: string; entries: Catal
 // the spawned node's name read-only)
 type SpawnPreset = { config: Record<string, string>; label?: string };
 type SpawnStart = (key: string, clientX: number, clientY: number, preset?: SpawnPreset) => void;
+
+// the two reasons a chip greys out, doubling as its hover title
+const ONE_EVENT = "one event per workflow — remove the existing one first";
+// github-star is the only event that cannot poll unauthenticated: page 1 of
+// /stargazers carries no ETag, so it spends ~120 requests/hour of a 60/hour
+// anonymous budget and the 403 stalls every other GitHub watch. The poller
+// skips it too (src-tauri/src/github.rs, `Resource::pollable`).
+const STAR_NEEDS_PAT = "needs a GitHub token — add one in settings";
 
 // grid cell for one openrouter model: 48px logo circle over a truncated name
 function ModelChip({
@@ -90,22 +99,23 @@ function ModelChip({
 
 function Chip({
     entry,
-    enabled,
+    disabled,
     borderL,
     onSpawnStart,
     preset,
 }: {
     entry: CatalogEntry;
-    enabled: boolean;
+    // why this chip can't be dragged out, or undefined when it can — the hover
+    // title explains the grey-out in place of a section hint line
+    disabled?: string;
     borderL: string;
     onSpawnStart: SpawnStart;
     preset?: SpawnPreset;
 }) {
+    const enabled = disabled === undefined;
     return (
         <div
-            // a chip only ever disables under the one-event rule — the hover
-            // title explains the grey-out in place of a section hint line
-            title={enabled ? undefined : "one event per workflow — remove the existing one first"}
+            title={disabled}
             className={`flex touch-none items-center gap-2 border border-foreground/15 border-l-2 px-2 py-1.5 transition-colors duration-200 ${borderL} ${
                 enabled
                     ? "cursor-grab hover:bg-foreground/5"
@@ -162,7 +172,7 @@ function Section({
                     key={entry.key}
                     entry={entry}
                     // only one event node allowed per graph
-                    enabled={category !== "events" || !hasEvent}
+                    disabled={category === "events" && hasEvent ? ONE_EVENT : undefined}
                     borderL={styles.borderL}
                     onSpawnStart={onSpawnStart}
                 />
@@ -186,8 +196,9 @@ export default function Toolbox({
     variables: VariableRow[];
     // null = no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
-    // a GitHub PAT is stored. The poller works without one, so this only picks
-    // the rate-limit hint under the github app heading — chips stay spawnable
+    // a GitHub PAT is stored. The other four watches poll fine without one, so
+    // this picks the rate-limit hint under the github app heading and disables
+    // the one chip that can't run unauthenticated (github-star)
     githubLinked: boolean;
     onSpawnStart: SpawnStart;
     // open the secret-variable modal — "new" (the +add row) or an existing row
@@ -411,17 +422,24 @@ export default function Toolbox({
                             {app === "github" && !githubLinked && (
                                 <p className={"text-[10px] text-gray-400"}>
                                     add a GitHub token in settings — without one you get 60
-                                    requests/hour, shared across every watch (too few for star
-                                    counts)
+                                    requests/hour, shared across every watch, and stars can&apos;t
+                                    be watched at all
                                 </p>
                             )}
                             {entries.map((entry) => (
                                 <Chip
                                     key={entry.key}
                                     entry={entry}
-                                    // event chips obey the one-event rule; action
-                                    // chips are always spawnable
-                                    enabled={entry.category !== "events" || !hasEvent}
+                                    // event chips obey the one-event rule, and
+                                    // github-star additionally needs a PAT;
+                                    // action chips are always spawnable
+                                    disabled={
+                                        entry.category === "events" && hasEvent
+                                            ? ONE_EVENT
+                                            : entry.key === STAR_EVENT_KEY && !githubLinked
+                                              ? STAR_NEEDS_PAT
+                                              : undefined
+                                    }
                                     // section color, not the integration category's
                                     // — mirrors Blocks (events chips paint amber)
                                     borderL={entryStyles(entry).borderL}
@@ -439,7 +457,6 @@ export default function Toolbox({
                     {blankMatches && (
                         <Chip
                             entry={blankModel}
-                            enabled
                             borderL={CATEGORY_STYLES.model.borderL}
                             onSpawnStart={onSpawnStart}
                         />
@@ -503,7 +520,6 @@ export default function Toolbox({
                             <div className={"min-w-0 flex-1"}>
                                 <Chip
                                     entry={entry}
-                                    enabled
                                     borderL={entryStyles(entry).borderL}
                                     onSpawnStart={onSpawnStart}
                                 />
