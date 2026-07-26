@@ -141,6 +141,19 @@ It is a cache of one session's window, not the record: the record is
 frame is filtered on `sessionId`, which is what stops a `saturn-agent` node run
 writing into whichever chat happens to be open.
 
+**Compaction is a projection, never a deletion.** Once a session's replayed
+window passes `COMPACT_AT` UTF-16 units, `saturn::compact` summarizes everything
+before the newest `KEEP_RECENT` turns into one appended `saturn_message` row with
+`role = 'summary'`, whose `parts` blob carries `{"upto": <id>}` — the last message
+it stands for. No row is ever deleted or rewritten: `window` (what the model gets)
+starts at the summary and skips what the watermark covers, while `get_messages`
+(what the chat renders) still returns everything. Summaries are cumulative — each
+fold re-summarizes the previous one — and the tail always reaches the model
+verbatim, which together are what keep a long chat from reading as amnesiac. The
+row renders as a `<details>` divider in `agentChat.tsx`, sorted to its watermark
+rather than its own id, since it is appended at the end while standing for the
+beginning. A failed summarizer call is swallowed: the turn runs uncompacted.
+
 Prefs (`agentModel`, `agentEffort`, `saturnSession`) are `localStorage` read in a
 mount effect rather than the `<head>`-script pattern — none of them shifts
 layout, and the composer already enters on a delay.

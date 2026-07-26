@@ -62,13 +62,28 @@ const TOOL_ENTRY: &str = "saturn";
 const MAX_CHAT_MESSAGE: usize = 24_000;
 /// Tool result fed back to the model.
 const MAX_TOOL_RESULT: usize = 20_000;
-// ponytail: fixed slices, no token accounting — a long tool result eats context
-// silently. Budget properly (or summarize) only if turns start truncating.
+// ponytail: still a fixed slice with no token accounting. `compact` bounds the
+// window *between* turns; one turn's own tool results are unbounded (8 turns ×
+// 5 calls × this = 800k, more than the whole compacted history). Budget them
+// too if a tool-heavy turn starts overflowing.
 /// Tool result and arguments as the client's tool row renders them.
 const MAX_TOOL_ARGS_FRAME: usize = 2_000;
 const MAX_TOOL_RESULT_FRAME: usize = 4_000;
 /// Session name cap — `registry::MAX_NAME`, same reason.
 const MAX_SESSION_NAME: usize = 60;
+/// Window size, in UTF-16 units, that trips `compact` — the guard for a few
+/// enormous turns, not the common path (see `over_budget`). A char budget rather
+/// than a token one because nothing here knows any model's context length:
+/// `parse_models` does not read `context_length`. ~4 chars per token puts this
+/// near 25k tokens, well inside every model the picker lists. The calibration
+/// knob: lower it if turns still overflow, raise it to summarize less often.
+const COMPACT_AT: usize = 100_000;
+/// Turns at the end of the window that `compact` will never fold. The anti-
+/// lobotomy floor — the live thread always reaches the model verbatim.
+const KEEP_RECENT: usize = 12;
+/// Ceiling on the text handed to the summarizer in one call. Only reachable on a
+/// session that grew before compaction existed; steady state is `COMPACT_AT`.
+const MAX_COMPACT_INPUT: usize = 200_000;
 /// `list_runs` default and ceiling.
 const MAX_LIST_RUNS: i64 = 50;
 
@@ -272,31 +287,37 @@ pub fn session_by_name(store: &Store, name: &str) -> Result<String, String> {
     }
 }
 
-/// The last `MAX_AGENT_MESSAGES` turns, oldest first — the same window the model
-/// sees, so a reloaded chat and the next model call agree about what happened.
+/// The last `MAX_AGENT_MESSAGES` turns, oldest first — the record, not the
+/// window: a compacted chat still renders every turn it ever had, and only
+/// `window` stops re-sending them.
+///
+/// A `summary` row sorts by the watermark it covers rather than by its own id.
+/// It is *appended* — it lands at the end while standing for the beginning — so
+/// ordering it by id would draw the compaction marker under the newest message
+/// and claim the whole conversation had been folded.
 pub fn get_messages(store: &Store, session_id: &str) -> Result<Vec<StoredMessage>, String> {
     let conn = store.conn();
     let mut stmt = conn
         .prepare(
-            "select role, content, parts from saturn_message
+            "select id, role, content, parts from saturn_message
               where session_id = ?1 order by id desc limit ?2",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map(params![session_id, MAX_AGENT_MESSAGES as i64], |r| {
-            let parts: String = r.get(2)?;
-            Ok(StoredMessage {
-                role: r.get(0)?,
-                content: r.get(1)?,
-                // a row whose parts blob somehow will not parse still renders as
-                // its text — never a failed page load
-                parts: serde_json::from_str(&parts).unwrap_or_else(|_| json!([])),
-            })
+            let id: i64 = r.get(0)?;
+            let parts: String = r.get(3)?;
+            // a row whose parts blob somehow will not parse still renders as
+            // its text — never a failed page load
+            let parts: Value = serde_json::from_str(&parts).unwrap_or_else(|_| json!([]));
+            let at = parts.get("upto").and_then(Value::as_i64).unwrap_or(id);
+            Ok((at, StoredMessage { role: r.get(1)?, content: r.get(2)?, parts }))
         })
         .map_err(|e| e.to_string())?;
     let mut out = rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
     out.reverse();
-    Ok(out)
+    out.sort_by_key(|(at, _)| *at);
+    Ok(out.into_iter().map(|(_, m)| m).collect())
 }
 
 // ponytail: append-only, no per-session lock. What is NOT handled: two turns in
@@ -327,27 +348,152 @@ fn append(
     Ok(())
 }
 
-/// The window re-sent upstream, as `(role, content)` oldest first. Reads one
-/// column with no per-message JSON parse — which is why `content` is stored
-/// alongside `parts` rather than derived from it. Tool rows are deliberately NOT
-/// replayed: a `tool` message must answer a `tool_call` id the same request
-/// shows the assistant making, and those ids belong to turns that are over.
-fn window(store: &Store, session_id: &str) -> Result<Vec<(String, String)>, String> {
+/// What the window is built from: the newest summary's text, if `compact` has
+/// ever run, and the messages it does not cover as `(id, role, content)` oldest
+/// first. Reads one column per message with no JSON parse — which is why
+/// `content` is stored alongside `parts` rather than derived from it. Tool rows
+/// are deliberately NOT replayed: a `tool` message must answer a `tool_call` id
+/// the same request shows the assistant making, and those ids belong to turns
+/// that are over.
+///
+/// The watermark lives inside the summary row's own `parts` blob because the row
+/// is *appended* — it sits at the highest id while covering the lowest ones, so
+/// row order cannot imply what it replaces.
+fn window_rows(
+    store: &Store,
+    session_id: &str,
+) -> Result<(Option<String>, Vec<(i64, String, String)>), String> {
     let conn = store.conn();
+    let mut head = conn
+        .prepare(
+            "select content, parts from saturn_message
+              where session_id = ?1 and role = 'summary' order by id desc limit 1",
+        )
+        .map_err(|e| e.to_string())?;
+    let latest = head
+        .query_map(params![session_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?
+        .next()
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    // a summary row we cannot read the watermark out of is ignored outright,
+    // summary and all: replaying the full window costs context, replaying a
+    // summary whose reach is unknown alongside the messages it already covers
+    // costs it twice
+    let (summary, upto) = match latest
+        .and_then(|(content, parts)| Some((content, serde_json::from_str::<Value>(&parts).ok()?)))
+        .and_then(|(content, parts)| Some((content, parts.get("upto")?.as_i64()?)))
+    {
+        Some((content, upto)) => (Some(content), upto),
+        None => (None, 0),
+    };
+
     let mut stmt = conn
         .prepare(
-            "select role, content from saturn_message
-              where session_id = ?1 order by id desc limit ?2",
+            "select id, role, content from saturn_message
+              where session_id = ?1 and id > ?2 and role != 'summary'
+              order by id desc limit ?3",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map(params![session_id, MAX_AGENT_MESSAGES as i64], |r| {
-            Ok((r.get(0)?, r.get(1)?))
+        .query_map(params![session_id, upto, MAX_AGENT_MESSAGES as i64], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })
         .map_err(|e| e.to_string())?;
     let mut out = rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
     out.reverse();
+    Ok((summary, out))
+}
+
+/// The window re-sent upstream, as `(role, content)` oldest first. A summary
+/// rides in front as a plain user message, so every projection below maps it
+/// without knowing compaction exists.
+fn window(store: &Store, session_id: &str) -> Result<Vec<(String, String)>, String> {
+    let (summary, rows) = window_rows(store, session_id)?;
+    let mut out: Vec<(String, String)> = summary
+        .into_iter()
+        .map(|s| ("user".to_string(), format!("{SUMMARY_PREFIX}{s}")))
+        .collect();
+    out.extend(rows.into_iter().map(|(_, role, content)| (role, content)));
     Ok(out)
+}
+
+/// Whether the window has outgrown what should be replayed verbatim.
+///
+/// Two budgets because two different chats overflow: a handful of enormous turns
+/// trips the char one, and a long ordinary conversation trips the count. **The
+/// count is the one that fires in practice** — `window_rows` hard-limits to
+/// `MAX_AGENT_MESSAGES` and drops the oldest turn *silently*, so a char-only
+/// budget would sit there unreached while the cliff it exists to prevent took
+/// the conversation apart one message at a time. Measured on a real session:
+/// 44 turns averaging ~1 000 chars is 45k, under half of `COMPACT_AT`, and only
+/// 16 turns from the cliff.
+fn over_budget(spent: usize, count: usize) -> bool {
+    spent > COMPACT_AT || count > MAX_AGENT_MESSAGES - KEEP_RECENT
+}
+
+/// Fold everything before the newest `KEEP_RECENT` turns into one summary row.
+///
+/// Append-only, like every other write here: no `saturn_message` row is deleted
+/// or rewritten, so the chat keeps rendering its whole history and only the
+/// upstream projection moves past it. `get_messages` is the record; `window` is
+/// what the model gets.
+///
+/// Cumulative — the prefix being folded starts at the previous summary, which is
+/// therefore re-summarized into the new one. Nothing falls off a cliff, and the
+/// live tail is never touched.
+///
+/// Blocking: one `chat_complete` between two `store.conn()` guards, never
+/// holding one across the socket. Callers ignore the `Err` — a chat that cannot
+/// summarize is a chat that runs exactly as it did before compaction existed.
+fn compact(store: &Store, session_id: &str, api_key: &str, model: &str) -> Result<(), String> {
+    let (summary, rows) = window_rows(store, session_id)?;
+    let spent = summary.as_deref().map_or(0, registry::len16)
+        + rows.iter().map(|(_, _, c)| registry::len16(c)).sum::<usize>();
+    if !over_budget(spent, rows.len()) {
+        return Ok(());
+    }
+    // a window that is *all* live tail — twelve enormous turns — has nothing to
+    // fold. The per-message cap is what bounds that case, not this one.
+    let folded = rows.len().saturating_sub(KEEP_RECENT);
+    if folded == 0 {
+        return Ok(());
+    }
+    let upto = rows[folded - 1].0;
+
+    let mut blob = String::new();
+    if let Some(prev) = &summary {
+        blob.push_str("Notes from before this excerpt:\n");
+        blob.push_str(prev);
+        blob.push_str("\n\n");
+    }
+    for (_, role, content) in &rows[..folded] {
+        blob.push_str(role);
+        blob.push_str(":\n");
+        blob.push_str(content);
+        blob.push_str("\n\n");
+    }
+
+    let result = crate::openrouter::chat_complete(
+        api_key,
+        &crate::openrouter::ChatRequest {
+            model,
+            system: COMPACT_SYSTEM,
+            messages: &[AgentMessage::User { content: cut(&blob, MAX_COMPACT_INPUT) }],
+            tools: &[],
+            output_image: false,
+            reasoning: None,
+        },
+    )?;
+    // an empty summary would erase everything it covers from the window — the
+    // one outcome worse than not compacting at all
+    let text = result.content.trim();
+    if text.is_empty() {
+        return Err("summarizer returned nothing".into());
+    }
+    append(store, session_id, "summary", text, &json!({ "kind": "summary", "upto": upto }))
 }
 
 /// The chat's own window, in the shape `stream_chat` wants.
@@ -826,6 +972,10 @@ pub fn run_turn(
         .ok_or("model calls need an OpenRouter key: add one in settings")?;
 
     append(store, req.session_id, "user", text, &json!([]))?;
+    // before the transcript, so the turn that trips the budget is already the
+    // compacted one. Ignored on failure: a summarizer that 500s must not cost
+    // the user their message
+    let _ = compact(store, req.session_id, &api_key, req.model);
     // read the transcript and DROP the connection guard before any socket —
     // `store.conn()` serializes every reader in the process
     let mut wire = transcript(store, req.session_id)?;
@@ -1028,6 +1178,32 @@ or ambiguous, ask first.\n\
 Be concise and practical. The chat renders your text verbatim, so write plain text only — no \
 markdown at all (no **bold**, no # headings, no backticks); they show up as literal characters.";
 
+/// What the summary the model writes has to preserve for the chat to keep
+/// working afterwards. The whole point of compaction is here: a summary that
+/// describes the conversation instead of carrying its contents is what makes a
+/// compacted chat feel lobotomized. Identifiers verbatim, decisions with their
+/// reasons, and the threads still open.
+const COMPACT_SYSTEM: &str = "You are compacting the earlier part of a conversation between a \
+user and Saturn Agent, an assistant that edits and runs workflow automations on the user's \
+machine. What you write REPLACES that text — the assistant will see your notes and nothing else \
+of what happened before.\n\
+Write handover notes for whoever picks this up mid-conversation. Carry over: what the user is \
+building and why; decisions made, and options considered and rejected, with the reason; every \
+identifier exactly as written (workflow ids, session and node names, registry entries, model ids, \
+file paths); what has already been done to their data; what the user asked for that is still \
+unfinished; and their stated preferences and constraints.\n\
+Drop pleasantries, restatements and anything already superseded by a later message. Never \
+summarize a decision into 'they discussed X' — record what was decided. Copy identifiers and \
+literal values character for character; never paraphrase, abbreviate or invent one. If earlier \
+notes are included, fold them in rather than describing them.\n\
+Plain text, no markdown. Write only the notes.";
+
+/// The line that introduces a summary in the replayed window. Prefixed rather
+/// than sent as a system message so `transcript` and `history` map it with the
+/// branch they already have.
+const SUMMARY_PREFIX: &str = "Notes on the earlier part of this conversation, which has been \
+compacted and is no longer shown in full:\n";
+
 /// Recovered from `b6d0f71:app/mcp/tools.ts` and edited: the tier/credit lines
 /// and the hosted webhook trigger URL are gone with the hosted product, the
 /// `${MAX_*}` interpolations are inlined, and the per-event bullets — which the
@@ -1183,6 +1359,83 @@ mod tests {
         // deleting a session takes its messages with it (FK cascade)
         delete_session(&store, &b).unwrap();
         assert!(get_messages(&store, &b).unwrap().is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The count budget has to fire BEFORE `window_rows`' own
+    /// `MAX_AGENT_MESSAGES` limit, or compaction never runs on the chats that
+    /// need it — the limit drops the oldest turn silently and the char budget
+    /// sits unreached. Measured against a real 44-turn session: 45k chars, under
+    /// half of `COMPACT_AT`, 16 turns from losing its first message.
+    #[test]
+    fn the_count_budget_trips_before_the_window_silently_drops_a_turn() {
+        assert!(MAX_AGENT_MESSAGES - KEEP_RECENT < MAX_AGENT_MESSAGES, "fold leaves headroom");
+        // the real session that exposed this: nothing on chars, folded on count
+        assert!(!over_budget(45_671, 44));
+        assert!(over_budget(45_671, MAX_AGENT_MESSAGES - KEEP_RECENT + 1));
+        // and the boundary itself, in both directions
+        assert!(!over_budget(COMPACT_AT, MAX_AGENT_MESSAGES - KEEP_RECENT));
+        assert!(over_budget(COMPACT_AT + 1, 2));
+    }
+
+    /// Compaction's whole contract in one place: the model's window starts at
+    /// the summary and skips only what the watermark covers, while the record
+    /// keeps every row. Get the split wrong in either direction and it is silent
+    /// — a stale watermark replays folded turns twice, and a summary that shadows
+    /// the live tail is the amnesia this feature exists to prevent.
+    ///
+    /// The summary row is written by hand rather than by `compact`, which would
+    /// need a live OpenRouter key; what is under test is the watermark, not the
+    /// model call.
+    #[test]
+    fn a_summary_replaces_what_its_watermark_covers_and_nothing_else() {
+        let (store, dir) = store();
+        let s = create_session(&store, None).unwrap().id;
+
+        for i in 0..30 {
+            append(&store, &s, "user", &format!("m{i}"), &json!([])).unwrap();
+        }
+        // the id of m19 — everything up to and including it is folded
+        let upto: i64 = {
+            let conn = store.conn();
+            conn.query_row(
+                "select id from saturn_message where session_id = ?1 order by id limit 1 offset 19",
+                params![s],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        append(&store, &s, "summary", "they built a nightly workflow", &json!({ "kind": "summary", "upto": upto })).unwrap();
+
+        let win = window(&store, &s).unwrap();
+        assert_eq!(win.len(), 11, "the summary plus m20..m29");
+        assert_eq!(win[0].0, "user", "a summary rides as a user message");
+        assert!(win[0].1.ends_with("they built a nightly workflow"));
+        assert_eq!(win[1].1, "m20", "the tail past the watermark is verbatim");
+        assert_eq!(win[10].1, "m29");
+        assert!(!win.iter().any(|(_, c)| c == "m19"), "folded turns are not replayed");
+
+        // the record is untouched: 30 messages plus the summary row itself, and
+        // the marker sorts to the boundary it covers rather than to its own id
+        let stored = get_messages(&store, &s).unwrap();
+        assert_eq!(stored.len(), 31);
+        assert_eq!(stored[19].content, "m19");
+        assert_eq!(stored[20].role, "summary");
+        assert_eq!(stored[21].content, "m20");
+
+        // a second summary supersedes the first, and only the newest is read
+        append(&store, &s, "summary", "newer notes", &json!({ "kind": "summary", "upto": upto + 5 })).unwrap();
+        let win = window(&store, &s).unwrap();
+        assert!(win[0].1.ends_with("newer notes"));
+        assert_eq!(win[1].1, "m25");
+
+        // an unreadable watermark falls back to replaying everything rather than
+        // to a summary of unknown reach
+        append(&store, &s, "summary", "broken", &json!({ "kind": "summary" })).unwrap();
+        let win = window(&store, &s).unwrap();
+        assert_eq!(win.len(), 30);
+        assert_eq!(win[0].1, "m0");
 
         std::fs::remove_dir_all(&dir).ok();
     }
