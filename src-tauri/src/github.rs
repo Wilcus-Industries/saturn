@@ -45,7 +45,7 @@ use std::time::{Duration, Instant};
 use reqwest::blocking::Client;
 use reqwest::header::HeaderMap;
 use reqwest::redirect;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
 use crate::events::{self, EventSubscription, MAX_EVENT_PAYLOAD};
@@ -316,9 +316,10 @@ impl Resource {
 }
 
 /// One built event: the payload a graph sees, plus the branch the push filter
-/// matches on. Field order is the declaration order of the matching
-/// `samplePayload` in lib/integrations.ts — the designer's extract picker and
-/// every existing workflow read this shape, so it must not drift.
+/// matches on. The builders below ARE the definition of each `github-*` payload
+/// shape — `sample_payload` runs them over canned API objects to seed designer
+/// test runs, and every existing workflow reads the same field order, so it
+/// must not drift.
 struct Built {
     event: &'static str,
     branch: String,
@@ -357,8 +358,7 @@ fn clone_j(j: &J) -> J {
 // Ported from lib/githubApp.server.ts:161-226 (buildIssue/buildPr/buildRelease)
 // and the poller's own buildPush. Those took the webhook envelope (`p.issue`,
 // `p.pull_request`, `p.release`); the REST list endpoints hand back the object
-// itself, so these take that object directly. Every value is a string, as every
-// samplePayload is.
+// itself, so these take that object directly. Every value is a string.
 
 fn build_push(repo: &str, branch: &str, before: &str, head: &str) -> Built {
     Built {
@@ -482,6 +482,79 @@ fn dispatch_payload(built: &Built) -> String {
         }
     }
     js::stringify(&obj)
+}
+
+/// One canned API object per event, in the shape the REST endpoints hand back.
+/// Production code, not `#[cfg(test)]`, because the designer sample is built
+/// from it — and `the_five_parsers_produce_the_documented_payload` parses the
+/// same objects, so the sample and the key-order spec are one input.
+fn sample_item(event: &str) -> Value {
+    match event {
+        "github-issue" => json!({
+            "number": 17,
+            "title": "Crash when input is empty",
+            "body": "Steps to reproduce: run with no arguments…",
+            "user": { "login": "ada" },
+            // the second label has no name: a malformed one is dropped, not ""
+            "labels": [{ "name": "bug" }, { "id": 9 }],
+            "html_url": "https://github.com/octocat/hello-world/issues/17",
+            "created_at": "2026-07-18T12:34:56Z",
+            "state": "open",
+        }),
+        "github-pr" => json!({
+            "number": 42,
+            "title": "Add retry logic to the fetcher",
+            "body": "Retries transient failures up to 3 times.",
+            "user": { "login": "ada" },
+            "head": { "ref": "feature/retries" },
+            "base": { "ref": "main" },
+            "draft": false,
+            "html_url": "https://github.com/octocat/hello-world/pull/42",
+            "created_at": "2026-07-18T12:34:56Z",
+        }),
+        "github-release" => json!({
+            "id": 148_038_732,
+            "tag_name": "v1.2.0",
+            "name": "1.2.0",
+            "body": "Highlights: retry logic, faster startup.",
+            "author": { "login": "ada" },
+            "prerelease": false,
+            "draft": false,
+            "html_url": "https://github.com/octocat/hello-world/releases/tag/v1.2.0",
+            "created_at": "2026-07-17T09:00:00Z",
+            "published_at": "2026-07-18T12:34:56Z",
+        }),
+        "github-star" => json!({
+            "starred_at": "2026-07-18T12:34:56Z",
+            "user": { "login": "ada" },
+        }),
+        _ => Value::Null,
+    }
+}
+
+/// The canned payload a designer test run seeds a `github-*` event node with
+/// (`events::sample_payload`). `None` for anything this module does not build.
+///
+/// A push carries the unenriched shape: `pusher`/`commitCount`/`messages`/
+/// `timestamp` are filled by `enrich_push`'s compare call, which a sample has
+/// no network for — every key is still there, exactly as an unenrichable push
+/// delivers them.
+pub fn sample_payload(event: &str) -> Option<String> {
+    let repo = "octocat/hello-world";
+    let built = match event {
+        "github-push" => build_push(
+            repo,
+            "main",
+            "9b1d3f7e6a5c4d3b2a1f0e9d8c7b6a5f4e3d2c1b",
+            "0f7a2c9e5c8d4b1a9e3f6d2c8b7a5e4d3c2b1a09",
+        ),
+        "github-issue" => build_issue(repo, &sample_item(event)),
+        "github-pr" => build_pr(repo, &sample_item(event)),
+        "github-release" => build_release(repo, &sample_item(event)),
+        "github-star" => build_star(repo, &sample_item(event)),
+        _ => return None,
+    };
+    Some(dispatch_payload(&built))
 }
 
 /// Which subs want a built event: event equality plus the optional push branch
@@ -1463,6 +1536,9 @@ mod tests {
             dispatch_payload(&built[0]),
             r#"{"repo":"octocat/hello-world","ref":"refs/heads/main","branch":"main","pusher":"","commitCount":"0","headSha":"0f7a2c9e5c8d4b1a9e3f6d2c8b7a5e4d3c2b1a09","beforeSha":"9b1d3f7e6a5c4d3b2a1f0e9d8c7b6a5f4e3d2c1b","messages":[],"compareUrl":"https://github.com/octocat/hello-world/compare/9b1d3f7e6a5c4d3b2a1f0e9d8c7b6a5f4e3d2c1b...0f7a2c9e5c8d4b1a9e3f6d2c8b7a5e4d3c2b1a09","timestamp":""}"#
         );
+        // the designer's sample is this same builder over the same input, so
+        // every exact-string assert in this test pins the sample too
+        assert_eq!(sample_payload("github-push"), Some(dispatch_payload(&built[0])));
         // the legacy refs endpoint prefix-matches: "main" also returns "main-2",
         // and taking the first element would track the wrong branch forever
         let prefix_match = json!([
@@ -1476,18 +1552,9 @@ mod tests {
         assert!(apply(Resource::Push, "o/r", "nope", &prefix_match, Some(prev), now()).is_err());
 
         // --- issue: GET /issues?sort=created&direction=desc -------------------
-        let issues = json!([
-            {
-                "number": 17,
-                "title": "Crash when input is empty",
-                "body": "Steps to reproduce: run with no arguments…",
-                "user": { "login": "ada" },
-                "labels": [{ "name": "bug" }, { "id": 9 }],
-                "html_url": "https://github.com/octocat/hello-world/issues/17",
-                "created_at": "2026-07-18T12:34:56Z",
-                "state": "open",
-            },
-        ]);
+        // the four list feeds are the same canned objects the designer sample is
+        // built from, so `sample_payload` is pinned by these asserts too
+        let issues = json!([sample_item("github-issue")]);
         let (cursor, built) =
             apply(Resource::Issue, "octocat/hello-world", "", &issues, Some("16"), now()).unwrap();
         assert_eq!(cursor, "17");
@@ -1495,6 +1562,7 @@ mod tests {
             dispatch_payload(&built[0]),
             r#"{"repo":"octocat/hello-world","number":"17","title":"Crash when input is empty","body":"Steps to reproduce: run with no arguments…","author":"ada","labels":["bug"],"url":"https://github.com/octocat/hello-world/issues/17","timestamp":"2026-07-18T12:34:56Z"}"#
         );
+        assert_eq!(sample_payload("github-issue"), Some(dispatch_payload(&built[0])));
         // the issues endpoint lists pull requests too — a github-issue node must
         // not fire for one, but the cursor still has to advance past it
         let with_pr = json!([
@@ -1507,40 +1575,16 @@ mod tests {
         assert_eq!(text(&built[0].fields, "title"), "an issue");
 
         // --- pr: GET /pulls?sort=created&direction=desc&state=all -------------
-        let pulls = json!([
-            {
-                "number": 42,
-                "title": "Add retry logic to the fetcher",
-                "body": "Retries transient failures up to 3 times.",
-                "user": { "login": "ada" },
-                "head": { "ref": "feature/retries" },
-                "base": { "ref": "main" },
-                "draft": false,
-                "html_url": "https://github.com/octocat/hello-world/pull/42",
-                "created_at": "2026-07-18T12:34:56Z",
-            },
-        ]);
+        let pulls = json!([sample_item("github-pr")]);
         let (_, built) = apply(Resource::Pr, "octocat/hello-world", "", &pulls, Some("41"), now()).unwrap();
         assert_eq!(
             dispatch_payload(&built[0]),
             r#"{"repo":"octocat/hello-world","number":"42","title":"Add retry logic to the fetcher","body":"Retries transient failures up to 3 times.","author":"ada","sourceBranch":"feature/retries","targetBranch":"main","draft":"false","url":"https://github.com/octocat/hello-world/pull/42","timestamp":"2026-07-18T12:34:56Z"}"#
         );
+        assert_eq!(sample_payload("github-pr"), Some(dispatch_payload(&built[0])));
 
         // --- release: GET /releases?per_page=1 --------------------------------
-        let releases = json!([
-            {
-                "id": 148_038_732,
-                "tag_name": "v1.2.0",
-                "name": "1.2.0",
-                "body": "Highlights: retry logic, faster startup.",
-                "author": { "login": "ada" },
-                "prerelease": false,
-                "draft": false,
-                "html_url": "https://github.com/octocat/hello-world/releases/tag/v1.2.0",
-                "created_at": "2026-07-17T09:00:00Z",
-                "published_at": "2026-07-18T12:34:56Z",
-            },
-        ]);
+        let releases = json!([sample_item("github-release")]);
         let (cursor, built) =
             apply(Resource::Release, "octocat/hello-world", "", &releases, Some("148038731"), now()).unwrap();
         assert_eq!(cursor, "148038732");
@@ -1548,6 +1592,7 @@ mod tests {
             dispatch_payload(&built[0]),
             r#"{"repo":"octocat/hello-world","tag":"v1.2.0","name":"1.2.0","body":"Highlights: retry logic, faster startup.","author":"ada","prerelease":"false","url":"https://github.com/octocat/hello-world/releases/tag/v1.2.0","timestamp":"2026-07-18T12:34:56Z"}"#
         );
+        assert_eq!(sample_payload("github-release"), Some(dispatch_payload(&built[0])));
         // A draft dispatches nothing AND must not be acked. The webhook fired on
         // `action === "published"`, and "Draft a new release" mints the id long
         // before the publish — so acking the draft here would put its id under
@@ -1568,7 +1613,7 @@ mod tests {
         // --- star: GET /stargazers, last page, star+json ----------------------
         let stars = json!([
             { "starred_at": "2026-07-18T12:00:00Z", "user": { "login": "grace" } },
-            { "starred_at": "2026-07-18T12:34:56Z", "user": { "login": "ada" } },
+            sample_item("github-star"),
         ]);
         let (cursor, built) =
             apply(Resource::Star, "octocat/hello-world", "", &stars, Some("2026-07-18T12:00:00Z"), now())
@@ -1579,6 +1624,7 @@ mod tests {
             dispatch_payload(&built[0]),
             r#"{"repo":"octocat/hello-world","user":"ada","timestamp":"2026-07-18T12:34:56Z"}"#
         );
+        assert_eq!(sample_payload("github-star"), Some(dispatch_payload(&built[0])));
 
         // an oversized body is re-sliced, never dropped: the delivery has to
         // survive ingest_event's MAX_EVENT_PAYLOAD check

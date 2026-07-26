@@ -10,7 +10,7 @@ Three sections:
 
 1. **Needs a call** — a product or design question with no obviously right
    answer. Nothing below is blocking today; each one has a live default that
-   will simply persist if nobody decides otherwise. **§1.1, §1.2 and §1.5 were
+   will simply persist if nobody decides otherwise. **§1.1, §1.2, §1.4 and §1.5 were
    decided on 2026-07-25 and are kept here, marked, rather than deleted — the
    reasoning for a call already made is the part a future reader needs.**
 2. **Known divergences** — the Rust deliberately does something the TypeScript
@@ -101,8 +101,6 @@ Covered by `github::tests::star_watches_are_not_polled_without_a_token`.
 
 The original analysis follows.
 
-
-
 Page 1 of `/stargazers` is fetched **without** `if-none-match` on purpose — it
 holds the oldest stars and would 304 forever. But a 200 costs rate-limit quota
 where a 304 does not, so at `POLL_S = 30` one star watch is ~120 counted
@@ -132,16 +130,62 @@ URL and all metadata-derived endpoints are attacker-controlled.
 
 No change proposed. Confirm it still reads correctly at the end.
 
-### 1.4 Event-node payload key order is load-bearing and unenforced
+### 1.4 Event-node payload key order — DECIDED: Rust owns the payload
 
-All three transports' payload builders are order-preserving today (`js::J` for
-Discord and GitHub, a serde struct for Telegram) and match `lib/integrations.ts`
-`samplePayload` exactly. Nothing stops a future edit from using
-`serde_json::Map`, which sorts, and no test would fail — the payload a graph
-destructures would just quietly change shape.
+**Decided 2026-07-25.** The note as originally written was wrong twice over, so
+both the diagnosis and the fix are recorded here.
 
-**Options:** a test asserting the serialized key order of each payload builder ·
-enable `serde_json`'s `preserve_order` crate-wide (see 2.1) and stop worrying.
+**The stated risk was already covered.** All three transports had exact-string
+assertions on their serialized payload (`gateway::the_payload_mirrors_the_sample`,
+telegram's `event_payload` assert, five `dispatch_payload` asserts in `github`).
+A swap to `serde_json::Map` sorts the keys and every one of those fails. "No test
+would fail" had not been true for some time.
+
+**The real gap was a second definition.** Production payloads were built in Rust;
+designer *test-run* payloads were built in TypeScript, from a `samplePayload`
+object per event in `lib/integrations.ts`, stringified by `sampleEventPayload`
+and passed to `test_run` as `event_payloads`. Nothing cross-checked the two —
+`samplePayload` was not in `catalog.json` and Rust never read it. The contract
+was three prose comments saying "must mirror the samplePayload". The failure mode
+is not cosmetic: build an extract chain against the sample, it works in the
+designer, production delivers different keys.
+
+**Fix: delete the TypeScript definition rather than add machinery to sync two.**
+Each transport gained a `sample_payload()` in **production** code that runs its
+real builder over a canned input — never a written-out payload literal, which
+would just move the duplication across the language boundary. `github.rs`'s
+`sample_item(event)` canned REST objects are now shared with the parser tests, so
+the five exact-string asserts pin the samples too. `events::sample_payload(node_type)`
+dispatches. `execute_run` seeds event nodes itself and `test_run` **lost its
+`event_payloads` parameter**; `execute_run` keeps its own, because `ingest_event`
+passes the real delivered payload through it and the fixtures drive `run_workflow`
+with it directly.
+
+Deleted from TypeScript: 8 `samplePayload` literals, the field on
+`ExtensionEvent`, `sampleEventPayload`, and the designer's `eventPayloads` map.
+`payloadDoc` went too — its only consumer, `GRAPH_DOCS`, no longer existed.
+
+Two consequences worth knowing:
+
+- **The push sample is the unenriched shape** — `pusher`, `commitCount`,
+  `messages` and `timestamp` are empty, because `enrich_push` fills those from a
+  compare call a sample has no network for. All keys are present, in order.
+  Feeding it a canned compare response would need a second canned input for
+  cosmetics only.
+- **`event:webhook` gets `""` in test runs**, where it used to get a fake
+  envelope. It is still a live catalog key (so `ingest_event` recognises it) but
+  has no ingress and no builder since the desktop pivot, so there is no honest
+  sample to produce. Authoring one would be exactly the forbidden literal.
+
+Covered by `events::tests::every_catalog_event_has_a_builder_made_sample`: every
+`event:*` key in `CATALOG` has a sample (only `event:webhook` may not, asserted
+by name), each parses to a JSON object, round-trips `js::stringify` unchanged —
+i.e. is in the builder's key order — and fits `MAX_EVENT_PAYLOAD`.
+
+**Not taken:** `serde_json`'s `preserve_order` crate-wide (§2.1). It would have
+swapped a crate-wide data structure and changed how every graph serializes to
+SQLite, and it would have caught only key order — not the drift between the two
+definitions, which was the actual exposure.
 
 ### 1.5 Does the TypeScript interpreter stay? — DECIDED: deleted
 
@@ -194,7 +238,9 @@ does quietly undo the `js::J` machinery in `mcp.rs` that exists to preserve the
 MCP server's declaration order through the `MAX_TOOL_PARAMS = 12` cap. Left
 alone because enabling `preserve_order` swaps a crate-wide data structure and
 changes how every graph is serialized to SQLite — disproportionate for a
-presentational difference. Revisit if 1.4 pushes the same way.
+presentational difference. §1.4 was since decided and did NOT push this way —
+it removed the second payload definition instead, which `preserve_order` would
+not have caught. Nothing is now waiting on this.
 
 ### 2.2 The MCP session cache was dropped
 

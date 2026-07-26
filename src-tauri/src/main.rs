@@ -165,16 +165,14 @@ static TEST_RUN_CANCEL: AtomicBool = AtomicBool::new(false);
 ///
 /// `entry_node_ids` is the event node the designer selected — a test run starts
 /// from exactly one entry point, not from every event node in the graph.
-/// `event_payloads` seeds each platform event node with its canned sample
-/// payload (`sampleEventPayload`, which stays in TypeScript) so a payload →
-/// extract chain runs against realistic data.
+/// Sample event payloads are not passed in: `execute_run` seeds every event node
+/// from `events::sample_payload`, i.e. from the transports' own builders.
 #[tauri::command]
 fn test_run(
     app: AppHandle,
     store: State<Store>,
     workflow_id: String,
     entry_node_ids: Option<Vec<String>>,
-    event_payloads: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
     let wf = store
         .workflow(&workflow_id)
@@ -192,7 +190,7 @@ fn test_run(
             &wf,
             RunTrigger::Manual,
             entry_node_ids,
-            event_payloads,
+            None,
             Some(&TEST_RUN_CANCEL),
         ) {
             eprintln!("[run] {err}");

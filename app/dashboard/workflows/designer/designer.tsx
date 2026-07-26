@@ -25,7 +25,6 @@ import {
     validateGraphStrict,
     type WorkflowGraph,
 } from "@/lib/workflow";
-import { sampleEventPayload } from "@/lib/integrations";
 import { call, callVoid, type ConsoleLine, onEvent } from "@/lib/ipc";
 import Canvas, { type CanvasHandle, type PendingDrag } from "./canvas";
 import ConsolePanel from "./console";
@@ -122,8 +121,10 @@ export default function Designer({
     variables: VariableRow[];
     // null = no OpenRouter key; [] = unlocked but fetch failed
     openrouterModels: OpenrouterModel[] | null;
-    // a GitHub PAT is stored. Github event chips work either way (the poller
-    // runs unauthenticated on public repos) — this only drives a rate-limit hint
+    // a GitHub PAT is stored. Push/issue/pr/release poll unauthenticated on
+    // public repos, so for those this is only a rate-limit hint — but github-star
+    // is not polled at all without one, so it also greys that chip out and warns
+    // on an already-placed star node.
     githubLinked: boolean;
     // the variable modal writes to the registry; the page owns that fetch
     onRegistryChange: () => void;
@@ -332,14 +333,6 @@ export default function Designer({
         setConsoleLines([]);
         samplesRef.current = new Map();
         const emit = (line: ConsoleLine) => setConsoleLines((prev) => [...(prev ?? []), line]);
-        // seed each platform event node with its canned sample payload so a
-        // payload → extract chain runs against realistic data in a test run;
-        // schedule/unknown events have no sample (empty string, skipped)
-        const eventPayloads: Record<string, string> = {};
-        for (const n of present.nodes) {
-            const payload = sampleEventPayload(n.type);
-            if (payload) eventPayloads[n.id] = payload;
-        }
         // cron and event runs stream on the same three channels. Filtering on
         // the run id can't work — test_run resolves before the run row exists,
         // so the id is unknown until the first line lands, and "first id wins"
@@ -398,10 +391,13 @@ export default function Designer({
                 await call("save_workflow", { id: workflow.id, graph: present });
                 setSavedGraph(present);
             }
+            // Rust seeds each platform event node with its canned sample
+            // payload (events::sample_payload, built by the transports' own
+            // payload builders), so a payload → extract chain runs against
+            // realistic data with no second sample living here.
             await call("test_run", {
                 workflowId: workflow.id,
                 entryNodeIds: selectedEventId ? [selectedEventId] : undefined,
-                eventPayloads,
             });
             // unmounted while the launch was in flight: the run is spawned and
             // detached now, and the cleanup's stop_run fired before it existed

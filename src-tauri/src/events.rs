@@ -141,6 +141,21 @@ fn transport_event(node_type: &str) -> Option<&'static EventDescriptor> {
     descriptor(node_type).filter(|e| e.platform != "webhook")
 }
 
+/// The canned payload a designer test run seeds an event node with, so a
+/// payload → extract chain walks realistic data. Every one is produced by the
+/// *production* builder its transport dispatches through — there is no second
+/// definition of a payload shape anywhere, in Rust or in TypeScript.
+///
+/// `None` for a node type nothing builds: `event:webhook` (no ingress in a
+/// desktop app) and the non-event nodes callers pass in blind.
+pub fn sample_payload(node_type: &str) -> Option<String> {
+    match node_type {
+        "event:discord-mentioned" => Some(crate::gateway::sample_payload()),
+        "event:telegram-message" => Some(crate::telegram::sample_payload()),
+        other => crate::github::sample_payload(other.strip_prefix("event:")?),
+    }
+}
+
 /// Last 4 units of a bot token — the only form of it allowed in a log line.
 /// Ported from the identical `fp` helper in gateway.server.ts and
 /// telegram.server.ts; one copy here so the two transports cannot diverge.
@@ -516,6 +531,33 @@ mod tests {
         for key in CATALOG.keys().filter(|k| k.starts_with("event:")) {
             assert!(descriptor(key).is_some(), "{key} is in catalog.json but not in EVENTS");
         }
+    }
+
+    /// Every event node a user can drop on the canvas can seed a test run, and
+    /// what it seeds is real builder output: a JSON object in the builder's key
+    /// order (re-stringifying moves nothing) and inside the ingest cap. Ships an
+    /// event type without a sample and this fails instead of the designer
+    /// quietly handing that node "".
+    #[test]
+    fn every_catalog_event_has_a_builder_made_sample() {
+        for key in CATALOG.keys().filter(|k| k.starts_with("event:")) {
+            let Some(sample) = sample_payload(key) else {
+                // the one exception: no ingress means no builder to make one
+                assert_eq!(key, "event:webhook", "{key} has no sample payload");
+                continue;
+            };
+            let parsed = js::parse(&sample).unwrap_or_else(|e| panic!("{key}: {e}"));
+            let js::J::O(fields) = &parsed else { panic!("{key}: sample is not a JSON object") };
+            assert!(!fields.is_empty(), "{key}: empty sample");
+            assert_eq!(js::stringify(&parsed), sample, "{key}: not in builder key order");
+            assert!(
+                sample.encode_utf16().count() <= MAX_EVENT_PAYLOAD,
+                "{key}: sample is over MAX_EVENT_PAYLOAD",
+            );
+        }
+        // a non-event node id must not panic — `execute_run` asks blind
+        assert_eq!(sample_payload("print"), None);
+        assert_eq!(sample_payload("event:nope"), None);
     }
 
     /// The feed itself: what each transport gets, and everything deliberately

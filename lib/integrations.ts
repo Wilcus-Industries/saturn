@@ -36,8 +36,11 @@ type IntegrationAction = {
 
 // one inbound trigger node type. Its node key is eventNodeKey(id) and its
 // catalog category is "events", so it renders/behaves like the schedule node,
-// but delivery is real-time (no cron). samplePayload feeds designer test runs
-// and the extract path picker; payloadDoc is the one-line shape for GRAPH_DOCS.
+// but delivery is real-time (no cron). The payload SHAPE is not described here:
+// it is defined once, in Rust, by the builder its transport dispatches through
+// (gateway.rs/telegram.rs/github.rs), and a designer test run seeds event nodes
+// from those same builders via `events::sample_payload`.
+
 type ExtensionEvent = {
     id: string; // key suffix: "discord-mentioned"
     label: string;
@@ -45,8 +48,6 @@ type ExtensionEvent = {
     config: ConfigField[];
     // blank config fields validateGraphStrict warns about
     requiredConfig: string[];
-    samplePayload: Record<string, unknown>; // canned payload for test runs
-    payloadDoc: string; // one-line payload shape doc for GRAPH_DOCS
 };
 
 // one platform (an app) grouping its actions + events. app + logoDomain are
@@ -168,17 +169,6 @@ const EXTENSIONS: PlatformExtension[] = [
                     },
                 ],
                 requiredConfig: ["botToken"],
-                samplePayload: {
-                    content: "hey @saturn, summarize today's thread",
-                    authorId: "111111111111111111",
-                    authorUsername: "ada",
-                    channelId: "222222222222222222",
-                    guildId: "333333333333333333",
-                    messageId: "444444444444444444",
-                    timestamp: "2026-07-18T12:34:56.000Z",
-                },
-                payloadDoc:
-                    "{content, authorId, authorUsername, channelId, guildId, messageId, timestamp}",
             },
         ],
     },
@@ -241,18 +231,6 @@ const EXTENSIONS: PlatformExtension[] = [
                     },
                 ],
                 requiredConfig: ["botToken"],
-                samplePayload: {
-                    text: "hey saturn, what's the weather tomorrow?",
-                    chatId: "123456789",
-                    chatType: "private",
-                    userId: "123456789",
-                    username: "ada",
-                    firstName: "Ada",
-                    messageId: "42",
-                    date: "2026-07-18T12:34:56.000Z",
-                },
-                payloadDoc:
-                    "{text, chatId, chatType, userId, username, firstName, messageId, date}",
             },
         ],
     },
@@ -278,25 +256,6 @@ const EXTENSIONS: PlatformExtension[] = [
                     },
                 ],
                 requiredConfig: ["repo"],
-                samplePayload: {
-                    repo: "octocat/hello-world",
-                    ref: "refs/heads/main",
-                    branch: "main",
-                    pusher: "ada",
-                    commitCount: "3",
-                    headSha: "0f7a2c9e5c8d4b1a9e3f6d2c8b7a5e4d3c2b1a09",
-                    beforeSha: "9b1d3f7e6a5c4d3b2a1f0e9d8c7b6a5f4e3d2c1b",
-                    messages: [
-                        "fix: handle empty input",
-                        "docs: update readme",
-                        "feat: add retry",
-                    ],
-                    compareUrl:
-                        "https://github.com/octocat/hello-world/compare/9b1d3f7e6a5c...0f7a2c9e5c8d",
-                    timestamp: "2026-07-18T12:34:56Z",
-                },
-                payloadDoc:
-                    "{repo, ref, branch, pusher, commitCount, headSha, beforeSha, messages, compareUrl, timestamp}",
             },
             {
                 id: "github-issue",
@@ -309,17 +268,6 @@ const EXTENSIONS: PlatformExtension[] = [
                     },
                 ],
                 requiredConfig: ["repo"],
-                samplePayload: {
-                    repo: "octocat/hello-world",
-                    number: "17",
-                    title: "Crash when input is empty",
-                    body: "Steps to reproduce: run with no arguments…",
-                    author: "ada",
-                    labels: ["bug"],
-                    url: "https://github.com/octocat/hello-world/issues/17",
-                    timestamp: "2026-07-18T12:34:56Z",
-                },
-                payloadDoc: "{repo, number, title, body, author, labels, url, timestamp}",
             },
             {
                 id: "github-pr",
@@ -332,20 +280,6 @@ const EXTENSIONS: PlatformExtension[] = [
                     },
                 ],
                 requiredConfig: ["repo"],
-                samplePayload: {
-                    repo: "octocat/hello-world",
-                    number: "42",
-                    title: "Add retry logic to the fetcher",
-                    body: "Retries transient failures up to 3 times.",
-                    author: "ada",
-                    sourceBranch: "feature/retries",
-                    targetBranch: "main",
-                    draft: "false",
-                    url: "https://github.com/octocat/hello-world/pull/42",
-                    timestamp: "2026-07-18T12:34:56Z",
-                },
-                payloadDoc:
-                    "{repo, number, title, body, author, sourceBranch, targetBranch, draft, url, timestamp}",
             },
             {
                 id: "github-release",
@@ -358,17 +292,6 @@ const EXTENSIONS: PlatformExtension[] = [
                     },
                 ],
                 requiredConfig: ["repo"],
-                samplePayload: {
-                    repo: "octocat/hello-world",
-                    tag: "v1.2.0",
-                    name: "1.2.0",
-                    body: "Highlights: retry logic, faster startup.",
-                    author: "ada",
-                    prerelease: "false",
-                    url: "https://github.com/octocat/hello-world/releases/tag/v1.2.0",
-                    timestamp: "2026-07-18T12:34:56Z",
-                },
-                payloadDoc: "{repo, tag, name, body, author, prerelease, url, timestamp}",
             },
             {
                 id: "github-star",
@@ -381,12 +304,6 @@ const EXTENSIONS: PlatformExtension[] = [
                     },
                 ],
                 requiredConfig: ["repo"],
-                samplePayload: {
-                    repo: "octocat/hello-world",
-                    user: "ada",
-                    timestamp: "2026-07-18T12:34:56Z",
-                },
-                payloadDoc: "{repo, user, timestamp}",
             },
         ],
     },
@@ -404,17 +321,10 @@ const EXTENSIONS: PlatformExtension[] = [
                 emoji: "🪝",
                 config: [],
                 requiredConfig: [],
-                // body/query are deliberately non-string (precedent: github's
-                // messages/labels arrays) — the route embeds a JSON request body
-                // parsed so a single extract can reach body.user.id
-                samplePayload: {
-                    method: "POST",
-                    contentType: "application/json",
-                    query: { source: "example" },
-                    body: { event: "user.created", user: { id: "42", email: "ada@example.com" } },
-                    receivedAt: "2026-07-18T12:34:56Z",
-                },
-                payloadDoc: "{method, contentType, query, body, receivedAt}",
+                // the deleted route embedded the JSON request body parsed, so a
+                // single extract could reach body.user.id. Nothing builds this
+                // payload any more — a desktop app has no ingress for it — so a
+                // test run hands the node "" rather than a sample.
             },
         ],
     },
@@ -483,11 +393,3 @@ export const EXTENSION_EVENTS: ExtensionEventNode[] = EXTENSIONS.flatMap((ext) =
 export const EXTENSION_EVENTS_BY_KEY: Record<string, ExtensionEventNode> = Object.fromEntries(
     EXTENSION_EVENTS.map((e) => [eventNodeKey(e.id), e]),
 );
-
-// canned JSON payload string for a test run of an event node (nodeType =
-// eventNodeKey(id)); "" for unknown types. runWorkflow's eventPayloads maps
-// nodeId → this JSON string.
-export const sampleEventPayload = (nodeType: string): string => {
-    const event = EXTENSION_EVENTS_BY_KEY[nodeType];
-    return event ? JSON.stringify(event.samplePayload) : "";
-};

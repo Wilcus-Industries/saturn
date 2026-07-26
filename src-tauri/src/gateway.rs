@@ -329,10 +329,10 @@ fn matching<'a>(
         .collect()
 }
 
-/// The payload the event node's `payload` port receives. The shape must mirror
-/// the `discord-mentioned` samplePayload in lib/integrations.ts — it seeds
-/// designer test runs and the path picker, so a key renamed here silently breaks
-/// every graph built against the sample.
+/// The payload the event node's `payload` port receives. This function IS the
+/// definition of the `discord-mentioned` payload shape — `sample_payload` runs
+/// it over a canned mention to seed designer test runs, so a key renamed here
+/// moves the sample with it and no graph can be built against a stale shape.
 fn event_payload(d: &MessageData) -> String {
     let encode = |content: &str| {
         js::stringify(&js::J::O(vec![
@@ -352,6 +352,25 @@ fn event_payload(d: &MessageData) -> String {
         return encode(&utf16_prefix(&d.content, MAX_CONTENT).unwrap_or_else(|| d.content.clone()));
     }
     payload
+}
+
+/// The canned mention a designer test run seeds an `event:discord-mentioned`
+/// node with (`events::sample_payload`). Deliberately built by the real
+/// `event_payload`, never written out as a second literal.
+pub fn sample_payload() -> String {
+    event_payload(&MessageData {
+        id: "444444444444444444".into(),
+        content: "hey @saturn, summarize today's thread".into(),
+        channel_id: "222222222222222222".into(),
+        guild_id: Some("333333333333333333".into()),
+        timestamp: "2026-07-18T12:34:56.000Z".into(),
+        author: DiscordUser {
+            id: "111111111111111111".into(),
+            username: "ada".into(),
+            bot: false,
+        },
+        mentions: Vec::new(),
+    })
 }
 
 /// Hands every matching subscription to the spine. Fire-and-forget on purpose:
@@ -919,14 +938,19 @@ mod tests {
         assert_eq!(matching(&all, "bot-1", &msg(dm)).len(), 2);
     }
 
-    /// The payload contract with lib/integrations.ts's samplePayload: same keys,
-    /// same order, and never over the spine's cap.
+    /// The payload contract every graph destructures: keys, key order, and never
+    /// over the spine's cap. The designer's sample is the same function over a
+    /// canned mention, so it is pinned here too.
     #[test]
     fn the_payload_mirrors_the_sample() {
         let msg: MessageData = serde_json::from_value(message("111", vec!["bot-1"])).unwrap();
         assert_eq!(
             event_payload(&msg),
             r#"{"content":"hey @saturn","authorId":"111","authorUsername":"ada","channelId":"222","guildId":"333","messageId":"444","timestamp":"2026-07-18T12:34:56.000Z"}"#,
+        );
+        assert_eq!(
+            sample_payload(),
+            r#"{"content":"hey @saturn, summarize today's thread","authorId":"111111111111111111","authorUsername":"ada","channelId":"222222222222222222","guildId":"333333333333333333","messageId":"444444444444444444","timestamp":"2026-07-18T12:34:56.000Z"}"#,
         );
 
         // a DM's absent guild is "", not null — the sample has no null in it

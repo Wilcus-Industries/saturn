@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::agent;
+use crate::events;
 use crate::interpreter::{js, run_workflow, utf16_prefix, ConsoleLine, Effects, Graph, Kind};
 use crate::mcp::McpError;
 use crate::openrouter::{self, ChatRequest, ToolSpec};
@@ -393,8 +394,8 @@ pub fn execute_run(
     trigger: RunTrigger,
     entry_node_ids: Option<Vec<String>>,
     // node id → the trigger payload JSON that node's value port hands the graph.
-    // Only the event path seeds this; cron and manual runs pass None, and an
-    // event node with no entry here evaluates to "" exactly as before.
+    // Only the event path seeds this; cron passes None, and a manual (designer
+    // test) run seeds itself below. An event node with no entry evaluates to "".
     event_payloads: Option<HashMap<String, String>>,
     // the designer's stop button. Only `test_run` passes one — a cron or event
     // run has no UI to press it from.
@@ -402,6 +403,20 @@ pub fn execute_run(
 ) -> Result<String, String> {
     let graph: Graph = serde_json::from_value(wf.graph.clone())
         .map_err(|e| format!("workflow graph is malformed: {e}"))?;
+    // A designer test run seeds every event node with its canned sample so a
+    // payload → extract chain walks realistic data. Built here rather than
+    // passed in from the webview: the samples come from the same Rust builders
+    // the transports dispatch through (`events::sample_payload`), so what a test
+    // run sees cannot drift from what a real delivery sends.
+    let event_payloads = event_payloads.or_else(|| {
+        matches!(trigger, RunTrigger::Manual).then(|| {
+            graph
+                .nodes
+                .iter()
+                .filter_map(|n| Some((n.id.clone(), events::sample_payload(&n.node_type)?)))
+                .collect()
+        })
+    });
     let run_id = store.insert_run(&wf.id, trigger).map_err(|e| e.to_string())?;
     // a run that nobody asked for has just appeared in the history — nudge any
     // open page. Manual runs already have a caller that will refetch.

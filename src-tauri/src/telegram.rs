@@ -126,9 +126,10 @@ fn parse_update(v: &Value) -> Option<Update> {
     Some(Update { update_id, message })
 }
 
-/// The payload handed to `ingest_event`. Field order is the serialization order
-/// and must mirror the `telegram-message` samplePayload in lib/integrations.ts —
-/// it seeds designer test runs and the extract node's path picker.
+/// The payload handed to `ingest_event`. Field order is the serialization order,
+/// and this struct IS the definition of the `telegram-message` payload shape —
+/// `sample_payload` serializes it from a canned message to seed designer test
+/// runs, so the sample cannot drift from what a real message delivers.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EventPayload {
@@ -170,6 +171,24 @@ fn event_payload(m: &Message) -> String {
         payload = serde_json::to_string(&event).unwrap_or_default();
     }
     payload
+}
+
+/// The canned message a designer test run seeds an `event:telegram-message`
+/// node with (`events::sample_payload`). Built by the real `event_payload`,
+/// never written out as a second literal.
+pub fn sample_payload() -> String {
+    event_payload(&Message {
+        message_id: 42,
+        date: 1_784_378_096, // 2026-07-18T12:34:56Z
+        chat: Chat { id: 123_456_789, kind: Some("private".into()), username: None },
+        from: Some(User {
+            id: 123_456_789,
+            username: Some("ada".into()),
+            first_name: Some("Ada".into()),
+        }),
+        text: Some("hey saturn, what's the weather tomorrow?".into()),
+        caption: None,
+    })
 }
 
 /// The node's optional `chatId` filter: a numeric id or an `@channelusername`.
@@ -622,10 +641,15 @@ mod tests {
         assert_eq!(first.chat.id, -1_001_234_567_890);
         assert_eq!(first.chat.username.as_deref(), Some("saturnchat"));
         assert_eq!(first.from.as_ref().unwrap().first_name.as_deref(), Some("Ada"));
-        // the payload's shape AND key order are the designer's samplePayload
+        // the payload's shape AND key order are what every graph destructures
         assert_eq!(
             event_payload(first),
             r#"{"text":"hi","chatId":"-1001234567890","chatType":"supergroup","userId":"42","username":"ada","firstName":"Ada","messageId":"1","date":"2023-11-14T22:13:20.000Z"}"#,
+        );
+        // …and the designer's sample is that same builder over a canned message
+        assert_eq!(
+            sample_payload(),
+            r#"{"text":"hey saturn, what's the weather tomorrow?","chatId":"123456789","chatType":"private","userId":"123456789","username":"ada","firstName":"Ada","messageId":"42","date":"2026-07-18T12:34:56.000Z"}"#,
         );
         // caption stands in for text; a missing `from` is "" everywhere
         assert!(event_payload(updates[1].message.as_ref().unwrap()).contains(r#""text":"look""#));
