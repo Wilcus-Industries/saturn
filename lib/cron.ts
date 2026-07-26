@@ -90,18 +90,3 @@ export function describeCron(cron: string): string {
 
     return cron;
 }
-
-// does the cron fire at this instant? Evaluated against UTC fields. Plain AND
-// across all 5 fields — the standard dom/dow OR rule is deliberately skipped
-// because the builder never restricts both. Invalid cron never matches.
-export function cronMatches(cron: string, d: Date): boolean {
-    if (!isValidCron(cron)) return false;
-    const fields = cron.trim().split(/\s+/);
-    const values = [d.getUTCMinutes(), d.getUTCHours(), d.getUTCDate(), d.getUTCMonth() + 1, d.getUTCDay()];
-    return fields.every((f, i) => {
-        if (f === "*") return true;
-        const step = i === 0 ? minuteStep(f) : null;
-        if (step !== null) return values[i] % step === 0;
-        return Number(f) === values[i];
-    });
-}

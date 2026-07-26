@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ActionButton from "@/app/dashboard/actionButton";
+import Field from "@/app/dashboard/field";
 import { call } from "@/lib/ipc";
 
 // one variable the toolbox lists. secret = the write-only mode (value never
@@ -118,18 +119,15 @@ export default function VariableModal({
 
                     {editing && <input type={"hidden"} name={"id"} value={editing.id} />}
 
-                    <label className={"flex flex-col gap-1"}>
-                        <span className={"font-mono text-xs text-gray-400"}>name</span>
-                        <input
-                            name={"name"}
-                            required
-                            autoFocus
-                            maxLength={60}
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
-                        />
-                    </label>
+                    <Field
+                        label={"name"}
+                        name={"name"}
+                        required
+                        autoFocus
+                        maxLength={60}
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                    />
 
                     {/* mode picked once at creation; locked on edit (see comment above) */}
                     <label
@@ -147,23 +145,18 @@ export default function VariableModal({
                         secret (write-only, never revealed)
                     </label>
 
-                    <label className={"flex flex-col gap-1"}>
-                        <span className={"font-mono text-xs text-gray-400"}>value</span>
-                        <input
-                            name={"value"}
-                            type={secret ? "password" : "text"}
-                            required={!editing}
-                            autoComplete={"off"}
-                            value={value}
-                            onChange={(e) => setValue(e.target.value)}
-                            placeholder={
-                                secret && editing?.hasValue
-                                    ? "•••• value set — leave blank to keep"
-                                    : ""
-                            }
-                            className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
-                        />
-                    </label>
+                    <Field
+                        label={"value"}
+                        name={"value"}
+                        type={secret ? "password" : "text"}
+                        required={!editing}
+                        autoComplete={"off"}
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        placeholder={
+                            secret && editing?.hasValue ? "•••• value set — leave blank to keep" : ""
+                        }
+                    />
 
                     {secret && editing?.hasValue && (
                         <label className={"flex items-center gap-2 font-mono text-xs text-gray-400"}>

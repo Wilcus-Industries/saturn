@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Golden fixture oracle for lib/interpreter.ts.
+// Golden fixture oracle driver for fixtures/interpreter.ts.
 //
 // Runs every case in cases/ through the real TypeScript interpreter with
 // deterministic stub hooks and compares the captured console + per-port values
@@ -14,8 +14,10 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 
-// lib/*.ts uses tsconfig's "@/*" alias. Node strips types natively but resolves
-// nothing, so map the alias before the first import() of anything under lib/.
+// interpreter.ts and the lib/*.ts it pulls in use tsconfig's "@/*" alias. Node
+// strips types natively but resolves nothing, so map the alias before the first
+// import() of any of them — including the interpreter itself, which goes
+// through the same hook so it gets the explicit module-typescript format.
 // catalog.json needs the type attribute the TS source omits (a bundler concern
 // there, a hard requirement here).
 const root = new URL("../", import.meta.url);
@@ -29,7 +31,7 @@ registerHooks({
             : { url, format: "module-typescript", shortCircuit: true };
     },
 });
-const { runWorkflow } = await import("@/lib/interpreter");
+const { runWorkflow } = await import("@/fixtures/interpreter");
 const { CATALOG_BY_KEY } = await import("@/lib/workflow");
 
 // FNV-1a over UTF-16 code units, prefixed with the same .length the

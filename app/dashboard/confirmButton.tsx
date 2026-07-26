@@ -2,21 +2,21 @@
 
 import { useEffect, useState } from "react";
 
-// two-step inline confirm: first click arms, second submits the form (with a
-// hidden `id`); disarms after 3s. Shared by the shell's delete buttons —
-// pass the async action that IPCs the delete and, optionally, the labels.
+// two-step inline confirm: first click arms, second calls `onConfirm`; disarms
+// after 3s. Shared by every delete in the shell and the designer.
+//
+// The caller owns what confirming does and what happens afterwards, because no
+// two want the same thing: the settings page reports a failure at the top of the
+// page (this button has no error slot), the list card refetches in place, and
+// the designer topbar navigates out of a workflow that no longer exists.
 export default function ConfirmButton({
-    id,
-    action,
-    label = "delete",
-    confirm = "confirm?",
-    title,
+    onConfirm,
+    // text size — most callers keep the text-sm default, the designer topbar
+    // passes text-xs to match its control cluster
+    sizeClass = "text-sm",
 }: {
-    id: string;
-    action: (formData: FormData) => void | Promise<void>;
-    label?: string;
-    confirm?: string;
-    title?: string;
+    onConfirm: () => void | Promise<void>;
+    sizeClass?: string;
 }) {
     const [armed, setArmed] = useState(false);
 
@@ -31,24 +31,21 @@ export default function ConfirmButton({
             <button
                 type={"button"}
                 onClick={() => setArmed(true)}
-                className={"font-mono text-sm text-gray-400 hover:text-red-500"}
+                className={`font-mono ${sizeClass} text-gray-400 hover:text-red-500`}
             >
-                {label}
+                delete
             </button>
         );
     }
 
     return (
-        <form action={action}>
-            <input type={"hidden"} name={"id"} value={id} />
-            <button
-                type={"submit"}
-                title={title}
-                className={`border border-red-500 px-2 font-mono text-sm transition-colors
-                    duration-200 hover:bg-red-600 hover:text-white`}
-            >
-                {confirm}
-            </button>
-        </form>
+        <button
+            type={"button"}
+            onClick={() => void onConfirm()}
+            className={`border border-red-500 px-2 font-mono ${sizeClass} transition-colors
+                duration-200 hover:bg-red-600 hover:text-white`}
+        >
+            confirm?
+        </button>
     );
 }

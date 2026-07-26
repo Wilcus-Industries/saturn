@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import EmojiGrid from "@/app/dashboard/emojiGrid";
+import Field from "@/app/dashboard/field";
 import ModalShell from "@/app/dashboard/modalShell";
 import { call } from "@/lib/ipc";
 import type { CardRow } from "./workflowCard";
@@ -79,33 +80,27 @@ export default function WorkflowModal({
                 )
             }
         >
-            <label className={"flex flex-col gap-1"}>
-                <span className={"font-mono text-xs text-gray-400"}>name</span>
-                <input
-                    name={"name"}
-                    required
-                    autoFocus
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
-                />
-            </label>
+            <Field
+                label={"name"}
+                name={"name"}
+                required
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+            />
 
             <div className={"flex flex-col gap-1"}>
                 <span className={"font-mono text-xs text-gray-400"}>emoji</span>
                 <EmojiGrid initial={workflow?.emoji || undefined} />
             </div>
 
-            <label className={"flex flex-col gap-1"}>
-                <span className={"font-mono text-xs text-gray-400"}>description</span>
-                <textarea
-                    name={"description"}
-                    rows={2}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
-                />
-            </label>
+            <Field
+                label={"description"}
+                name={"description"}
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+            />
         </ModalShell>
     );
 }

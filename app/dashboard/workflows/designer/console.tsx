@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { ConsoleLine } from "@/lib/interpreter";
+import type { ConsoleLine } from "@/lib/ipc";
 
 // resize bounds: never smaller than roughly the header + a few lines, never
 // taller than most of the viewport (topbar + some canvas must stay visible)

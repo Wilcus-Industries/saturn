@@ -1,7 +1,7 @@
 "use client";
 
 import { useLinkStatus } from "next/link";
-import type { IconType } from "react-icons";
+import type { IconType } from "./icons";
 import Spinner from "./spinner";
 
 // nav link icon that swaps to a spinner while the navigation is pending.

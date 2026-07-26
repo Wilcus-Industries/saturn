@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { RiRobot2Line } from "react-icons/ri";
+import { RobotLine } from "@/app/dashboard/icons";
 
 // OpenRouter model ids are "<author>/<slug>" — map known authors to an apex
 // domain for the same Google s2 favicon lookup mcpLogo.tsx uses. s2 serves a
@@ -61,7 +61,7 @@ export default function ModelLogo({
                 aria-hidden
                 className={`pointer-events-none flex ${PX[size]} shrink-0 select-none items-center justify-center text-foreground/40`}
             >
-                <RiRobot2Line className={"h-[62%] w-[62%]"} />
+                <RobotLine className={"h-[62%] w-[62%]"} />
             </span>
         );
     }

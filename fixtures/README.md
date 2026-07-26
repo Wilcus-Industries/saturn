@@ -1,6 +1,12 @@
 # Interpreter golden fixtures
 
-Executable specification of `lib/interpreter.ts`. Each case in `cases/` is a
+Executable specification of the workflow interpreter. `interpreter.ts` here is
+the TypeScript **oracle** — no app code imports it; it exists only to generate
+`expected/`, which is why it lives in this directory rather than in `lib/`. It
+declares its own `ConsoleLine` (the app's copy lives in `lib/ipc.tsx`) and
+otherwise imports only `lib/{agent,integrations,registry,workflow}.ts`.
+
+Each case in `cases/` is a
 workflow graph; each file in `expected/` is the exact console transcript and the
 exact per-port value stream that graph produces. The Rust interpreter is correct
 when it reproduces these files byte for byte.
@@ -12,13 +18,14 @@ node fixtures/run.mjs if-        verify only cases whose filename contains "if-"
 ```
 
 No install step, no dependencies, no database. `run.mjs` registers a resolve
-hook for tsconfig's `@/*` alias and lets Node strip the types; the
+hook for tsconfig's `@/*` alias and lets Node strip the types (the oracle is
+imported as `@/fixtures/interpreter` so it goes through that hook too); the
 `interpreter → workflow → integrations → agent/cron/registry` subgraph is pure,
 so it loads standalone.
 
 ## These files outlive the TypeScript
 
-Phase F deletes the TypeScript interpreter. From that moment `expected/` **is**
+Phase F deletes `interpreter.ts`. From that moment `expected/` **is**
 the specification — there is nothing left to regenerate it from. Do not run
 `--update` to make a failing case pass. A diff means one of two things:
 

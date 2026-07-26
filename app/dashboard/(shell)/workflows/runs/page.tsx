@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback } from "react";
 import { LINE_STYLES } from "@/app/dashboard/workflows/designer/console";
-import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
-import type { ConsoleLine } from "@/lib/interpreter";
+import { call, type ConsoleLine, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import { relativeTime } from "../workflowCard";
 
 // run history for one workflow; lives inside (shell) so it gets the sidebar,

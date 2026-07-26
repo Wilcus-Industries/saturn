@@ -35,7 +35,7 @@ fn check_id(id: &str) -> Result<(), String> {
     if registry::is_uuid(id) {
         Ok(())
     } else {
-        Err("Invalid workflow id".into())
+        Err("Invalid id".into())
     }
 }
 
@@ -333,7 +333,7 @@ fn save_skill(
     emoji: String,
     description: String,
 ) -> Result<String, String> {
-    registry::save_skill(&store, id.as_deref(), &name, &emoji, &description)
+    registry::save_entry(&store, registry::Kind::Skill, id.as_deref(), &name, &emoji, &description)
 }
 
 #[tauri::command]
@@ -344,7 +344,7 @@ fn save_memory_store(
     emoji: String,
     description: String,
 ) -> Result<String, String> {
-    registry::save_memory_store(&store, id.as_deref(), &name, &emoji, &description)
+    registry::save_entry(&store, registry::Kind::Memory, id.as_deref(), &name, &emoji, &description)
 }
 
 #[tauri::command]
@@ -447,9 +447,7 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
 /// stays, so every node wired to it keeps resolving.
 #[tauri::command]
 fn wipe_memory_store(store: State<Store>, entry_id: String) -> Result<usize, String> {
-    if !registry::is_uuid(&entry_id) {
-        return Err("Invalid id".into());
-    }
+    check_id(&entry_id)?;
     store
         .conn()
         .execute("delete from memory_item where entry_id = ?1", [&entry_id])

@@ -18,11 +18,11 @@ export const EVENT_PREFIX = "event:";
 // subsections are headed by `app`, not by this.
 export const INTEGRATION_SECTIONS = ["events", "logic", "data"] as const satisfies
     readonly NodeCategory[];
-export type IntegrationSection = (typeof INTEGRATION_SECTIONS)[number];
+type IntegrationSection = (typeof INTEGRATION_SECTIONS)[number];
 
 // one outbound message node type. app/logoDomain live on the owning
 // PlatformExtension and get merged back into the flat INTEGRATIONS view.
-export type IntegrationAction = {
+type IntegrationAction = {
     id: string; // key suffix: "discord-webhook"
     label: string;
     section: IntegrationSection; // the Blocks category this node's color comes from
@@ -38,7 +38,7 @@ export type IntegrationAction = {
 // catalog category is "events", so it renders/behaves like the schedule node,
 // but delivery is real-time (no cron). samplePayload feeds designer test runs
 // and the extract path picker; payloadDoc is the one-line shape for GRAPH_DOCS.
-export type ExtensionEvent = {
+type ExtensionEvent = {
     id: string; // key suffix: "discord-mentioned"
     label: string;
     emoji?: string; // fallback node icon when logoDomain has no favicon
@@ -51,7 +51,7 @@ export type ExtensionEvent = {
 
 // one platform (an app) grouping its actions + events. app + logoDomain are
 // shared by every node of the platform and merged into the flat views.
-export type PlatformExtension = {
+type PlatformExtension = {
     id: string; // platform id, e.g. "discord"
     app: string; // toolbox subheader within the Apps group — the app's name
     logoDomain: string; // favicon host, shared by every node of the platform
@@ -61,19 +61,19 @@ export type PlatformExtension = {
 
 // a flat integration node = an action merged with its platform's app + logo,
 // the shape lib/workflow.ts and src-tauri/src/integrations.rs consume.
-export type IntegrationProvider = IntegrationAction & {
+type IntegrationProvider = IntegrationAction & {
     app: string; // toolbox subheader within the Apps group — the app's name
     logoDomain: string; // favicon host
 };
 
 // a flat event node = an ExtensionEvent merged with its platform's app + logo.
-export type ExtensionEventNode = ExtensionEvent & {
+type ExtensionEventNode = ExtensionEvent & {
     platform: string; // owning PlatformExtension.id — the ingress routes transports by this
     app: string;
     logoDomain: string;
 };
 
-export const EXTENSIONS: PlatformExtension[] = [
+const EXTENSIONS: PlatformExtension[] = [
     {
         id: "discord",
         app: "discord",

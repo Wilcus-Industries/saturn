@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import DeleteWorkflowButton from "@/app/dashboard/deleteWorkflowButton";
+import ConfirmButton from "@/app/dashboard/confirmButton";
+import { call } from "@/lib/ipc";
 import type { ValidationIssue } from "@/lib/workflow";
 import PopoverShell from "./popoverShell";
 
@@ -161,11 +162,15 @@ export default function Topbar({
                         ▶ run
                     </button>
                 )}
-                {/* the workflow this page is editing no longer exists — leave */}
-                <DeleteWorkflowButton
-                    id={workflowId}
+                {/* the workflow this page is editing no longer exists — leave,
+                    whether or not the (idempotent) delete reported success */}
+                <ConfirmButton
                     sizeClass={"text-xs"}
-                    onDeleted={() => router.push("/dashboard/workflows/")}
+                    onConfirm={() =>
+                        call("delete_workflow", { id: workflowId })
+                            .catch(() => {})
+                            .then(() => router.push("/dashboard/workflows/"))
+                    }
                 />
             </span>
 

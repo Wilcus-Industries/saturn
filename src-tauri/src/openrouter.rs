@@ -26,6 +26,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::agent::ToolRef;
+use crate::mcp::McpToolParam;
 
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 /// A non-streaming completion that hasn't landed in 60s is hung: the
@@ -50,29 +51,15 @@ const REASONING_MODES: [&str; 4] = ["off", "low", "medium", "high"];
 
 // --- types -----------------------------------------------------------------
 
-/// One tool argument, derived from an MCP tool's inputSchema at discovery
-/// (`deriveParams` in lib/mcp.ts) and stored on the registry entry.
-/// `param_type` is the JSON Schema type string ("string" | "number" |
-/// "boolean" | "array" | "object"), kept as a string because it round-trips
-/// through the registry's stored JSON untouched.
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, Serialize)]
-pub struct ToolParam {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub param_type: String,
-    #[serde(default)]
-    pub required: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
 /// A granted tool as the caller resolved it against the registry. `params` is
 /// `None` for a manually-added tool with no discovered schema — which means
-/// "accepts any object", not "accepts nothing".
+/// "accepts any object", not "accepts nothing". Params are `McpToolParam`, the
+/// same struct discovery derives and the registry stores, so a granted MCP tool
+/// needs no conversion on the way to the model.
 pub struct ToolSpec {
     pub tool_ref: ToolRef,
     pub description: Option<String>,
-    pub params: Option<Vec<ToolParam>>,
+    pub params: Option<Vec<McpToolParam>>,
 }
 
 /// A model-requested tool call decoded back to registry terms. `id` is the wire
@@ -209,7 +196,7 @@ fn wire_safe(name: &str) -> String {
 /// with no discovered params accepts any object — bare `{type:"object"}` with no
 /// `properties` is JSON Schema for "anything", which is what a manually-added
 /// MCP tool needs.
-fn to_parameters(params: Option<&[ToolParam]>) -> Value {
+fn to_parameters(params: Option<&[McpToolParam]>) -> Value {
     let params = match params {
         Some(p) if !p.is_empty() => p,
         _ => return serde_json::json!({ "type": "object" }),
@@ -217,7 +204,7 @@ fn to_parameters(params: Option<&[ToolParam]>) -> Value {
     let mut properties = serde_json::Map::new();
     for p in params {
         let mut schema = serde_json::Map::new();
-        schema.insert("type".into(), Value::String(p.param_type.clone()));
+        schema.insert("type".into(), Value::String(p.param_type.as_str().to_string()));
         // an absent description is omitted, never sent as null
         if let Some(d) = p.description.as_ref().filter(|d| !d.is_empty()) {
             schema.insert("description".into(), Value::String(d.clone()));
@@ -780,6 +767,7 @@ fn parse_models(body: &Value) -> Vec<Model> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mcp::McpToolParamType as T;
 
     /// The models list is parsed from an endpoint nobody in this project owns,
     /// so every field is optional in practice. The order of filter/cap/map is
@@ -820,7 +808,7 @@ mod tests {
         assert!(parse_models(&serde_json::json!({ "data": "nope" })).is_empty());
     }
 
-    fn spec(entry: &str, tool: &str, params: Option<Vec<ToolParam>>) -> ToolSpec {
+    fn spec(entry: &str, tool: &str, params: Option<Vec<McpToolParam>>) -> ToolSpec {
         ToolSpec {
             tool_ref: ToolRef {
                 entry_id: entry.to_string(),
@@ -832,10 +820,10 @@ mod tests {
         }
     }
 
-    fn param(name: &str, ty: &str, required: bool, description: Option<&str>) -> ToolParam {
-        ToolParam {
+    fn param(name: &str, ty: T, required: bool, description: Option<&str>) -> McpToolParam {
+        McpToolParam {
             name: name.into(),
-            param_type: ty.into(),
+            param_type: ty,
             required,
             description: description.map(str::to_string),
         }
@@ -850,8 +838,8 @@ mod tests {
         assert_eq!(to_parameters(Some(&[])), serde_json::json!({ "type": "object" }));
 
         let params = vec![
-            param("symbol", "string", true, Some("ticker")),
-            param("limit", "number", false, None),
+            param("symbol", T::String, true, Some("ticker")),
+            param("limit", T::Number, false, None),
         ];
         assert_eq!(
             to_parameters(Some(&params)),
@@ -865,7 +853,7 @@ mod tests {
             })
         );
         // every param optional still emits `required`, as an empty array
-        let optional = vec![param("x", "boolean", false, None)];
+        let optional = vec![param("x", T::Boolean, false, None)];
         assert_eq!(to_parameters(Some(&optional))["required"], serde_json::json!([]));
     }
 

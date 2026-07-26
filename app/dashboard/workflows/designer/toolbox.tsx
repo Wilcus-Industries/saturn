@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type { IconType } from "react-icons";
-import { FaBrain, FaCubes, FaPlug, FaRobot } from "react-icons/fa6";
+import { Brain, Cubes, type IconType, Plug, Robot } from "@/app/dashboard/icons";
 import {
     CATALOG,
     CATALOG_BY_KEY,
@@ -21,10 +20,10 @@ import type { VariableRow } from "./variableModal";
 // tab icon at the top; only the active group renders below. `blocks`/`agents`
 // map to CATEGORY_HEADING sections; `apps`/`models` render specially.
 const GROUPS: { id: string; label: string; Icon: IconType }[] = [
-    { id: "blocks", label: "Blocks", Icon: FaCubes },
-    { id: "apps", label: "Apps", Icon: FaPlug },
-    { id: "agents", label: "Agents", Icon: FaRobot },
-    { id: "models", label: "Models", Icon: FaBrain },
+    { id: "blocks", label: "Blocks", Icon: Cubes },
+    { id: "apps", label: "Apps", Icon: Plug },
+    { id: "agents", label: "Agents", Icon: Robot },
+    { id: "models", label: "Models", Icon: Brain },
 ];
 
 // section heading per catalog category for the standard (blocks/agents) render.

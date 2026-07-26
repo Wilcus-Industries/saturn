@@ -1,6 +1,10 @@
-// Workflow graph interpreter. Walks the in-memory graph and emits console
-// lines as it goes; runs both in the browser (the designer's ▶ test run,
-// unsaved edits included) and server-side (the cron runner). Side effects
+// Workflow graph interpreter — the golden-fixture ORACLE, not shipped code.
+// The app runs the Rust port (src-tauri/src/); nothing under app/ imports this
+// file. Its only consumer is run.mjs, which replays cases/ through it to
+// produce expected/. It lives here, next to those files, and deliberately
+// depends on nothing outside lib/{agent,integrations,registry,workflow}.ts.
+//
+// Walks the in-memory graph and emits console lines as it goes. Side effects
 // happen only through the injected RunHooks: agent nodes drive their LLM
 // loops here, one callAgent invocation per turn (API keys and credit
 // accounting stay server-side too), calling their granted MCP tools for real
@@ -28,7 +32,9 @@ import { variableIdFromNodeType, variableSentinel } from "@/lib/registry";
 import type { CatalogEntry, WorkflowGraph, WorkflowNode } from "@/lib/workflow";
 
 // kind "image": text is a data:image/… URL — the designer console renders
-// it inline; the cron runner persists a describeImage placeholder instead
+// it inline; the cron runner persists a describeImage placeholder instead.
+// Declared here rather than imported from lib/ipc.tsx (which owns the app-side
+// copy) so the oracle stays free of React and @tauri-apps/api.
 export type ConsoleLine = { kind: "print" | "info" | "warn" | "error" | "image"; text: string };
 
 export type CallAgentRequest = {

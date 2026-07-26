@@ -1,13 +1,13 @@
-import { FaDatabase, FaDiagramProject, FaGear } from "react-icons/fa6";
+import { Database, DiagramProject, Gear } from "./icons";
 
 // shared between the desktop sidebar and the mobile top bar.
 // Hrefs carry a trailing slash to match `trailingSlash: true`: every route is
 // exported as `<dir>/index.html`, and Tauri's asset protocol does no
 // extensionless fallback, so a reload at a slash-less path finds no file.
 export const NAV = [
-    { label: "Workflows", href: "/dashboard/workflows/", icon: FaDiagramProject },
-    { label: "Memory", href: "/dashboard/memory/", icon: FaDatabase },
-    { label: "Settings", href: "/dashboard/settings/", icon: FaGear },
+    { label: "Workflows", href: "/dashboard/workflows/", icon: DiagramProject },
+    { label: "Memory", href: "/dashboard/memory/", icon: Database },
+    { label: "Settings", href: "/dashboard/settings/", icon: Gear },
 ];
 
 // Normalizes both sides, because `usePathname()` reports what is actually in

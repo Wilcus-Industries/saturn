@@ -802,42 +802,29 @@ pub fn save_mcp_server_with(
     Ok(entry_id)
 }
 
-/// Port of `saveSkill`. A skill's `description` is its instructions — it is
-/// injected verbatim into the agent's system prompt by id, never by
-/// caller-supplied text.
-pub fn save_skill(
-    store: &Store,
-    id: Option<&str>,
-    name: &str,
-    emoji: &str,
-    description: &str,
-) -> Result<String, String> {
-    save_simple(store, Kind::Skill, id, name, emoji, "⚙️", description, "Instructions too long")
-}
-
-/// Port of `saveMemoryStore`. The per-store item cap the hosted product had is
-/// gone (uncapped stores were the point of the SQLite move).
-pub fn save_memory_store(
-    store: &Store,
-    id: Option<&str>,
-    name: &str,
-    emoji: &str,
-    description: &str,
-) -> Result<String, String> {
-    save_simple(store, Kind::Memory, id, name, emoji, "🧠", description, "Note too long")
-}
-
-#[allow(clippy::too_many_arguments)]
-fn save_simple(
+/// Port of `saveSkill` and `saveMemoryStore` — the two kinds that are nothing
+/// but name + emoji + description, with no secret to place. A skill's
+/// `description` is its instructions: injected verbatim into the agent's system
+/// prompt by id, never by caller-supplied text. Memory stores have no per-store
+/// item cap (uncapped stores were the point of the SQLite move).
+///
+/// The default emoji and the over-length message are properties of the kind, so
+/// they are derived here rather than passed by every caller.
+pub fn save_entry(
     store: &Store,
     kind: Kind,
     id: Option<&str>,
     name: &str,
     emoji: &str,
-    default_emoji: &str,
     description: &str,
-    too_long: &str,
 ) -> Result<String, String> {
+    let (default_emoji, too_long) = match kind {
+        Kind::Skill => ("⚙️", "Instructions too long"),
+        Kind::Memory => ("🧠", "Note too long"),
+        // mcp and variable carry config and a Keychain secret — they have their
+        // own savers and must never take this path.
+        Kind::Mcp | Kind::Variable => return Err("Unsupported kind".into()),
+    };
     let id = optional_id(id)?;
     let name = required_name(name)?;
     let emoji = match emoji.trim() {
@@ -1051,8 +1038,8 @@ mod tests {
             https_ok,
         )
         .unwrap();
-        let skill = save_skill(store, None, "Tone", "", "write tersely").unwrap();
-        let memory = save_memory_store(store, None, "Notes", "", "long term").unwrap();
+        let skill = save_entry(store, Kind::Skill, None, "Tone", "", "write tersely").unwrap();
+        let memory = save_entry(store, Kind::Memory, None, "Notes", "", "long term").unwrap();
         let var = save_variable(store, &vault, None, "API key", "hunter2", false, true).unwrap();
         let plain = save_variable(store, &vault, None, "Region", "eu-west-1", false, false).unwrap();
 
@@ -1089,12 +1076,12 @@ mod tests {
         assert!(!secrets::has(&vault, &Secret::Variable(&plain)));
 
         // updates keep ids and hit the right kind
-        save_skill(store, Some(&skill), "Tone v2", "🎯", "still tersely").unwrap();
+        save_entry(store, Kind::Skill, Some(&skill), "Tone v2", "🎯", "still tersely").unwrap();
         let rows = get_user_registry(store, &vault).unwrap();
         assert_eq!(only(&rows, "skill").name, "Tone v2");
         assert_eq!(only(&rows, "skill").emoji, "🎯");
         // the kind guard: a skill id is not editable through the memory form
-        assert_eq!(save_memory_store(store, Some(&skill), "x", "", ""), Err("Not found".into()));
+        assert_eq!(save_entry(store, Kind::Memory, Some(&skill), "x", "", ""), Err("Not found".into()));
     }
 
     /// The read path is the one place a secret could escape to the UI. It must
@@ -1251,7 +1238,7 @@ mod tests {
         let (store, vault) = (&t.1, FakeVault::default());
         let s = save_variable(store, &vault, None, "tok", "sk-live", false, true).unwrap();
         let r = save_variable(store, &vault, None, "region", "eu", false, false).unwrap();
-        let skill = save_skill(store, None, "not a variable", "", "").unwrap();
+        let skill = save_entry(store, Kind::Skill, None, "not a variable", "", "").unwrap();
 
         let lookup = variable_lookup(store, &vault);
         assert_eq!(lookup(&s).as_deref(), Some("sk-live"));
@@ -1273,7 +1260,7 @@ mod tests {
         .unwrap();
         write_mcp_oauth(store, &vault, &mcp, &McpOauth { access_token: Some("at".into()), ..Default::default() })
             .unwrap();
-        let mem = save_memory_store(store, None, "Notes", "", "").unwrap();
+        let mem = save_entry(store, Kind::Memory, None, "Notes", "", "").unwrap();
         {
             let conn = store.conn();
             let mut ins = conn
@@ -1433,33 +1420,33 @@ mod tests {
         let t = Tmp::new();
         let (store, vault) = (&t.1, FakeVault::default());
         assert_eq!(
-            save_skill(store, None, "  ", "", ""),
+            save_entry(store, Kind::Skill, None, "  ", "", ""),
             Err("Name is required (max 60 chars)".into())
         );
         assert_eq!(
-            save_skill(store, None, &"x".repeat(61), "", ""),
+            save_entry(store, Kind::Skill, None, &"x".repeat(61), "", ""),
             Err("Name is required (max 60 chars)".into())
         );
-        assert_eq!(save_skill(store, None, "s", "", &"x".repeat(2001)), Err("Instructions too long".into()));
-        assert_eq!(save_memory_store(store, None, "m", "", &"x".repeat(2001)), Err("Note too long".into()));
-        assert_eq!(save_skill(store, Some("nope"), "s", "", ""), Err("Invalid id".into()));
+        assert_eq!(save_entry(store, Kind::Skill, None, "s", "", &"x".repeat(2001)), Err("Instructions too long".into()));
+        assert_eq!(save_entry(store, Kind::Memory, None, "m", "", &"x".repeat(2001)), Err("Note too long".into()));
+        assert_eq!(save_entry(store, Kind::Skill, Some("nope"), "s", "", ""), Err("Invalid id".into()));
         assert_eq!(
             save_variable(store, &vault, None, "v", "", false, true),
             Err("Value is required".into())
         );
 
         for i in 0..MAX_ENTRIES_PER_KIND {
-            save_skill(store, None, &format!("s{i}"), "", "").unwrap();
+            save_entry(store, Kind::Skill, None, &format!("s{i}"), "", "").unwrap();
         }
         assert_eq!(
-            save_skill(store, None, "one too many", "", ""),
+            save_entry(store, Kind::Skill, None, "one too many", "", ""),
             Err("Limit of 50 skill entries reached".into())
         );
         // the cap is on insert; an update of an existing row still works
         let existing = get_user_registry(store, &vault).unwrap()[0].id.clone();
-        save_skill(store, Some(&existing), "renamed", "", "").unwrap();
+        save_entry(store, Kind::Skill, Some(&existing), "renamed", "", "").unwrap();
         // ...and it is per kind
-        save_memory_store(store, None, "still fine", "", "").unwrap();
+        save_entry(store, Kind::Memory, None, "still fine", "", "").unwrap();
     }
 
     /// The catalog shape every designer node and every grant edge is resolved
@@ -1470,8 +1457,8 @@ mod tests {
         let (store, vault) = (&t.1, FakeVault::default());
         let mcp = save_mcp_server_with(store, &vault, None, "Notion", "https://n.test/mcp", "", false, "[]", https_ok)
             .unwrap();
-        let skill = save_skill(store, None, "Tone", "", "").unwrap();
-        let memory = save_memory_store(store, None, "Notes", "", "").unwrap();
+        let skill = save_entry(store, Kind::Skill, None, "Tone", "", "").unwrap();
+        let memory = save_entry(store, Kind::Memory, None, "Notes", "", "").unwrap();
         let var = save_variable(store, &vault, None, "Key", "v", false, true).unwrap();
 
         let catalog = build_user_catalog(&get_user_registry(store, &vault).unwrap());

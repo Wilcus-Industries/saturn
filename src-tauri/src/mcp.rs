@@ -291,8 +291,24 @@ pub enum McpToolParamType {
     Object,
 }
 
+impl McpToolParamType {
+    /// The JSON Schema type string — the discovery-side enum and the wire-side
+    /// schema are the same vocabulary, and this is the one place they meet.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::String => "string",
+            Self::Number => "number",
+            Self::Boolean => "boolean",
+            Self::Array => "array",
+            Self::Object => "object",
+        }
+    }
+}
+
 /// One tool argument, derived from the MCP tool's inputSchema at discovery and
-/// stored on the registry entry's tool list.
+/// stored on the registry entry's tool list. Also the shape `openrouter`'s
+/// `ToolSpec` carries to the model client and `memory` builds its tools from —
+/// one param type, so no conversion sits in between.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct McpToolParam {
     pub name: String,

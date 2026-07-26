@@ -1,6 +1,6 @@
 // Workflow designer data model: node catalog, graph types, validation and
 // connection rules. Shared by the designer canvas and the test-run
-// interpreter; the save-time caps and shape guard it enforces are mirrored in
+// interpreter; the save-time caps and shape guard live in
 // src-tauri/src/workflow.rs, which is what actually gates a save.
 
 import catalogJson from "@/catalog.json";
@@ -18,7 +18,7 @@ import {
 // github event node types (event:github-push, …). The central GitHub App
 // webhook is the only delivery path, so these fire only once the owner has a
 // linked installation — validateGraphStrict warns on them otherwise.
-export const isGithubEventKey = (type: string): boolean => type.startsWith("event:github-");
+const isGithubEventKey = (type: string): boolean => type.startsWith("event:github-");
 
 export type PortKind = "flow" | "value";
 export type NodeCategory =
@@ -37,7 +37,7 @@ export type NodeCategory =
 // (lib/mcp.ts deriveParams) and stored on the registry's McpTool entries.
 // Defined here — the lowest layer — so client-safe registry code and the
 // server-only mcp client can both import it.
-export type McpToolParamType = "string" | "number" | "boolean" | "array" | "object";
+type McpToolParamType = "string" | "number" | "boolean" | "array" | "object";
 export type McpToolParam = {
     name: string;
     type: McpToolParamType;
@@ -135,19 +135,6 @@ export type WorkflowEdge = {
 
 export type WorkflowGraph = { nodes: WorkflowNode[]; edges: WorkflowEdge[] };
 
-// row shape of the workflow table (db/setup.sql)
-export type WorkflowRow = {
-    id: string;
-    user_id: string;
-    name: string;
-    emoji: string;
-    description: string;
-    graph: WorkflowGraph;
-    active: boolean; // gates scheduled runs only; manual/test runs ignore it
-    created_at: Date;
-    updated_at: Date;
-};
-
 export const valuePort = (id: string, label = id): PortSpec => ({ id, label, kind: "value" });
 
 // The node catalog is data, not code: catalog.json is the single source of
@@ -195,18 +182,6 @@ export const CATALOG = catalogJson as CatalogEntry[];
 export const CATALOG_BY_KEY: Record<string, CatalogEntry> = Object.fromEntries(
     CATALOG.map((entry) => [entry.key, entry]),
 );
-
-// longest node type the save action accepts — kept at the old per-tool mcp
-// headroom ("mcp:<uuid>:<toolName>" = 41 chars + a ≤60-char tool name) so
-// graphs saved before per-server nodes still pass the shape guard
-export const MAX_NODE_TYPE_LENGTH = 128;
-
-// graph persistence caps, shared by the designer's saveWorkflow action and
-// the MCP server's save_graph/validate_graph tools. The JSON cap bounds every
-// config string too — node/edge counts alone would still admit multi-MB values
-export const MAX_NODES = 300;
-export const MAX_EDGES = 600;
-export const MAX_GRAPH_JSON = 262_144;
 
 // per-model toolbox chips spawn a plain "model" node carrying config.preset set
 // to this flag, which flips the node's name to read-only (the slug came from
@@ -321,7 +296,7 @@ export const CATEGORY_STYLES = {
 // neutral palette so a missing registry entry reads as inert — this frees
 // orange to mean integration again (missing integration nodes used to borrow
 // CATEGORY_STYLES.integration's orange).
-export const MISSING_STYLES = {
+const MISSING_STYLES = {
     borderL: "border-l-gray-400",
     border: "border-gray-400/60",
     headerBg: "bg-gray-400/10",
@@ -332,7 +307,7 @@ export const MISSING_STYLES = {
 // regular (non-secret) variables paint sky, distinct from the violet
 // CATEGORY_STYLES.variable that secrets keep — a value box's color tells the two
 // modes apart at a glance. Not a NodeCategory: entryStyles selects it directly.
-export const VARIABLE_REGULAR_STYLES = {
+const VARIABLE_REGULAR_STYLES = {
     borderL: "border-l-sky-500",
     border: "border-sky-500/60",
     headerBg: "bg-sky-500/10",
@@ -354,78 +329,6 @@ export const entryStyles = (entry: CatalogEntry): CategoryStyle =>
           : CATEGORY_STYLES[entry.section ?? entry.category];
 
 type PortRef = { nodeId: string; portId: string };
-
-const isRecord = (x: unknown): x is Record<string, unknown> =>
-    typeof x === "object" && x !== null && !Array.isArray(x);
-
-const isPortRef = (x: unknown): x is PortRef =>
-    isRecord(x) && typeof x.nodeId === "string" && typeof x.portId === "string";
-
-// shape + integrity validation for graphs arriving from the client (save
-// action): unique node ids, at most one start node, edges anchored to nodes
-// that exist. Port ids aren't checked — registry node types resolve per-owner
-// at read time, so the server can't know their port lists.
-// Returns the first violation as a human/agent-readable message, or null when
-// the graph is shape-valid — MCP save_graph/validate_graph surface it so a
-// graph-authoring agent can self-correct instead of dead-ending on a generic
-// rejection (the designer never produces these shapes, so its save action
-// keeps the boolean guard).
-export function graphShapeError(g: unknown): string | null {
-    if (!isRecord(g)) return "graph must be a JSON object with nodes and edges arrays";
-    if (!Array.isArray(g.nodes)) return "graph.nodes must be an array";
-    if (!Array.isArray(g.edges)) return "graph.edges must be an array";
-
-    const nodeIds = new Set<string>();
-    for (const [i, n] of g.nodes.entries()) {
-        if (!isRecord(n)) return `nodes[${i}] must be an object`;
-        if (typeof n.id !== "string") return `nodes[${i}].id must be a string`;
-        if (nodeIds.has(n.id)) return `duplicate node id "${n.id}"`;
-        nodeIds.add(n.id);
-        // unknown types are allowed — they render as inert "(deleted)"
-        // placeholders (user registry entries resolve per-owner at read time,
-        // and removed static catalog entries must not brick saved graphs)
-        if (typeof n.type !== "string" || n.type.length > MAX_NODE_TYPE_LENGTH) {
-            return `node "${n.id}": type must be a string of at most ${MAX_NODE_TYPE_LENGTH} chars`;
-        }
-        // event-node count (max one per workflow) is a semantic rule enforced
-        // by the designer UI and validateGraphStrict, not this shape guard
-        if (
-            typeof n.x !== "number" || !Number.isFinite(n.x) ||
-            typeof n.y !== "number" || !Number.isFinite(n.y)
-        ) {
-            return `node "${n.id}": x and y must be finite numbers`;
-        }
-        if (!isRecord(n.config)) return `node "${n.id}": config must be an object`;
-        for (const [key, val] of Object.entries(n.config)) {
-            if (typeof val !== "string") {
-                return `node "${n.id}": config.${key} must be a string, got ${typeof val} — numbers and booleans are written as strings (e.g. "20", "true")`;
-            }
-        }
-    }
-
-    for (const [i, e] of g.edges.entries()) {
-        if (!isRecord(e)) return `edges[${i}] must be an object`;
-        if (typeof e.id !== "string") return `edges[${i}].id must be a string`;
-        if (!isPortRef(e.from) || !isPortRef(e.to)) {
-            return `edge "${e.id}": from and to must each be {nodeId, portId} with string values`;
-        }
-        if (!nodeIds.has(e.from.nodeId)) {
-            return `edge "${e.id}": from.nodeId "${e.from.nodeId}" is not a node in this graph`;
-        }
-        if (!nodeIds.has(e.to.nodeId)) {
-            return `edge "${e.id}": to.nodeId "${e.to.nodeId}" is not a node in this graph`;
-        }
-        if (e.kind !== "flow" && e.kind !== "value") {
-            return `edge "${e.id}": kind must be "flow" or "value"`;
-        }
-    }
-
-    return null;
-}
-
-export function isWorkflowGraph(g: unknown): g is WorkflowGraph {
-    return graphShapeError(g) === null;
-}
 
 function findPort(
     graph: WorkflowGraph,
@@ -503,11 +406,11 @@ export type ValidationIssue = {
 // — every other source is dynamic and resolves to blank. Duplicated as
 // STATIC_VALUE_TYPES in src-tauri/src/events.rs so this validator's warning and
 // the resolver stay in lockstep.
-export const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
+const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
 
 // deep validation for graphs authored without the designer's UI guardrails
 // (the MCP server's validate_graph/save_graph tools). Assumes the graph
-// already passed isWorkflowGraph. Errors are states the canvas can't produce
+// already passed the Rust shape guard. Errors are states the canvas can't produce
 // (bad ports, kind mismatches, duplicate edges, fan-in on single-edge value
 // inputs, a chip wired into a mismatched accepts port, more than one event
 // node); warnings are legal-but-probably-unintended states (unknown node types

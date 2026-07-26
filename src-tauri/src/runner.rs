@@ -24,7 +24,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::agent;
 use crate::interpreter::{js, run_workflow, utf16_prefix, ConsoleLine, Effects, Graph, Kind};
 use crate::mcp::McpError;
-use crate::openrouter::{self, ChatRequest, ToolParam, ToolSpec};
+use crate::openrouter::{self, ChatRequest, ToolSpec};
 use crate::registry::{self, Entry};
 use crate::secrets::{self, Secret, Vault};
 use crate::store::{RunStatus, RunTrigger, Store, Workflow};
@@ -148,50 +148,6 @@ fn valid_model_id(s: &str) -> bool {
     (1..=128).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_.:/-".contains(&b))
-}
-
-fn to_param(p: &crate::mcp::McpToolParam) -> ToolParam {
-    use crate::mcp::McpToolParamType as T;
-    ToolParam {
-        name: p.name.clone(),
-        // the discovery-side enum and the wire-side JSON Schema type are the
-        // same vocabulary; this is the one place they meet
-        param_type: match p.param_type {
-            T::String => "string",
-            T::Number => "number",
-            T::Boolean => "boolean",
-            T::Array => "array",
-            T::Object => "object",
-        }
-        .to_string(),
-        required: p.required,
-        description: p.description.clone(),
-    }
-}
-
-/// `memoryToolSpecs` output in the shape `buildToolDefs` consumes. The two
-/// modules describe a tool with different structs (memory's is `'static`, the
-/// registry's is owned); this is the seam, not a third spec type.
-fn memory_spec(m: crate::memory::ToolSpec) -> ToolSpec {
-    ToolSpec {
-        tool_ref: agent::ToolRef {
-            entry_id: m.entry_id,
-            tool_name: m.tool_name.to_string(),
-            exclude: Vec::new(),
-        },
-        description: Some(m.description.to_string()),
-        params: Some(
-            m.params
-                .iter()
-                .map(|p| ToolParam {
-                    name: p.name.to_string(),
-                    param_type: p.kind.to_string(),
-                    required: p.required,
-                    description: Some(p.description.to_string()),
-                })
-                .collect(),
-        ),
-    }
 }
 
 /// One MCP tool call for a workflow run (`executeMcpTool`). Returns errors as
@@ -336,7 +292,7 @@ fn agent_turn(
                             exclude: Vec::new(),
                         },
                         description: tool.description.clone(),
-                        params: tool.params.as_ref().map(|p| p.iter().map(to_param).collect()),
+                        params: tool.params.clone(),
                     });
                 }
             }
@@ -357,7 +313,7 @@ fn agent_turn(
             specs.push(ToolSpec {
                 tool_ref: grant.clone(),
                 description: tool.description.clone(),
-                params: tool.params.as_ref().map(|p| p.iter().map(to_param).collect()),
+                params: tool.params.clone(),
             });
         }
     }
@@ -387,9 +343,7 @@ fn agent_turn(
             "\n\n## Memory: {}\n{}\nSearch before answering questions that may involve prior context; save durable facts (not transcripts); forget stale items by id.",
             row.name, row.description
         ));
-        let memory_specs: Vec<ToolSpec> =
-            crate::memory::memory_tool_specs(memory_id).into_iter().map(memory_spec).collect();
-        specs.splice(0..0, memory_specs);
+        specs.splice(0..0, crate::memory::memory_tool_specs(memory_id));
     }
 
     let api_key =
@@ -912,7 +866,7 @@ mod tests {
         let (dir, store, vault) = temp_store();
         // registry.rs + secrets.rs: a memory store and a secret variable, saved
         // through the real CRUD, with the value landing in the vault
-        let memory_id = registry::save_memory_store(&store, None, "notes", "", "").unwrap();
+        let memory_id = registry::save_entry(&store, registry::Kind::Memory, None, "notes", "", "").unwrap();
         let variable_id =
             registry::save_variable(&store, &vault, None, "endpoint", "http://x", false, true)
                 .unwrap();
@@ -998,7 +952,7 @@ mod tests {
     #[test]
     fn the_tool_effect_reaches_memory_and_mcp() {
         let (dir, store, vault) = temp_store();
-        let memory_id = registry::save_memory_store(&store, None, "notes", "", "").unwrap();
+        let memory_id = registry::save_entry(&store, registry::Kind::Memory, None, "notes", "", "").unwrap();
         // memory.rs: dispatch guard, then embed's BYOK gate — no key, no socket
         assert_eq!(
             execute_tool(&store, &vault, true, &memory_id, "memory_nope", "{}"),

@@ -31,8 +31,11 @@ use rusqlite::params;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
+use crate::agent::ToolRef;
 use crate::interpreter::js::{self, J};
 use crate::interpreter::utf16_prefix;
+use crate::mcp::{McpToolParam, McpToolParamType};
+use crate::openrouter::ToolSpec;
 // one canonical copy of each: the uuid shape check lives with UUID_RE's port,
 // the civil calendar with the cron port. Two copies of a validator is one place
 // to drift.
@@ -70,59 +73,70 @@ const MEMORY_SAVE: &str = MEMORY_TOOL_NAMES[1];
 
 // --- tool specs -------------------------------------------------------------
 
-/// One parameter of a memory tool, in `McpToolParam` shape (lib/workflow.ts) so
-/// the model client builds the same JSON schema it builds for MCP tools.
-pub struct ToolParam {
-    pub name: &'static str,
-    pub kind: &'static str, // "string" | "number" | …
-    pub required: bool,
-    pub description: &'static str,
+fn param(
+    name: &str,
+    param_type: McpToolParamType,
+    required: bool,
+    description: &str,
+) -> McpToolParam {
+    McpToolParam {
+        name: name.to_string(),
+        param_type,
+        required,
+        description: Some(description.to_string()),
+    }
 }
 
-/// `AgentToolSpec` with the ref flattened: `entry_id` is the memory store id,
-/// mirroring an MCP tool ref, and it is what makes `agent::run_loop`'s
-/// `is_memory` test (`req.memory_id == call.entry_id`) fire.
-pub struct ToolSpec {
-    pub entry_id: String,
-    pub tool_name: &'static str,
-    pub description: &'static str,
-    pub params: Vec<ToolParam>,
+/// One memory tool as `buildToolDefs` consumes it — the same `ToolSpec` a
+/// granted MCP tool resolves to, with the ref flattened: `entry_id` is the
+/// memory store id, mirroring an MCP tool ref, and it is what makes
+/// `agent::run_loop`'s `is_memory` test (`req.memory_id == call.entry_id`) fire.
+fn spec(memory_id: &str, tool_name: &str, description: &str, params: Vec<McpToolParam>) -> ToolSpec {
+    ToolSpec {
+        tool_ref: ToolRef {
+            entry_id: memory_id.to_string(),
+            tool_name: tool_name.to_string(),
+            exclude: Vec::new(),
+        },
+        description: Some(description.to_string()),
+        params: Some(params),
+    }
 }
 
 /// The three tools one attached memory store contributes.
 pub fn memory_tool_specs(memory_id: &str) -> Vec<ToolSpec> {
     vec![
-        ToolSpec {
-            entry_id: memory_id.to_string(),
-            tool_name: MEMORY_TOOL_NAMES[0],
-            description: "Semantic search over the attached memory store. Returns the most relevant saved items with their ids, content, similarity score, and timestamps.",
-            params: vec![
-                ToolParam { name: "query", kind: "string", required: true, description: "what to look for" },
-                ToolParam { name: "limit", kind: "number", required: false, description: "max results, 1-20, default 5" },
+        spec(
+            memory_id,
+            MEMORY_TOOL_NAMES[0],
+            "Semantic search over the attached memory store. Returns the most relevant saved items with their ids, content, similarity score, and timestamps.",
+            vec![
+                param("query", McpToolParamType::String, true, "what to look for"),
+                param("limit", McpToolParamType::Number, false, "max results, 1-20, default 5"),
             ],
-        },
-        ToolSpec {
-            entry_id: memory_id.to_string(),
-            tool_name: MEMORY_TOOL_NAMES[1],
-            description: "Store a durable fact, preference, or summary in the memory store (max 2000 chars). For lasting knowledge worth recalling later — not raw transcripts.",
-            params: vec![ToolParam {
-                name: "content",
-                kind: "string",
-                required: true,
-                description: "the fact or summary to remember",
-            }],
-        },
-        ToolSpec {
-            entry_id: memory_id.to_string(),
-            tool_name: MEMORY_TOOL_NAMES[2],
-            description: "Permanently delete one memory item by its id (ids come from memory_search results).",
-            params: vec![ToolParam {
-                name: "id",
-                kind: "string",
-                required: true,
-                description: "id of the memory item to delete",
-            }],
-        },
+        ),
+        spec(
+            memory_id,
+            MEMORY_TOOL_NAMES[1],
+            "Store a durable fact, preference, or summary in the memory store (max 2000 chars). For lasting knowledge worth recalling later — not raw transcripts.",
+            vec![param(
+                "content",
+                McpToolParamType::String,
+                true,
+                "the fact or summary to remember",
+            )],
+        ),
+        spec(
+            memory_id,
+            MEMORY_TOOL_NAMES[2],
+            "Permanently delete one memory item by its id (ids come from memory_search results).",
+            vec![param(
+                "id",
+                McpToolParamType::String,
+                true,
+                "id of the memory item to delete",
+            )],
+        ),
     ]
 }
 
@@ -682,9 +696,9 @@ mod tests {
         assert!(!is_uuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa") && !is_uuid(""));
 
         let specs = memory_tool_specs(STORE_A);
-        assert!(specs.iter().all(|s| s.entry_id == STORE_A));
+        assert!(specs.iter().all(|s| s.tool_ref.entry_id == STORE_A));
         assert_eq!(
-            specs.iter().map(|s| s.tool_name).collect::<Vec<_>>(),
+            specs.iter().map(|s| s.tool_ref.tool_name.as_str()).collect::<Vec<_>>(),
             MEMORY_TOOL_NAMES.to_vec(),
         );
     }

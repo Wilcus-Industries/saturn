@@ -25,12 +25,8 @@ import {
     validateGraphStrict,
     type WorkflowGraph,
 } from "@/lib/workflow";
-// the interpreter runs in Rust now; this type-only import is compile-erased and
-// keeps the console line shape in one place (lib/interpreter.ts is still the
-// oracle for the golden fixtures)
-import type { ConsoleLine } from "@/lib/interpreter";
 import { sampleEventPayload } from "@/lib/integrations";
-import { call, callVoid, onEvent } from "@/lib/ipc";
+import { call, callVoid, type ConsoleLine, onEvent } from "@/lib/ipc";
 import Canvas, { type CanvasHandle, type PendingDrag } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";

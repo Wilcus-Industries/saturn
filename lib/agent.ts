@@ -36,30 +36,11 @@ export const MAX_AGENT_TURNS = 8; // LLM calls per agent loop
 export const MAX_AGENT_MESSAGES = 60; // transcript length cap per model call
 export const MAX_TOOL_CALLS_PER_TURN = 5;
 
-// shared model-id shape + reasoning-mode allowlist for both agent paths
-// (executeAgentTurn and the Agent-page chat runAgentChat)
-export const MODEL_ID = /^[\w.:/-]{1,128}$/;
-export const REASONING_MODES = new Set(["off", "low", "medium", "high"]);
-
-// allowlist a reasoning-mode string → OpenRouter `reasoning` param. Unknown or
-// blank → undefined (model default); "off" disables reasoning; effort levels
-// (low/medium/high) pass through as { effort }.
-export function toReasoningParam(
-    mode: string | undefined,
-): { enabled: false } | { effort: string } | undefined {
-    if (typeof mode !== "string" || !REASONING_MODES.has(mode)) return undefined;
-    return mode === "off" ? { enabled: false } : { effort: mode };
-}
-
 // grants are now edges from chip nodes into the agent's tools/skills ports —
 // these cap how many an agent may carry (mirrored by src-tauri/src/agent.rs,
 // enforced on every agent request in src-tauri/src/runner.rs)
 export const MAX_GRANTED_TOOLS = 20;
 export const MAX_GRANTED_SKILLS = 10;
-
-// wire-format tool names exposed to an agent granted a memory store node —
-// the persistent-memory read/write/delete surface (built server-side)
-export const MEMORY_TOOL_NAMES = ["memory_search", "memory_save", "memory_forget"] as const;
 
 // sentinel toolName of the MCP server grant chip (node type "mcp:<uuid>:*"
 // — the only mcp node type the catalog emits). It resolves like any tool
@@ -67,15 +48,14 @@ export const MEMORY_TOOL_NAMES = ["memory_search", "memory_save", "memory_forget
 // minus the ref's exclude list — no real tool is ever named "*" (registry
 // skips one that is), so the sentinel can't collide.
 export const ALL_TOOLS = "*";
-export const isAllToolsRef = (ref: AgentToolRef): boolean => ref.toolName === ALL_TOOLS;
 
 // per-node tool selection: a server node's config.exclude holds a JSON
 // array (as a string — graph config values are strings) of tool names to
 // withhold. Caps mirror lib/registry.ts's MAX_MCP_TOOLS / tool-name length
 // (importing registry here would cycle: registry imports this module).
-export const MAX_EXCLUDED_TOOLS = 40;
+const MAX_EXCLUDED_TOOLS = 40;
 
-export const isToolExclusionList = (x: unknown): x is string[] =>
+const isToolExclusionList = (x: unknown): x is string[] =>
     Array.isArray(x) &&
     x.length <= MAX_EXCLUDED_TOOLS &&
     x.every((s) => typeof s === "string" && s.length > 0 && s.length <= 60);

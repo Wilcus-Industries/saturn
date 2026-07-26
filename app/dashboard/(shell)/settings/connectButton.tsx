@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import ActionButton from "@/app/dashboard/actionButton";
+import Spinner from "@/app/dashboard/spinner";
 import { call } from "@/lib/ipc";
 
 // pulls tools/list for one MCP server and merges the result into its stored
@@ -20,6 +20,7 @@ export default function ConnectButton({
     onDiscovered: () => void;
 }) {
     const [status, setStatus] = useState<{ text: string; bad: boolean } | null>(null);
+    const [pending, setPending] = useState(false);
 
     return (
         <>
@@ -31,10 +32,14 @@ export default function ConnectButton({
                     {status.text}
                 </span>
             )}
-            <form
-                className={"ml-auto"}
-                action={async () => {
+            <button
+                type={"button"}
+                disabled={pending}
+                aria-busy={pending}
+                className={"ml-auto text-blue-400"}
+                onClick={async () => {
                     setStatus(null);
+                    setPending(true);
                     let count: number;
                     try {
                         count = await call<number>("discover_mcp_tools", { id });
@@ -51,13 +56,15 @@ export default function ConnectButton({
                             bad: true,
                         });
                         return;
+                    } finally {
+                        setPending(false);
                     }
                     setStatus({ text: `${count} tool${count === 1 ? "" : "s"} found`, bad: false });
                     onDiscovered();
                 }}
             >
-                <ActionButton className={"text-blue-400"}>{label}</ActionButton>
-            </form>
+                {pending ? <Spinner /> : label}
+            </button>
         </>
     );
 }

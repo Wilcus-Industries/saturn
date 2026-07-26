@@ -39,6 +39,14 @@ export const callVoid = (cmd: string, args?: Record<string, unknown>) => {
 export const onEvent = <T,>(name: string, fn: (payload: T) => void) =>
     listen<T>(name, (e) => fn(e.payload));
 
+/// Payload of the `run-log` event Rust pushes while a run executes, and the
+/// shape stored in `workflow_run.log`. Lives here because this is the seam it
+/// crosses. kind "image": text is a data:image/… URL — the designer console
+/// renders it inline; a stored run log keeps a placeholder instead.
+/// fixtures/interpreter.ts declares its own copy on purpose: the oracle must
+/// not depend on the app.
+export type ConsoleLine = { kind: "print" | "info" | "warn" | "error" | "image"; text: string };
+
 /// Emitted by Rust after any background mutation — a scheduled run finishing, an
 /// event delivering. NOT emitted for IPC mutations: the caller of those already
 /// knows, and echoing them back would make every save refetch twice.

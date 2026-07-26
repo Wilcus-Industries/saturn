@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import ConfirmButton from "@/app/dashboard/confirmButton";
+import EntryModal from "@/app/dashboard/entryModal";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import type { RegistryEntryRow } from "@/lib/registry";
-import MemoryModal from "./memoryModal";
 
 // module-level so it is stable for useAsync — nothing here depends on props
 const load = () =>
@@ -76,13 +76,12 @@ export default function Memory() {
                                     {count} {count === 1 ? "memory" : "memories"} →
                                 </Link>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
-                                    <MemoryModal entry={entry} onSaved={reload} />
+                                    <EntryModal kind={"memory"} entry={entry} onSaved={reload} />
                                     <ConfirmButton
-                                        id={entry.id}
                                         // only throws on a malformed id; a row that
                                         // is already gone resolves false, and either
                                         // way the refetch shows the truth
-                                        action={async () => {
+                                        onConfirm={async () => {
                                             await call("delete_registry_entry", {
                                                 id: entry.id,
                                             }).catch(() => {});
@@ -96,7 +95,7 @@ export default function Memory() {
                 })}
             </div>
 
-            <MemoryModal onSaved={reload} />
+            <EntryModal kind={"memory"} onSaved={reload} />
         </div>
     );
 }

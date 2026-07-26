@@ -3,12 +3,13 @@
 import { useCallback, useState } from "react";
 import ActionButton from "@/app/dashboard/actionButton";
 import ConfirmButton from "@/app/dashboard/confirmButton";
+import EntryModal from "@/app/dashboard/entryModal";
+import Field from "@/app/dashboard/field";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import { faviconDomain, type RegistryEntryRow } from "@/lib/registry";
 import ConnectButton from "./connectButton";
 import McpEntryModal from "./mcpEntryModal";
-import SkillModal from "./skillModal";
 
 // the two Keychain-backed secrets on this page are the same form twice: a
 // password field, a clear checkbox that only exists once something is stored,
@@ -48,16 +49,14 @@ function SecretForm({
                 onSaved();
             }}
         >
-            <label className={"flex flex-col gap-1"}>
-                <span className={"font-mono text-xs text-gray-400"}>{field}</span>
-                <input
-                    name={"value"}
-                    type={"password"}
-                    autoComplete={"off"}
-                    placeholder={isSet ? "•••• set — leave blank to keep" : placeholder}
-                    className={"border border-foreground/15 bg-background p-2 font-mono text-sm"}
-                />
-            </label>
+            {/* uncontrolled on purpose — write-only, so there is nothing to prefill */}
+            <Field
+                label={field}
+                name={"value"}
+                type={"password"}
+                autoComplete={"off"}
+                placeholder={isSet ? "•••• set — leave blank to keep" : placeholder}
+            />
 
             {error && <p className={"font-mono text-xs text-red-400"}>{error}</p>}
 
@@ -127,10 +126,10 @@ export default function Settings() {
     // at the top of the page rather than vanishing
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const remove = useCallback(
-        async (formData: FormData) => {
+        async (id: string) => {
             setDeleteError(null);
             try {
-                await call<boolean>("delete_registry_entry", { id: String(formData.get("id") ?? "") });
+                await call<boolean>("delete_registry_entry", { id });
             } catch (err) {
                 setDeleteError(err instanceof Error ? err.message : "Delete failed");
                 return;
@@ -217,7 +216,7 @@ export default function Settings() {
                                         </div>
                                         <div className={"ml-auto flex shrink-0 items-center gap-3"}>
                                             <McpEntryModal entry={entry} onSaved={reload} />
-                                            <ConfirmButton id={entry.id} action={remove} />
+                                            <ConfirmButton onConfirm={() => remove(entry.id)} />
                                         </div>
                                     </div>
                                     <div
@@ -266,13 +265,13 @@ export default function Settings() {
                                     )}
                                 </div>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
-                                    <SkillModal entry={entry} onSaved={reload} />
-                                    <ConfirmButton id={entry.id} action={remove} />
+                                    <EntryModal kind={"skill"} entry={entry} onSaved={reload} />
+                                    <ConfirmButton onConfirm={() => remove(entry.id)} />
                                 </div>
                             </div>
                         ))}
 
-                        <SkillModal onSaved={reload} />
+                        <EntryModal kind={"skill"} onSaved={reload} />
                     </section>
 
                     {/* the central GitHub App is gone — one fine-grained read-only

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import DeleteWorkflowButton from "@/app/dashboard/deleteWorkflowButton";
+import ConfirmButton from "@/app/dashboard/confirmButton";
+import { call } from "@/lib/ipc";
 import ActiveToggle from "./activeToggle";
 import LinkSpinner from "./linkSpinner";
 import WorkflowModal from "./workflowModal";
@@ -94,7 +95,15 @@ export default function WorkflowCard({
                     group-hover:opacity-100 max-sm:opacity-100`}
             >
                 <WorkflowModal workflow={workflow} onSaved={onChanged} />
-                <DeleteWorkflowButton id={workflow.id} onDeleted={onChanged} />
+                {/* delete_workflow is idempotent and a failure leaves nothing
+                    the user could act on, so either way the list refetches */}
+                <ConfirmButton
+                    onConfirm={() =>
+                        call("delete_workflow", { id: workflow.id })
+                            .catch(() => {})
+                            .then(onChanged)
+                    }
+                />
             </div>
         </div>
     );

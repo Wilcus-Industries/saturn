@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FaAnglesLeft, FaAnglesRight } from "react-icons/fa6";
+import { AnglesLeft, AnglesRight } from "./icons";
 import AsciiSaturn from "@/app/dashboard/asciiSaturn";
 import { NAV, isActive } from "./nav";
 import NavIcon from "./navIcon";
@@ -96,7 +96,7 @@ export default function Sidebar() {
                 className={`m-2 flex items-center justify-center rounded-full border border-foreground
                     bg-background p-2 transition-colors duration-200 hover:bg-foreground hover:text-background`}
             >
-                {collapsed ? <FaAnglesRight className={"h-3.5 w-3.5"} /> : <FaAnglesLeft className={"h-3.5 w-3.5"} />}
+                {collapsed ? <AnglesRight className={"h-3.5 w-3.5"} /> : <AnglesLeft className={"h-3.5 w-3.5"} />}
             </button>
         </aside>
     );
