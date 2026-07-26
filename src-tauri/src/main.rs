@@ -490,7 +490,14 @@ fn main() {
             let open = MenuItem::with_id(app, "open", "Open Saturn", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Saturn", true, None::<&str>)?;
             TrayIconBuilder::new()
-                .icon(app.default_window_icon().expect("bundled icon").clone())
+                // A template image, not the app icon: black shapes plus alpha,
+                // which AppKit inverts for a dark menu bar and fills white while
+                // the menu is open. The colour icon can do neither — it would
+                // stay gold on both appearances and sit there unlit on click.
+                // `include_bytes!` so a missing file is a build error rather
+                // than a tray that silently comes up blank at runtime.
+                .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?)
+                .icon_as_template(true)
                 .tooltip("Saturn")
                 .menu(&Menu::with_items(app, &[&open, &quit])?)
                 // macOS convention: left click opens, the menu is the right-click

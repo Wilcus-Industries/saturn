@@ -11,7 +11,10 @@ tauri-build = { version = "2.6", features = [] }
 [dependencies]
 # tray-icon: the window closes to the menu bar rather than exiting, so the tray
 # is the only way back to a hidden window — and the only way to actually quit.
-tauri = { version = "2.11", features = ["tray-icon"] }
+# image-png: decodes icons/tray.png at startup. The bundled app icon arrives
+# pre-decoded through tauri-build, but the tray needs a separate template image
+# and `Image::from_bytes` is gated behind this.
+tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
 # Second launch focuses the running window instead of opening a second process
 # against the same saturn.db. SQLite is single-writer and `Store` is one
 # connection behind a mutex, so two processes would not queue — they would

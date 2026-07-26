@@ -444,11 +444,44 @@ Two consequences worth knowing before they surprise someone:
   to `/Applications` first. Nothing enforces it, deliberately: a debug build living
   in `/Applications` is a legitimate thing to run, so any check would be guessing.
 
-### 3.12 The tray icon is the app icon, not a template icon
+### 3.12 Both icons are generated, and the sources are the thing to edit
 
-`TrayIconBuilder` is handed `default_window_icon()` — the colored ring — rather
-than a monochrome template. macOS will scale it into the menu bar and it reads
-fine, but it will not invert with the system appearance the way a template icon
-does. Flattening Saturn's mark to a silhouette loses the thing that identifies it,
-so this is a deliberate choice and not an oversight. Revisit only if it looks
-wrong against a light menu bar in practice.
+Everything under `src-tauri/icons/` except `source/` is derived, and the next
+`npx tauri icon` will overwrite all of it without asking.
+
+- **App icon** — the source is **`app/icon.png`**, the ASCII-saturn mark the app
+  already ships as its favicon, run through `npx tauri icon` to produce the four
+  sizes `tauri.conf.json` lists plus the `.icns`. It is deliberately not redrawn:
+  the ASCII saturn is Saturn's identity, it appears in the UI (`asciiSaturn.tsx`
+  renders the same intensity grids), and an app icon that merely resembles the
+  mark is worse than one that is the mark.
+
+  The consequence to accept: ASCII art is a texture, so the icon reads at 128 and
+  64, goes faint at 32, and is unreadable at 16. Nothing fixes that short of a
+  separate small-size drawing, which would reintroduce exactly the two-identities
+  problem above. `app/icon.png` is 512, so the `.icns` 1024 slot is an upscale —
+  visible only in Get Info, and the fix is to re-render the grids at 1024 rather
+  than to enlarge the PNG.
+- **Tray icon** — `source/tray.svg` → `icons/tray.png`, loaded through
+  `Image::from_bytes(include_bytes!(...))` with `icon_as_template(true)`. It is a
+  macOS template image: black plus alpha, nothing else, so AppKit can invert it
+  for a dark menu bar and fill it white while the menu is open. A colour icon can
+  do neither.
+
+  This one **is** a separate drawing, and unlike the app icon that is the right
+  call: a template is pure silhouette, and the ASCII mark downsampled to 18pt is
+  a grey smudge — every glyph lands on a fraction of a pixel and becomes partial
+  alpha, which macOS renders as translucent mush rather than a shape.
+
+Two constraints that are easy to violate by "fixing" the files:
+
+- **The tray canvas is 44x32, not square.** `tray-icon` scales to 18pt of height
+  and preserves aspect (`tray-icon-0.24.1` `macos/mod.rs:296`), so a square canvas
+  fits Saturn's 2:1 silhouette to 18pt wide and leaves it ~9pt tall.
+- **Rasterize with Chrome, not ImageMagick.** ImageMagick's internal MSVG
+  renderer drops `mask` without erroring — the tray icon comes out as a bare disc
+  with no rings, and it looks like a design choice rather than a broken render.
+
+Non-macOS output from `npx tauri icon` (`icon.ico`, the `Square*Logo` set,
+`android/`, `ios/`) is deleted rather than committed. v1 is macOS only, so those
+files would only ever be stale copies of an icon nobody regenerates.
