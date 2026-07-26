@@ -282,10 +282,7 @@ export default function Settings() {
                         <h2 className={"font-mono text-xl"}>GitHub</h2>
 
                         <p className={"font-mono text-sm text-gray-400"}>
-                            optional — public repos poll fine without a token, at 60 requests/hour
-                            shared across every watch instead of 5,000. github-star watches are the
-                            exception: one of them spends ~120 requests/hour on its own, so they
-                            need a token to work at all.
+                            optional - add a personal access token for higher rate limits on GitHub.
                         </p>
 
                         <SecretForm
@@ -301,12 +298,6 @@ export default function Settings() {
                         className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
                     >
                         <h2 className={"font-mono text-xl"}>Startup</h2>
-
-                        <p className={"font-mono text-sm text-gray-400"}>
-                            closing the window hides Saturn to the menu bar — schedules keep firing
-                            and the Discord, Telegram and GitHub watches stay connected. quit from
-                            the menu bar icon to actually stop them.
-                        </p>
 
                         <AutostartToggle enabled={autostart} onChanged={reload} />
 

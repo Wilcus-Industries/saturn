@@ -220,7 +220,31 @@ export default function AgentChat({
                 <div ref={scrollRef} className={"absolute inset-0 overflow-y-auto"}>
                     <div className={"mx-auto flex w-full max-w-2xl flex-col gap-6 py-6"}>
                         {messages.map((m, i) =>
-                            m.role === "user" ? (
+                            m.role === "summary" ? (
+                                /* the turns above this line are still on screen but no
+                                   longer re-sent; the notes that replaced them are what
+                                   the model reads, so they are readable here too */
+                                <details key={i} className={"message-enter group"}>
+                                    <summary
+                                        className={
+                                            "flex cursor-pointer list-none items-center gap-3 " +
+                                            "font-mono text-xs text-gray-400/80 hover:text-foreground"
+                                        }
+                                    >
+                                        <span className={"h-px flex-1 bg-foreground/10"} />
+                                        <span>earlier history compacted</span>
+                                        <span className={"h-px flex-1 bg-foreground/10"} />
+                                    </summary>
+                                    <p
+                                        className={
+                                            "mt-3 whitespace-pre-wrap break-words font-mono text-xs " +
+                                            "leading-relaxed text-gray-400/80"
+                                        }
+                                    >
+                                        {m.content}
+                                    </p>
+                                </details>
+                            ) : m.role === "user" ? (
                                 <div key={i} className={"flex justify-end"}>
                                     <div
                                         className={

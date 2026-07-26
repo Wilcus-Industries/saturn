@@ -610,6 +610,29 @@ TypeScript exactly, or the two would disagree about the same graph. That, not th
 it came back as `localStorage`, read in a mount effect. Cookies remain impossible;
 the preference did not.
 
+**Context compaction is a fold, not a trim.** A 60-row window of 24 000-char
+messages could reach the model as ~1.4M chars, and nothing here counts tokens —
+`parse_models` does not read `context_length`, `chat_complete` does not read
+`usage`, and a provider's context-length 400 arrives as an opaque string with no
+shrink-and-retry. The obvious fix — drop the oldest turns — is what makes a chat
+feel lobotomized, so `saturn::compact` summarizes them instead and appends the
+result as a `role = 'summary'` row watermarked with the last id it covers
+(`docs/ui.md`). Three deliberate calls: **a char budget, not a token one**
+(nothing knows any model's window, and a budget wrong by 2× still prevents the
+400); **no schema change** — the watermark rides in the existing `parts` blob,
+because `store.rs` has no migration machinery and a new column would not reach an
+existing `saturn.db`; and **`window` as the only edit site**, so the `agent`
+node's `session` chip (`history`) inherits it without a second implementation.
+
+Not done, and the reason: **one turn's own tool results are still unbounded** —
+8 turns × 5 calls × `MAX_TOOL_RESULT` is larger than the history compaction now
+folds, because `wire` grows in place across the tool loop and never re-reads the
+window. Compaction bounds what a turn *starts* with, not what it accumulates.
+Budget it too if a tool-heavy turn starts overflowing. Compaction also never
+fires on the `agent`-node write path (`record_exchange` has no key or model); it
+reads compacted windows but cannot make one, so that path stays bounded by the
+60-row cap exactly as before.
+
 ### 3.11 Signing, notarization and auto-update are cut from v1
 
 `tauri build` produces an **unsigned, un-notarized** `Saturn.app`. On this machine

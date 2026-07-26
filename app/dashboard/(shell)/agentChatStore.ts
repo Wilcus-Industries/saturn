@@ -33,8 +33,11 @@ export type ToolPart = {
     result?: string;
 };
 export type Part = { kind: "reasoning" | "text"; text: string } | ToolPart;
+// `summary` is a compaction marker, not a turn: the rows it stands for are still
+// above it in the transcript, and only the model's window skips them.
 export type ChatMessage =
     | { role: "user"; content: string }
+    | { role: "summary"; content: string }
     | { role: "assistant"; parts: Part[]; error?: string };
 
 type Assistant = Extract<ChatMessage, { role: "assistant" }>;
@@ -168,7 +171,36 @@ if (typeof window !== "undefined") {
         if (f.sessionId !== sessionId) return;
         streaming = false;
         emit();
+        // the record is authoritative once the turn is over, and it is where a
+        // compaction summary appears — the turn loop wrote it, nothing streamed
+        // it. NOT after a failure: `error` is set from the `e` frame and never
+        // persisted, so refetching would silently wipe the red line off a turn
+        // the user needs to see failed
+        const last = messages[messages.length - 1];
+        if (last?.role === "assistant" && last.error) return;
+        void reload(sessionId);
     });
+}
+
+/// Pull the stored transcript over the cached one, without blanking first.
+/// Called on arrival and again after every turn: compaction happens server-side
+/// between turns and appends a summary row nothing streams, so without this the
+/// divider would not show up until the next session switch.
+async function reload(id: string): Promise<void> {
+    const stored = await call<{ role: string; content: string; parts: Part[] }[]>(
+        "saturn_get_messages",
+        { sessionId: id },
+    );
+    // a slow load for a session the user already switched away from must not
+    // overwrite the one now on screen — nor may one landing mid-way into the
+    // NEXT turn wipe the reply already streaming into it
+    if (sessionId !== id || streaming) return;
+    messages = stored.map((m) =>
+        m.role === "user" || m.role === "summary"
+            ? { role: m.role, content: m.content }
+            : { role: "assistant", parts: m.parts },
+    );
+    emit();
 }
 
 /// Switch the visible chat. Replaces the cached transcript with the stored one —
@@ -180,19 +212,7 @@ export async function setSession(id: string): Promise<void> {
     messages = [];
     streaming = false;
     emit();
-    const stored = await call<{ role: string; content: string; parts: Part[] }[]>(
-        "saturn_get_messages",
-        { sessionId: id },
-    );
-    // a slow load for a session the user already switched away from must not
-    // overwrite the one now on screen
-    if (sessionId !== id) return;
-    messages = stored.map((m) =>
-        m.role === "user"
-            ? { role: "user", content: m.content }
-            : { role: "assistant", parts: m.parts },
-    );
-    emit();
+    await reload(id);
 }
 
 export async function send(

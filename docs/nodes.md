@@ -278,6 +278,7 @@ carries the copies the designer needs for its warnings and tool picker.
 | `MAX_TOOL_CALLS_PER_TURN` | 5 | `agent.rs` |
 | `MAX_AGENT_MCP_CALLS` | 40 | `agent.rs` — memory calls debit the same budget |
 | `MAX_AGENT_MESSAGES` | 60 | `agent.rs` — transcript length per model call |
+| `COMPACT_AT` / `KEEP_RECENT` | 100 000 / 12 | `saturn.rs` — chat window chars before folding, and the tail never folded |
 | `MAX_GRANTED_TOOLS` / `MAX_GRANTED_SKILLS` | 20 / 10 | `agent.rs` + `lib/agent.ts` |
 | `MAX_MODEL_RESULT_CHARS` | 24 000 | `agent.rs` — tool result fed back to the model |
 | `MAX_MODEL_CONTENT` | 20 000 | `runner.rs` — model output kept per turn |
