@@ -3,7 +3,7 @@ name = "saturn"
 version = "0.1.0"
 description = "Saturn workflow automation"
 edition = "2021"
-license = "PolyForm-Noncommercial-1.0.0"
+license = "MIT"
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }

@@ -34,4 +34,4 @@ the codebase.
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE.md) - free to use, modify, and share for any noncommercial purpose.
+[MIT](LICENSE.md)
