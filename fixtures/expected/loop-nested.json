@@ -1,0 +1,155 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "x1"
+    },
+    {
+      "kind": "print",
+      "text": "x2"
+    },
+    {
+      "kind": "print",
+      "text": "x3"
+    },
+    {
+      "kind": "print",
+      "text": "inner done"
+    },
+    {
+      "kind": "print",
+      "text": "y1"
+    },
+    {
+      "kind": "print",
+      "text": "y2"
+    },
+    {
+      "kind": "print",
+      "text": "y3"
+    },
+    {
+      "kind": "print",
+      "text": "inner done"
+    },
+    {
+      "kind": "print",
+      "text": "outer done"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (12 steps)"
+    }
+  ],
+  "values": [
+    [
+      "outerItems",
+      "out",
+      "[\"x\",\"y\"]"
+    ],
+    [
+      "innerItems",
+      "out",
+      "1,2,3"
+    ],
+    [
+      "outer",
+      "item",
+      "x"
+    ],
+    [
+      "inner",
+      "item",
+      "1"
+    ],
+    [
+      "cat",
+      "out",
+      "x1"
+    ],
+    [
+      "outer",
+      "item",
+      "x"
+    ],
+    [
+      "inner",
+      "item",
+      "2"
+    ],
+    [
+      "cat",
+      "out",
+      "x2"
+    ],
+    [
+      "outer",
+      "item",
+      "x"
+    ],
+    [
+      "inner",
+      "item",
+      "3"
+    ],
+    [
+      "cat",
+      "out",
+      "x3"
+    ],
+    [
+      "innerItems",
+      "out",
+      "1,2,3"
+    ],
+    [
+      "outer",
+      "item",
+      "y"
+    ],
+    [
+      "inner",
+      "item",
+      "1"
+    ],
+    [
+      "cat",
+      "out",
+      "y1"
+    ],
+    [
+      "outer",
+      "item",
+      "y"
+    ],
+    [
+      "inner",
+      "item",
+      "2"
+    ],
+    [
+      "cat",
+      "out",
+      "y2"
+    ],
+    [
+      "outer",
+      "item",
+      "y"
+    ],
+    [
+      "inner",
+      "item",
+      "3"
+    ],
+    [
+      "cat",
+      "out",
+      "y3"
+    ]
+  ]
+}

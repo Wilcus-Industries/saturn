@@ -1,0 +1,798 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "s\"hello world\" / s\"lo w\" == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"hello world\" / s\"lo w\" != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"hello world\" / s\"lo w\" < → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"hello world\" / s\"lo w\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"hello world\" / s\"lo w\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"hello world\" / s\"lo w\" >= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"hello world\" / s\"lo w\" contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"abc\" == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"abc\" != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"abc\" < → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"abc\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"abc\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"abc\" >= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"\" / s\"abc\" contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"\" == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"\" != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"\" > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"\" <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"abc\" / s\"\" contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n1.5 / s\"1.50\" == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n1.5 / s\"1.50\" != → false"
+    },
+    {
+      "kind": "print",
+      "text": "n1.5 / s\"1.50\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "n1.5 / s\"1.50\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "n1.5 / s\"1.50\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n1.5 / s\"1.50\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n1.5 / s\"1.50\" contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "n-0 / n0 == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n-0 / n0 != → false"
+    },
+    {
+      "kind": "print",
+      "text": "n-0 / n0 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "n-0 / n0 > → false"
+    },
+    {
+      "kind": "print",
+      "text": "n-0 / n0 <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n-0 / n0 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n-0 / n0 contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n9007199254740993 / s\"9007199254740992\" == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n9007199254740993 / s\"9007199254740992\" != → false"
+    },
+    {
+      "kind": "print",
+      "text": "n9007199254740993 / s\"9007199254740992\" < → false"
+    },
+    {
+      "kind": "print",
+      "text": "n9007199254740993 / s\"9007199254740992\" > → false"
+    },
+    {
+      "kind": "print",
+      "text": "n9007199254740993 / s\"9007199254740992\" <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n9007199254740993 / s\"9007199254740992\" >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "n9007199254740993 / s\"9007199254740992\" contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"01\" / n1 == → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"01\" / n1 != → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"01\" / n1 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"01\" / n1 > → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"01\" / n1 <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"01\" / n1 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"01\" / n1 contains → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"true\" / n1 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"true\" / n1 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"true\" / n1 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"true\" / n1 > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"true\" / n1 <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "s\"true\" / n1 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "s\"true\" / n1 contains → false"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (112 steps)"
+    }
+  ],
+  "values": [
+    [
+      "l0",
+      "out",
+      "hello world"
+    ],
+    [
+      "r0",
+      "out",
+      "lo w"
+    ],
+    [
+      "l0",
+      "out",
+      "hello world"
+    ],
+    [
+      "r0",
+      "out",
+      "lo w"
+    ],
+    [
+      "l0",
+      "out",
+      "hello world"
+    ],
+    [
+      "r0",
+      "out",
+      "lo w"
+    ],
+    [
+      "l0",
+      "out",
+      "hello world"
+    ],
+    [
+      "r0",
+      "out",
+      "lo w"
+    ],
+    [
+      "l0",
+      "out",
+      "hello world"
+    ],
+    [
+      "r0",
+      "out",
+      "lo w"
+    ],
+    [
+      "l0",
+      "out",
+      "hello world"
+    ],
+    [
+      "r0",
+      "out",
+      "lo w"
+    ],
+    [
+      "l0",
+      "out",
+      "hello world"
+    ],
+    [
+      "r0",
+      "out",
+      "lo w"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "abc"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "abc"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "abc"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "abc"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "abc"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "abc"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "abc"
+    ],
+    [
+      "l2",
+      "out",
+      "abc"
+    ],
+    [
+      "r2",
+      "out",
+      ""
+    ],
+    [
+      "l2",
+      "out",
+      "abc"
+    ],
+    [
+      "r2",
+      "out",
+      ""
+    ],
+    [
+      "l2",
+      "out",
+      "abc"
+    ],
+    [
+      "r2",
+      "out",
+      ""
+    ],
+    [
+      "l2",
+      "out",
+      "abc"
+    ],
+    [
+      "r2",
+      "out",
+      ""
+    ],
+    [
+      "l2",
+      "out",
+      "abc"
+    ],
+    [
+      "r2",
+      "out",
+      ""
+    ],
+    [
+      "l2",
+      "out",
+      "abc"
+    ],
+    [
+      "r2",
+      "out",
+      ""
+    ],
+    [
+      "l2",
+      "out",
+      "abc"
+    ],
+    [
+      "r2",
+      "out",
+      ""
+    ],
+    [
+      "l3",
+      "out",
+      "1.5"
+    ],
+    [
+      "r3",
+      "out",
+      "1.50"
+    ],
+    [
+      "l3",
+      "out",
+      "1.5"
+    ],
+    [
+      "r3",
+      "out",
+      "1.50"
+    ],
+    [
+      "l3",
+      "out",
+      "1.5"
+    ],
+    [
+      "r3",
+      "out",
+      "1.50"
+    ],
+    [
+      "l3",
+      "out",
+      "1.5"
+    ],
+    [
+      "r3",
+      "out",
+      "1.50"
+    ],
+    [
+      "l3",
+      "out",
+      "1.5"
+    ],
+    [
+      "r3",
+      "out",
+      "1.50"
+    ],
+    [
+      "l3",
+      "out",
+      "1.5"
+    ],
+    [
+      "r3",
+      "out",
+      "1.50"
+    ],
+    [
+      "l3",
+      "out",
+      "1.5"
+    ],
+    [
+      "r3",
+      "out",
+      "1.50"
+    ],
+    [
+      "l4",
+      "out",
+      "0"
+    ],
+    [
+      "r4",
+      "out",
+      "0"
+    ],
+    [
+      "l4",
+      "out",
+      "0"
+    ],
+    [
+      "r4",
+      "out",
+      "0"
+    ],
+    [
+      "l4",
+      "out",
+      "0"
+    ],
+    [
+      "r4",
+      "out",
+      "0"
+    ],
+    [
+      "l4",
+      "out",
+      "0"
+    ],
+    [
+      "r4",
+      "out",
+      "0"
+    ],
+    [
+      "l4",
+      "out",
+      "0"
+    ],
+    [
+      "r4",
+      "out",
+      "0"
+    ],
+    [
+      "l4",
+      "out",
+      "0"
+    ],
+    [
+      "r4",
+      "out",
+      "0"
+    ],
+    [
+      "l4",
+      "out",
+      "0"
+    ],
+    [
+      "r4",
+      "out",
+      "0"
+    ],
+    [
+      "l5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "r5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "l5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "r5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "l5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "r5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "l5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "r5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "l5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "r5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "l5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "r5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "l5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "r5",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "l6",
+      "out",
+      "01"
+    ],
+    [
+      "r6",
+      "out",
+      "1"
+    ],
+    [
+      "l6",
+      "out",
+      "01"
+    ],
+    [
+      "r6",
+      "out",
+      "1"
+    ],
+    [
+      "l6",
+      "out",
+      "01"
+    ],
+    [
+      "r6",
+      "out",
+      "1"
+    ],
+    [
+      "l6",
+      "out",
+      "01"
+    ],
+    [
+      "r6",
+      "out",
+      "1"
+    ],
+    [
+      "l6",
+      "out",
+      "01"
+    ],
+    [
+      "r6",
+      "out",
+      "1"
+    ],
+    [
+      "l6",
+      "out",
+      "01"
+    ],
+    [
+      "r6",
+      "out",
+      "1"
+    ],
+    [
+      "l6",
+      "out",
+      "01"
+    ],
+    [
+      "r6",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "true"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "true"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "true"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "true"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "true"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "true"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ],
+    [
+      "l7",
+      "out",
+      "true"
+    ],
+    [
+      "r7",
+      "out",
+      "1"
+    ]
+  ]
+}

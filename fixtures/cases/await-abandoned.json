@@ -1,0 +1,152 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "pA",
+        "type": "print",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "message": "branch A arrives"
+        }
+      },
+      {
+        "id": "l",
+        "type": "string",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "value": "1"
+        }
+      },
+      {
+        "id": "gate",
+        "type": "if",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "operator": "==",
+          "b_literal": "2"
+        }
+      },
+      {
+        "id": "diverged",
+        "type": "print",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "message": "branch B diverged past the barrier"
+        }
+      },
+      {
+        "id": "aw",
+        "type": "await",
+        "x": 300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "after",
+        "type": "print",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "message": "never printed"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "l",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "gate",
+          "portId": "l"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "gate",
+          "portId": "false"
+        },
+        "to": {
+          "nodeId": "diverged",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "gate",
+          "portId": "true"
+        },
+        "to": {
+          "nodeId": "aw",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "pA",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "aw",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "aw",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "after",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "pA",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "gate",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

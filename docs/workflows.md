@@ -1,10 +1,239 @@
-# Workflows: data model, runner, interpreter
+# Workflows: data model, run pipeline, interpreter
 
-> Part of the Saturn docs set indexed in `CLAUDE.md`. Node catalog lives in `docs/nodes.md`, canvas in `docs/designer.md`, integrations + event ingress in `docs/integrations.md`.
+> Part of the Saturn docs set indexed in `CLAUDE.md`. Node catalog lives in `docs/nodes.md`, canvas in `docs/designer.md`, senders + event transports in `docs/integrations.md`.
 
-Users create event-driven workflows edited in node-graph designer (new users start with seeded inactive example workflow — see auth section). Workflows trigger from **event nodes** (catalog category `events`): scheduled `schedule` ("scheduled to run") node whose `config.cron` holds 5-field cron fired by cron tick, manual `run` ("on run") node firing **only** on manual runs (designer topbar test run + MCP `run_workflow`) — invisible to cron runner (keyed on type `"schedule"`) and transports (keyed on `event:*`) by construction, no config — plus real-time **extension event nodes** keyed `event:<id>` (`event:discord-mentioned`, `event:telegram-message`) delivered by in-process ingress transports (Discord Gateway listener, Telegram long-poller). Entry resolution catalog-driven (`byKey[type].category === "events"`) — new event type = one descriptor in `lib/integrations.ts`, no interpreter/designer change (seam realized — see platform-extension bullets). Workflow holds **at most one event node** — designer disables event chip / drops event copies once one exists (with toast); `validateGraphStrict` errors on two+ (interpreter still walks every event-category node, stays correct if legacy multi-event graph loads). `active` = master switch for whether any events fire (gates scheduled runs **and** real-time event delivery — ingest claim + subscription query both re-check `active`; manual/test runs ignore it):
+A workflow is a node graph. It triggers from its **event node** (any node in the
+catalog's `events` category): the `schedule` node whose `config.cron` fires from
+the per-minute tick, the `run` node that fires only on a manual run, or a
+real-time `event:<id>` node delivered by one of the three transports.
 
-- `workflow` table in `db/setup.sql` (uuid id, `user_id` FK, name/emoji/description, `graph` jsonb, `active` boolean default true, `last_run_at` — runner's claim timestamp, also stamped by real-time event runs; one-event rule means cron + event claims never fight over this column; `webhook_secret` — nullable per-workflow inbound-webhook capability secret, null until provisioned, never indexed, see "Extension event nodes"). Run history in `workflow_run` (status running/success/error, error text, `log` jsonb of `ConsoleLine`s, trigger cron/manual/event; no `user_id` — deletion cascades user→workflow→runs, every query reaches runs through ownership-checked workflow). All workflow queries scope by `user_id`.
-- `/dashboard/workflows` — list + `workflowModal.tsx`, one modal for both create + edit of **metadata only** (name/emoji/description — no cron; schedule authored in graph) via `createWorkflow`/`updateWorkflow` in `app/dashboard/(shell)/workflows/actions.ts` (new workflows insert empty graph `{"nodes":[],"edges":[]}`; expected failures — invalid fields, workflow cap — come back as `{ error: string }` return value modal renders inline; success = `undefined` + redirect/revalidate, never throw). `cronBuilder.tsx` (same directory) = callback component (`onChange(cron)` + `floorMinutes` cap) hosted by designer's cron popover; emits 5-field cron (frequencies minutes/hourly/daily/weekly/monthly — "minutes" emits `* * * * *` or `*/n * * * *` for n ∈ 5/10/15/30; UTC). `lib/cron.ts` grammar: `*` or plain int per field, plus `*/n` (2–30) in **minute field only**; `isValidCron` validates, `describeCron` humanizes builder shapes (incl. "every minute"/"every N minutes"; shown under schedule node + topbar test-event label), `cronMatches` (UTC fields, plain AND) drives runner, `describeCron` humanizes builder shapes and `cronMatches` drives the runner. Each list card shows last-run status chip (green/red/pulsing-gray dot + relative time, "never run") linking to runs page, plus active pill switch (`activeToggle.tsx`, optimistic, calls `setWorkflowActive` — explicit desired state). Delete via `deleteWorkflow` (idempotent), surfaced by shared two-step `app/dashboard/deleteWorkflowButton.tsx` on list cards + designer topbar.
-- Scheduled execution: `lib/runner.server.ts` (server-only). `runDueWorkflows(at = now)` — per-minute tick, driven by in-process scheduler (see Commands) — sweeps orphaned `running` rows (janitor, `RUN_TIMEOUT_MS + 5 min`), selects candidates (`active` workflows whose graph contains `schedule` node via jsonb containment `graph->'nodes' @> '[{"type":"schedule"}]'`, loading graph so cron readable from each schedule node's `config.cron`; claim UPDATE re-checks `active`), JS-filters via `matchingScheduleNodeIds(graph, at)` = schedule nodes whose cron `cronMatches` that UTC minute, batch-resolves tiers via `getActivationLevels`, then **claims** each candidate with single-statement conditional UPDATE on `last_run_at` (atomic on pgbouncer transaction pooling; guard = tier-floor clamp from tier bullet, collapses catch-up bursts/overlapping tick sources to one run). Claimed runs execute via shared core `executeWorkflowRun(wf, {trigger, timeoutMs?, entryNodeIds?, eventPayloads?})` — passing matching schedule node ids as `entryNodeIds` so run fires only schedule(s) due this minute; records `workflow_run` (trigger `cron` for tick, `manual` for MCP server's `run_workflow` — passes no `entryNodeIds`, fires all event nodes — and `event` for transport-delivered events via `ingestEvent`, which passes matching node id as `entryNodeIds` plus `eventPayloads` map), builds byKey catalog, captures capped log (300 lines × 2000 chars), runs interpreter under `RUN_TIMEOUT_MS` (600s — policy, serverless budget gone) `AbortController`, persists status/error/log, prunes to newest 50 per workflow, never rejects. Tick runs capped 25/tick (Pi-capacity knob). Also exports userId-parameterized execution cores `executeMcpTool`/`executeAgentTurn` (semantic checks + grant re-resolution live here — graph/agent input untrusted server-side too). **Hook wiring uniform:** every interpreter side-effect hook (`callMcp`/`callAgent`/`callIntegration`/`callMemory`/`callSandbox`) has thin `requireUser()` + shape-validation server action in `[id]/actions.ts` for designer test runs, and its execute core wired in `executeWorkflowRun` for cron/manual/event runs. Runs page at `/dashboard/workflows/[id]/runs` (inside `(shell)` — session + ownership checked in page, `<details>` log viewer); designer topbar links to it next to test-event runner.
-- Test run: topbar test-event runner executes in-memory graph client-side via `lib/interpreter.ts` `runWorkflow(graph, byKey, hooks, { entryNodeIds?, eventPayloads? })` — entries = given ids (selected event), else all event-category nodes; each runs its `"out"` flow concurrently (`Promise.allSettled`); `eventPayloads` (nodeId → JSON string, built by designer from `sampleEventPayload(n.type)` over present event nodes) seeds each event node's `payload` value output. Shared with server cron runner (pure graph-walking logic, all side effects injected as hooks `emit`/`callMcp`/`callIntegration`/`callAgent`/`callMemory`/`callSandbox`/`onValue`/`signal`; exact flow-cycle detection per chain, step- and MCP-call-capped, per-step-local value memoization + cycle stack so concurrent branches can't clobber each other, stoppable — button becomes ■ stop, wired through `AbortSignal`), streams output into `[id]/console.tsx` bottom panel (drag-resizable via top edge — height state in `designer.tsx`, in-memory only, never persisted; sticks to bottom only while already there; `ConsoleLine` kind `"image"` — `text` = data URL, emitted by print node for `data:image/` values — renders as inline `<img>`; cron runner's `emit` persists it as `describeImage` info placeholder `[image · mime · KB]` instead, never base64 into `workflow_run.log`). Flow fan-outs run branches concurrently (`Promise.allSettled`; first failure aborts run, siblings stop at next step). `await` node = join barrier: last arriving incoming flow edge continues chain, fills `results` with JSON array of its `values` edges (edge order); barrier an upstream `if` diverged past warns "await never completed (k/n branches)" once outermost fan-out settles. Standalone mcp + skill nodes not executable — interpreter skips with warning (grant chips only feed agent ports; old flow-wired MCP graphs degrade to that skip). Agent tool calls execute for real through `callMcpTool` server action (allowlist- + `canCallTool`-checked, tokens stay server-side via `freshMcpToken` in `lib/registry.server.ts`, tool call in `lib/mcp.ts` `callTool`). Test runs also report every computed value through interpreter's `onValue` hook into designer-held samples map (in-memory only, never persisted); extract node's `path` field (`picker: "json-path"` on its `ConfigField`) gets `{}` button opening `[id]/pathPicker.tsx` — JSON tree of upstream node's last output, clicking leaf writes dot-path as one undo step.
+Entry resolution is catalog-driven — `byKey[type].category === "events"` — so a
+new event type is one descriptor in `lib/integrations.ts` plus its transport, and
+neither the interpreter nor the designer changes.
+
+**A workflow holds at most one event node.** The designer disables the event chip
+once one exists and `validate_graph` errors on two or more. The interpreter
+still walks every event-category node, so a legacy multi-event graph stays
+correct.
+
+**`active` is the master switch for triggering.** It gates scheduled runs *and*
+real-time delivery — both the claim and the subscription query re-check it.
+Manual and test runs ignore it.
+
+## Storage
+
+One SQLite file at `~/Library/Application Support/com.wilcus.saturn/saturn.db`,
+opened in `store.rs` from `app_data_dir()` so the path follows
+`tauri.conf.json`'s identifier and cannot drift from it. One `Connection` behind
+a `Mutex` — a single-user desktop app, and SQLite is single-writer regardless, so
+a pool would only buy contention on the same lock one level down.
+
+| table | holds |
+|---|---|
+| `workflow` | id, name, emoji, description, `graph` (json text), `active`, `last_run_at` (the claim stamp), timestamps |
+| `workflow_run` | `trigger` (cron/manual/event), `status` (running/success/error), `error`, `log` (json array of `ConsoleLine`), `started_at`/`finished_at`. Cascades from `workflow` |
+| `registry_entry` | the user's own node types — see `docs/registry.md` |
+| `memory_item` | a `vec0` virtual table, 1536-dim cosine, partitioned by `entry_id` |
+| `github_cursor` | per-resource poll cursor + ETag — see `docs/integrations.md` |
+| `saturn_session` | Saturn Agent's chat sessions: id, **unique** name, timestamps |
+| `saturn_message` | one row per message: `session_id`, `role`, `content` (plain text), `parts` (json, display only), `created_at`. Cascades from `saturn_session` |
+
+The two `saturn_*` tables are created by `saturn::init`, not `store.rs`'s
+`SCHEMA` — `github_cursor` set that precedent, and a new *table* is free on an
+existing `saturn.db` where a new column would not be.
+
+**One row per message rather than a JSON blob per session**, because there are
+two writers: the chat and a `saturn-agent` node run, both appending to the same
+session. A read-modify-write of one blob loses whichever landed first. Appends
+are serialized by SQLite's single-writer mutex and there is no per-session lock;
+`content` is stored alongside `parts` so the re-sent transcript reads one column
+with no per-message JSON parse.
+
+No `user_id` anywhere: there is one user. The five sparse kind-specific columns
+the Postgres `registry_entry` had collapsed into one `config` JSON blob, and
+secrets left the database entirely for the Keychain — which is why no schema
+column holds one.
+
+`store.rs` owns the workflow and run queries; `registry.rs` and `memory.rs` keep
+their own SQL next to the code that gives it meaning and share only the
+*connection*. **Hold the connection guard for as short a span as possible** — it
+serializes every reader in the process, and an embedding round trip inside one
+would stall the scheduler for the length of a network call.
+
+## The list page
+
+`/dashboard/workflows/` renders one card per workflow from `list_workflow_cards`
+— one query, not N+1: a correlated subquery picks each workflow's newest run off
+the `workflow_run_recent` index. The graph column is deliberately **not**
+selected; it is the largest column in the file and the cards never draw it.
+
+`workflowModal.tsx` is one modal for both create and edit, **metadata only** —
+name, emoji, description. The schedule is authored in the graph, not here.
+`activeToggle.tsx` is optimistic and calls `set_workflow_active` with an explicit
+desired state, so a double-click is idempotent. Delete is idempotent too: a
+workflow another window already removed is not an error.
+
+`update_workflow` deliberately does **not** fire `subscriptions_changed()` — a
+name or emoji cannot change a subscription, and it would fire on every close of
+the metadata modal.
+
+## Cron
+
+`lib/cron.ts` (designer) and `runner.rs` (execution) implement the same grammar:
+`*` or a plain integer per field, plus `*/n` for n ∈ [2,30] in the **minute field
+only**. Five fields, UTC.
+
+It is hand-written rather than delegated to a cron crate on purpose: it ANDs
+day-of-month with day-of-week where standard cron ORs them (the visual builder
+never restricts both), and it accepts only the grammar that builder emits. A
+crate would silently disagree on exactly that rule.
+
+`cronBuilder.tsx` is a callback component (`onChange(cron)`) hosted by the
+designer's cron popover; it emits minutes / hourly / daily / weekly / monthly
+shapes. `describeCron` humanizes them under the schedule node and in the topbar's
+event label; `runner::is_valid_cron` backs the validator's "will never fire"
+warning — the TypeScript copy went with `validateGraphStrict`.
+
+## The scheduler
+
+`runner::start_scheduler` is a self-arming tick aligned to :00 of each minute.
+Per tick `run_due_workflows`:
+
+1. reads the `active` workflows and keeps the `schedule` nodes whose cron matches
+   that UTC minute — a workflow may hold several with different crons, and only
+   the matching ones fire,
+2. **claims** each candidate with a conditional `UPDATE` on `last_run_at`
+   (`CLAIM_GUARD_S = 50`), which collapses a catch-up burst or a stray second
+   tick for the same minute into one run,
+3. executes the claimed runs on a `thread::scope`, passing the matching node ids
+   as `entry_node_ids`.
+
+Each conditional `UPDATE` is its own atomic claim — SQLite is single-writer, so
+the Postgres original's reason for batching them into one statement (pgbouncer
+making session advisory locks unusable) no longer applies.
+
+`finish_run` deliberately does **not** re-stamp `last_run_at`. That column is the
+claim ledger and the guard is measured from it, so re-stamping at completion
+would make any run outlasting (interval − guard) turn the following minute into a
+silent no-op — indistinguishable from ordinary guard suppression.
+
+Missed-minute catch-up is capped at `MAX_CATCHUP_MINUTES = 5` so a laptop waking
+from a long sleep recovers sparse crons without burst-firing history, and a tick
+runs at most `MAX_RUNS_PER_TICK = 25` workflows.
+
+## One run
+
+`runner::execute_run(app, store, keychain, wf, trigger, entry_node_ids, event_payloads, cancel)`
+is the single path. Every trigger goes through it:
+
+| trigger | from | entry nodes |
+|---|---|---|
+| `cron` | the tick | the schedule nodes due this minute |
+| `manual` | the designer's `test_run` | the one event node the designer selected |
+| `event` | `events::ingest_event` | the node the delivery matched |
+
+It records a `workflow_run` row, builds the `byKey` catalog, captures a log
+capped at 300 lines × 2000 chars, runs the interpreter, and persists
+status/error/log. It never panics.
+
+Runs are **not pruned**. The hosted version trimmed to the newest 50 per
+workflow; nothing does here, so `workflow_run` grows without bound. Each row is
+bounded (the log cap above, and images persist as placeholders), so this is a
+disk-usage question rather than a correctness one.
+
+**A run owns a plain `std::thread`**, never a tokio worker. The interpreter is
+synchronous and the blocking `reqwest` clients underneath it must not be
+constructed on a runtime thread.
+
+Console lines stream to the designer as `run-log` events while the walk proceeds,
+per-port samples as `run-value`, and `run-finished` closes it out. An `image`
+console line carries a `data:image/…` URL that the designer renders inline; the
+persisted log keeps a `[image · mime · KB]` placeholder instead — base64 never
+enters `workflow_run.log`.
+
+There is **no whole-run timeout.** `MAX_STEPS` bounds the walk and every node has
+a per-call timeout, but no single deadline covers a run (`docs/open-decisions.md`
+§3.4).
+
+### Stopping a run
+
+`stop_run` sets one process-wide `AtomicBool`. Not a map keyed by run id: the
+designer refuses to start a second test run while one is going and is the only
+surface that can start one at all. `test_run` clears the flag before each run, so
+a stop can never leak into the next one.
+
+It is **cooperative** — the interpreter checks between flow steps and between
+agent turns and tool calls, so an in-flight HTTP request or model call finishes
+before the run unwinds with "run stopped".
+
+## The interpreter
+
+`src-tauri/src/interpreter.rs` — flow-edge traversal, per-step memoized value
+resolution, per-chain visited-set cycle detection, `MAX_STEPS = 10_000`.
+
+There is **no hook trait.** The TypeScript routed every side effect through
+`RunHooks` because the same interpreter ran in two places; here there is one
+process and one implementation, so effects are plain function calls. What varies
+is where console lines go (a `Sender<ConsoleLine>`) and, for `run_inner` only,
+the three `Effects` — which is what lets the golden fixtures drive the real walk
+with deterministic stubs.
+
+The walk is **synchronous** and recurses (fan-out, loop bodies, agent turns).
+Async recursion in Rust means `Box::pin` at every nesting point for no benefit: a
+run owns its own thread anyway, and the one blocking call must not sit on a
+runtime worker.
+
+Values are `js::Value`, not `String`. `interpreter/js.rs` ports JavaScript's
+value semantics exactly — `String(n)`'s exponent thresholds, `Number(s)`'s
+accepted forms, UTF-16 code-unit string ordering, `JSON.stringify`'s key order
+and whole-float formatting. Rust agrees with none of it by default, and the
+differences are visible in `fixtures/expected/extract.json`, which is why that
+module carries its own JSON tree rather than fighting `serde_json`'s.
+
+Flow outputs may fan out and branches run concurrently. `await` is a join
+barrier: the last incoming flow edge to arrive continues the chain and fills
+`results` with a JSON array of its `values` edges in edge order. A barrier an
+upstream `if` diverged past warns once the outermost fan-out settles.
+
+## Golden fixtures
+
+`fixtures/cases/*.json` are graphs; `fixtures/expected/*.json` are the exact
+console transcript and the exact per-port value stream each one produces.
+`cargo test fixtures` replays all 47 through the Rust interpreter with the stubs
+in `interpreter/fixtures.rs` and compares byte for byte.
+
+**`expected/` is frozen.** The TypeScript oracle that produced it is deleted, so
+there is nothing to regenerate from and no `--update` mode to reach for. A diff
+means the Rust is wrong, unless the semantics were deliberately changed — in
+which case the expected file is hand-edited in the same commit, with the reason
+in the message. `docs/open-decisions.md` §1.5 records what that bought and what
+it gave up.
+
+A skipped case is **not** a pass: the summary names every skip and the node type
+that caused it, so a half-finished port cannot hide behind a green run.
+
+## Saving a graph
+
+`store::set_graph` is the only write path, and validation plus the
+`subscriptions_changed()` wake both live inside it so no future caller can save
+past them. `workflow.rs` is that gate: node/edge count caps
+(`MAX_NODES = 300`, `MAX_EDGES = 600`, `MAX_GRAPH_JSON = 256 KiB`), unique node
+ids, edge endpoints that exist, node-type length.
+
+It is deliberately **stricter** than the runtime model. `interpreter.rs`'s graph
+deserialization ignores unknown fields, tolerates duplicate ids and never reads
+`x`/`y`, because a graph already in the database must keep running. `workflow.rs`
+decides what is allowed to get *in* — so it is strict about exactly the things a
+designer bug or a hand-written graph could break.
+
+Deep per-node validation is `validate_graph_strict` in the same module, reached
+over IPC as `validate_graph`. It rebuilds `byKey` from the database itself
+(`CATALOG` + `registry::get_user_registry`), so the designer's issues panel and
+the run pipeline cannot disagree about the same graph. `fixtures/validation.json`
+— 30 cases captured from the deleted TypeScript — is its frozen specification.
+
+## Run history
+
+`/dashboard/workflows/runs/?id=` lists the newest 50 runs (`list_runs`, clamped
+1–200), each with a `<details>` log viewer. Times render as UTC, because that is
+the clock the schedule runs on.

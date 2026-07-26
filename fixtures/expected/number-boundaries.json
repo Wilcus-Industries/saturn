@@ -1,0 +1,318 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "just under the exponential switchover [1e20] → 100000000000000000000"
+    },
+    {
+      "kind": "print",
+      "text": "exponential switchover [1e21] → 1e+21"
+    },
+    {
+      "kind": "print",
+      "text": "above the switchover [1.5e21] → 1.5e+21"
+    },
+    {
+      "kind": "print",
+      "text": "smallest fixed notation [0.000001] → 0.000001"
+    },
+    {
+      "kind": "print",
+      "text": "small magnitude switchover [1e-7] → 1e-7"
+    },
+    {
+      "kind": "print",
+      "text": "negative small magnitude [-1e-7] → -1e-7"
+    },
+    {
+      "kind": "print",
+      "text": "smallest subnormal [5e-324] → 5e-324"
+    },
+    {
+      "kind": "print",
+      "text": "negative zero [-0] → 0"
+    },
+    {
+      "kind": "print",
+      "text": "beyond 2^53 [9007199254740993] → 9007199254740992"
+    },
+    {
+      "kind": "print",
+      "text": "precision loss [123456789012345678901234567890] → 1.2345678901234568e+29"
+    },
+    {
+      "kind": "print",
+      "text": "overflow to infinity [1e309] → Infinity"
+    },
+    {
+      "kind": "print",
+      "text": "overflow to negative infinity [-1e309] → -Infinity"
+    },
+    {
+      "kind": "print",
+      "text": "hex literal [0x10] → 16"
+    },
+    {
+      "kind": "print",
+      "text": "binary literal [0b101] → 5"
+    },
+    {
+      "kind": "print",
+      "text": "octal literal [0o17] → 15"
+    },
+    {
+      "kind": "print",
+      "text": "unrepresentable decimal [0.1] → 0.1"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (16 steps)"
+    }
+  ],
+  "values": [
+    [
+      "lbl0",
+      "out",
+      "just under the exponential switchover [1e20] → "
+    ],
+    [
+      "n0",
+      "out",
+      "100000000000000000000"
+    ],
+    [
+      "cat0",
+      "out",
+      "just under the exponential switchover [1e20] → 100000000000000000000"
+    ],
+    [
+      "lbl1",
+      "out",
+      "exponential switchover [1e21] → "
+    ],
+    [
+      "n1",
+      "out",
+      "1e+21"
+    ],
+    [
+      "cat1",
+      "out",
+      "exponential switchover [1e21] → 1e+21"
+    ],
+    [
+      "lbl2",
+      "out",
+      "above the switchover [1.5e21] → "
+    ],
+    [
+      "n2",
+      "out",
+      "1.5e+21"
+    ],
+    [
+      "cat2",
+      "out",
+      "above the switchover [1.5e21] → 1.5e+21"
+    ],
+    [
+      "lbl3",
+      "out",
+      "smallest fixed notation [0.000001] → "
+    ],
+    [
+      "n3",
+      "out",
+      "0.000001"
+    ],
+    [
+      "cat3",
+      "out",
+      "smallest fixed notation [0.000001] → 0.000001"
+    ],
+    [
+      "lbl4",
+      "out",
+      "small magnitude switchover [1e-7] → "
+    ],
+    [
+      "n4",
+      "out",
+      "1e-7"
+    ],
+    [
+      "cat4",
+      "out",
+      "small magnitude switchover [1e-7] → 1e-7"
+    ],
+    [
+      "lbl5",
+      "out",
+      "negative small magnitude [-1e-7] → "
+    ],
+    [
+      "n5",
+      "out",
+      "-1e-7"
+    ],
+    [
+      "cat5",
+      "out",
+      "negative small magnitude [-1e-7] → -1e-7"
+    ],
+    [
+      "lbl6",
+      "out",
+      "smallest subnormal [5e-324] → "
+    ],
+    [
+      "n6",
+      "out",
+      "5e-324"
+    ],
+    [
+      "cat6",
+      "out",
+      "smallest subnormal [5e-324] → 5e-324"
+    ],
+    [
+      "lbl7",
+      "out",
+      "negative zero [-0] → "
+    ],
+    [
+      "n7",
+      "out",
+      "0"
+    ],
+    [
+      "cat7",
+      "out",
+      "negative zero [-0] → 0"
+    ],
+    [
+      "lbl8",
+      "out",
+      "beyond 2^53 [9007199254740993] → "
+    ],
+    [
+      "n8",
+      "out",
+      "9007199254740992"
+    ],
+    [
+      "cat8",
+      "out",
+      "beyond 2^53 [9007199254740993] → 9007199254740992"
+    ],
+    [
+      "lbl9",
+      "out",
+      "precision loss [123456789012345678901234567890] → "
+    ],
+    [
+      "n9",
+      "out",
+      "1.2345678901234568e+29"
+    ],
+    [
+      "cat9",
+      "out",
+      "precision loss [123456789012345678901234567890] → 1.2345678901234568e+29"
+    ],
+    [
+      "lbl10",
+      "out",
+      "overflow to infinity [1e309] → "
+    ],
+    [
+      "n10",
+      "out",
+      "Infinity"
+    ],
+    [
+      "cat10",
+      "out",
+      "overflow to infinity [1e309] → Infinity"
+    ],
+    [
+      "lbl11",
+      "out",
+      "overflow to negative infinity [-1e309] → "
+    ],
+    [
+      "n11",
+      "out",
+      "-Infinity"
+    ],
+    [
+      "cat11",
+      "out",
+      "overflow to negative infinity [-1e309] → -Infinity"
+    ],
+    [
+      "lbl12",
+      "out",
+      "hex literal [0x10] → "
+    ],
+    [
+      "n12",
+      "out",
+      "16"
+    ],
+    [
+      "cat12",
+      "out",
+      "hex literal [0x10] → 16"
+    ],
+    [
+      "lbl13",
+      "out",
+      "binary literal [0b101] → "
+    ],
+    [
+      "n13",
+      "out",
+      "5"
+    ],
+    [
+      "cat13",
+      "out",
+      "binary literal [0b101] → 5"
+    ],
+    [
+      "lbl14",
+      "out",
+      "octal literal [0o17] → "
+    ],
+    [
+      "n14",
+      "out",
+      "15"
+    ],
+    [
+      "cat14",
+      "out",
+      "octal literal [0o17] → 15"
+    ],
+    [
+      "lbl15",
+      "out",
+      "unrepresentable decimal [0.1] → "
+    ],
+    [
+      "n15",
+      "out",
+      "0.1"
+    ],
+    [
+      "cat15",
+      "out",
+      "unrepresentable decimal [0.1] → 0.1"
+    ]
+  ]
+}

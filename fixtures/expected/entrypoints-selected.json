@@ -1,0 +1,27 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "{\"body\":\"hi\"}"
+    },
+    {
+      "kind": "print",
+      "text": "run fired"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (2 steps)"
+    }
+  ],
+  "values": [
+    [
+      "hook",
+      "payload",
+      "{\"body\":\"hi\"}"
+    ]
+  ]
+}

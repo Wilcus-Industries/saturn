@@ -1,0 +1,511 @@
+{
+  "entries": [
+    {
+      "key": "mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:*",
+      "category": "mcp",
+      "label": "search server",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out",
+          "kind": "value"
+        }
+      ],
+      "toolName": "*",
+      "tools": [
+        {
+          "name": "search"
+        },
+        {
+          "name": "big"
+        },
+        {
+          "name": "boom"
+        }
+      ]
+    },
+    {
+      "key": "skill:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "category": "skill",
+      "label": "writing skill",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out",
+          "kind": "value"
+        }
+      ]
+    },
+    {
+      "key": "memory:cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "category": "memory",
+      "label": "notes",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out",
+          "kind": "value"
+        }
+      ]
+    },
+    {
+      "key": "mcp:dddddddd-dddd-4ddd-8ddd-dddddddddddd:*",
+      "category": "mcp",
+      "label": "(deleted)",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "out",
+          "kind": "value"
+        }
+      ],
+      "toolName": "*",
+      "tools": [
+        {
+          "name": "search"
+        },
+        {
+          "name": "big"
+        },
+        {
+          "name": "boom"
+        }
+      ],
+      "missing": true
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "chip",
+        "type": "mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:*",
+        "x": 60,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "chipDup",
+        "type": "mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:*",
+        "x": 120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "chipExcl",
+        "type": "mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:*",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "exclude": "[\"boom\"]"
+        }
+      },
+      {
+        "id": "chipBadExcl",
+        "type": "mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:*",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "exclude": "not json"
+        }
+      },
+      {
+        "id": "chipGone",
+        "type": "mcp:dddddddd-dddd-4ddd-8ddd-dddddddddddd:*",
+        "x": 300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "skill",
+        "type": "skill:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "x": 360,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "mem",
+        "type": "memory:cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "x": 420,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "notAChip",
+        "type": "string",
+        "x": 480,
+        "y": 0,
+        "config": {
+          "value": "x"
+        }
+      },
+      {
+        "id": "prompt",
+        "type": "string",
+        "x": 540,
+        "y": 0,
+        "config": {
+          "value": "TOOL big"
+        }
+      },
+      {
+        "id": "a",
+        "type": "agent",
+        "x": 600,
+        "y": 0,
+        "config": {
+          "model": "stub/model"
+        }
+      },
+      {
+        "id": "show",
+        "type": "print",
+        "x": 660,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "prompt2",
+        "type": "string",
+        "x": 720,
+        "y": 0,
+        "config": {
+          "value": "TOOL boom"
+        }
+      },
+      {
+        "id": "b",
+        "type": "agent",
+        "x": 780,
+        "y": 0,
+        "config": {
+          "model": "stub/model"
+        }
+      },
+      {
+        "id": "prompt3",
+        "type": "string",
+        "x": 840,
+        "y": 0,
+        "config": {
+          "value": "MEM memory_search"
+        }
+      },
+      {
+        "id": "c",
+        "type": "agent",
+        "x": 900,
+        "y": 0,
+        "config": {
+          "model": "stub/model"
+        }
+      },
+      {
+        "id": "prompt4",
+        "type": "string",
+        "x": 960,
+        "y": 0,
+        "config": {
+          "value": "MANY search"
+        }
+      },
+      {
+        "id": "d",
+        "type": "agent",
+        "x": 1020,
+        "y": 0,
+        "config": {
+          "model": "stub/model"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "prompt",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "chip",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "chipDup",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "chipExcl",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "chipBadExcl",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "chipGone",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "notAChip",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "skill",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "skills"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "notAChip",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "skills"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "mem",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "memory"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e10",
+        "from": {
+          "nodeId": "notAChip",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "memory"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e11",
+        "from": {
+          "nodeId": "a",
+          "portId": "result"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e12",
+        "from": {
+          "nodeId": "prompt2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "b",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e13",
+        "from": {
+          "nodeId": "chip",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "b",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e14",
+        "from": {
+          "nodeId": "prompt3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "c",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e15",
+        "from": {
+          "nodeId": "mem",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "c",
+          "portId": "memory"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e16",
+        "from": {
+          "nodeId": "prompt4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "d",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e17",
+        "from": {
+          "nodeId": "chip",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "d",
+          "portId": "tools"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e18",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e19",
+        "from": {
+          "nodeId": "a",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e20",
+        "from": {
+          "nodeId": "show",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "b",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e21",
+        "from": {
+          "nodeId": "b",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "c",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e22",
+        "from": {
+          "nodeId": "c",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "d",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

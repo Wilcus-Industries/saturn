@@ -1,0 +1,84 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "x",
+        "type": "not",
+        "x": 60,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "y",
+        "type": "not",
+        "x": 120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p",
+        "type": "print",
+        "x": 180,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "y",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "x",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "x",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "y",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "x",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

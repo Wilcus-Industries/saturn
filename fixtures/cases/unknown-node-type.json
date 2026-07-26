@@ -1,0 +1,43 @@
+{
+  "graph": {
+    "nodes": [
+      { "id": "ev", "type": "run", "x": 0, "y": 0, "config": {} },
+      { "id": "read", "type": "print", "x": 60, "y": 0, "config": {} },
+      { "id": "p1", "type": "print", "x": 120, "y": 0, "config": { "message": "before" } },
+      { "id": "ghost", "type": "no-such-type", "x": 180, "y": 0, "config": {} },
+      { "id": "p2", "type": "print", "x": 240, "y": 0, "config": { "message": "never" } }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": { "nodeId": "ghost", "portId": "out" },
+        "to": { "nodeId": "read", "portId": "message" },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": { "nodeId": "ev", "portId": "out" },
+        "to": { "nodeId": "read", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": { "nodeId": "read", "portId": "out" },
+        "to": { "nodeId": "p1", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": { "nodeId": "p1", "portId": "out" },
+        "to": { "nodeId": "ghost", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": { "nodeId": "ghost", "portId": "out" },
+        "to": { "nodeId": "p2", "portId": "in" },
+        "kind": "flow"
+      }
+    ]
+  }
+}

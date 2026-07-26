@@ -1,13 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import AsciiSaturn from "@/app/(saturn)/asciiSaturn";
-import type { AgentPrefs } from "@/app/dashboard/agentPrefs";
-import type { OpenrouterModel } from "@/lib/openrouter.server";
+import AsciiSaturn from "@/app/dashboard/asciiSaturn";
+import type { OpenrouterModel } from "@/app/dashboard/workflows/designer/designer";
 import AgentComposer from "./agentComposer";
-// the transcript + the in-flight stream live in module state so they survive
-// this component being unmounted by the dashboard → designer navigation
+// the transcript lives in module state so it survives this component being
+// unmounted by the dashboard → designer navigation, and so the module-scope
+// `saturn-delta` listener has somewhere to write
 import {
     getMessages,
     getStreaming,
@@ -41,9 +42,6 @@ const VERBS: Record<string, string> = {
     validate: "validating",
     search: "searching",
     forget: "forgetting",
-    reset: "resetting",
-    stop: "stopping",
-    sandbox: "using sandbox",
 };
 function toolLabel(name: string): string {
     const [head, ...rest] = name.split("_");
@@ -144,13 +142,13 @@ function ToolRow({ part, onOpen }: { part: ToolPart; onOpen?: (id: string) => vo
 
 export default function AgentChat({
     models,
-    prefs,
     workflowId,
     onGraph,
     panel,
 }: {
-    models: OpenrouterModel[];
-    prefs?: AgentPrefs;
+    // null = no OpenRouter key stored; the composer still renders its fallback
+    // list, but the message would fail, so one line says why
+    models: OpenrouterModel[] | null;
     workflowId?: string;
     onGraph?: (graph: unknown) => void;
     panel?: boolean;
@@ -194,23 +192,27 @@ export default function AgentChat({
     );
 
     // hand the conversation to the designer's panel and go there. The stream is
-    // module-owned, so a turn still running keeps running across the navigation
-    // and finishes in the panel. Never automatic — the chip is a click.
+    // owned by Rust and keyed by session, so a turn still running keeps running
+    // across the navigation and finishes in the panel. Never automatic — the
+    // chip is a click.
     const openInDesigner = useCallback(
         (id: string) => {
             requestHandoff(id);
-            router.push(`/dashboard/workflows/${id}`);
+            router.push(`/dashboard/workflows/designer/?id=${id}`);
         },
         [router],
     );
-
 
     return (
         <div
             className={
                 panel
                     ? "flex h-full flex-col px-3"
-                    : "flex min-h-[calc(100dvh-7.5rem)] flex-col md:min-h-[calc(100dvh-4rem)]"
+                    : // fills whatever its parent leaves it and no more, so <main>
+                      // never scrolls and the message list below is the only
+                      // scroller. The page root owns the exact height —
+                      // 100dvh minus the shell's p-8 (4rem) and its border-t.
+                      "flex min-h-0 flex-1 flex-col"
             }
         >
             <div className={"relative flex-1 overflow-hidden"}>
@@ -278,11 +280,7 @@ export default function AgentChat({
                             (heroExiting ? "agent-exit" : "agent-enter")
                         }
                     >
-                        <AsciiSaturn
-                            scale={2}
-                            sizeClass={"text-[min(9px,2vw)]"}
-                            noise={false}
-                        />
+                        <AsciiSaturn scale={2} sizeClass={"text-[min(9px,2vw)]"} />
                         <div className={"flex flex-col items-center gap-2 text-center"}>
                             <h1
                                 className={
@@ -299,9 +297,16 @@ export default function AgentChat({
                 )}
             </div>
 
+            {models === null && (
+                <p className={"mx-auto w-full max-w-2xl pb-2 font-mono text-xs text-gray-400"}>
+                    <Link href={"/dashboard/settings/"} className={"hover:text-foreground"}>
+                        add an OpenRouter key in settings →
+                    </Link>
+                </p>
+            )}
+
             <AgentComposer
-                models={models}
-                prefs={prefs}
+                models={models ?? []}
                 onSend={handleSend}
                 streaming={streaming}
                 onStop={stop}

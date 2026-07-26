@@ -1,0 +1,175 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "sched",
+        "type": "schedule",
+        "x": 0,
+        "y": 0,
+        "config": {
+          "cron": "0 9 * * *"
+        }
+      },
+      {
+        "id": "manual",
+        "type": "run",
+        "x": 60,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "legacy",
+        "type": "start",
+        "x": 120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "hook",
+        "type": "event:webhook",
+        "x": 180,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "gh",
+        "type": "event:github-push",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "repo": "o/r"
+        }
+      },
+      {
+        "id": "pSched",
+        "type": "print",
+        "x": 300,
+        "y": 0,
+        "config": {
+          "message": "schedule fired"
+        }
+      },
+      {
+        "id": "pManual",
+        "type": "print",
+        "x": 360,
+        "y": 0,
+        "config": {
+          "message": "run fired"
+        }
+      },
+      {
+        "id": "pLegacy",
+        "type": "print",
+        "x": 420,
+        "y": 0,
+        "config": {
+          "message": "start fired"
+        }
+      },
+      {
+        "id": "pHook",
+        "type": "print",
+        "x": 480,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "pGh",
+        "type": "print",
+        "x": 540,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "hook",
+          "portId": "payload"
+        },
+        "to": {
+          "nodeId": "pHook",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "gh",
+          "portId": "payload"
+        },
+        "to": {
+          "nodeId": "pGh",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "sched",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "pSched",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "manual",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "pManual",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "legacy",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "pLegacy",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "hook",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "pHook",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "gh",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "pGh",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  },
+  "eventPayloads": {
+    "hook": "{\"body\":\"hi\"}"
+  }
+}

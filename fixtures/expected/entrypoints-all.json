@@ -1,0 +1,44 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "schedule fired"
+    },
+    {
+      "kind": "print",
+      "text": "run fired"
+    },
+    {
+      "kind": "print",
+      "text": "start fired"
+    },
+    {
+      "kind": "print",
+      "text": "{\"body\":\"hi\"}"
+    },
+    {
+      "kind": "print",
+      "text": ""
+    },
+    {
+      "kind": "info",
+      "text": "run finished (5 steps)"
+    }
+  ],
+  "values": [
+    [
+      "hook",
+      "payload",
+      "{\"body\":\"hi\"}"
+    ],
+    [
+      "gh",
+      "payload",
+      ""
+    ]
+  ]
+}

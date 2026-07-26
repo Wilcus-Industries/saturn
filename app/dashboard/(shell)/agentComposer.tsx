@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FaArrowUp, FaChevronDown, FaStop } from "react-icons/fa6";
-// type-only imports — compile-erased, safe in a client component
-import type { AgentPrefs } from "@/app/dashboard/agentPrefs";
-import ModelLogo from "@/app/dashboard/workflows/[id]/modelLogo";
-import type { OpenrouterModel } from "@/lib/openrouter.server";
+import { DEFAULT_MODEL } from "@/lib/agent";
+import { ArrowUp, ChevronDown, Stop } from "@/app/dashboard/icons";
+import ModelLogo from "@/app/dashboard/workflows/designer/modelLogo";
+// type-only import — compile-erased, safe in a client component
+import type { OpenrouterModel } from "@/app/dashboard/workflows/designer/designer";
 
 // shown when the OpenRouter fetch degraded to [] — the selector still renders
 const FALLBACK_MODELS: OpenrouterModel[] = [
@@ -15,17 +15,19 @@ const FALLBACK_MODELS: OpenrouterModel[] = [
     { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro", outputModalities: ["text"], supportsReasoning: true },
 ];
 
-const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
 const DEFAULT_EFFORT = "medium";
 const MAX_LISTED = 120;
 
 // mirrors the agent node's reasoning select (executeAgentTurn allowlist)
 const REASONING_LEVELS = ["off", "low", "medium", "high"] as const;
 
-// last pick, remembered across reloads and the dashboard ⇄ designer handoff —
-// read back server-side by app/dashboard/agentPrefs.ts, which owns these names
+// last pick, remembered across reloads and the dashboard ⇄ designer handoff.
+// localStorage, not a cookie: there is no server left to read one. Read back in
+// a mount effect rather than a <head> script — the composer already enters on a
+// 120ms delay (.agent-enter-late), so the one-frame swap is invisible, and head
+// scripts are for things that would shift layout.
 const remember = (name: string, value: string) => {
-    document.cookie = `${name}=${value}; path=/; max-age=31536000`;
+    localStorage.setItem(name, value);
 };
 
 // OpenRouter names read "Author: Model" — the trigger chip drops the author
@@ -36,26 +38,37 @@ const shortName = (name: string) => name.replace(/^[^:]+:\s*/, "");
 // the message text up via onSend; the parent (agentChat.tsx) owns the transcript
 export default function AgentComposer({
     models,
-    prefs,
     onSend,
     streaming,
     onStop,
 }: {
     models: OpenrouterModel[];
-    // the saved pick, read from cookies server-side (undefined = never picked)
-    prefs?: AgentPrefs;
     onSend: (text: string, model: string, reasoning: string) => void;
     streaming: boolean;
     onStop: () => void;
 }) {
     const [value, setValue] = useState("");
-    const [model, setModel] = useState(prefs?.model ?? DEFAULT_MODEL);
-    const [reasoning, setReasoning] = useState(prefs?.reasoning ?? DEFAULT_EFFORT);
+    const [model, setModel] = useState(DEFAULT_MODEL);
+    const [reasoning, setReasoning] = useState<string>(DEFAULT_EFFORT);
     const [open, setOpen] = useState(false);
     const [effortOpen, setEffortOpen] = useState(false);
     const [q, setQ] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const pickersRef = useRef<HTMLDivElement>(null);
+
+    // the saved pick. Deliberately a mount effect rather than a lazy useState
+    // initializer: this page is prerendered by the static export, so reading
+    // localStorage during the first render would either crash the build or
+    // hydrate against different HTML. It lands one frame late, underneath the
+    // composer's own 120ms .agent-enter-late entrance, so nothing is visible.
+    useEffect(() => {
+        /* eslint-disable react-hooks/set-state-in-effect -- see above: a client-only value that cannot be read during render */
+        const savedModel = localStorage.getItem("agentModel");
+        if (savedModel) setModel(savedModel);
+        const savedEffort = localStorage.getItem("agentEffort");
+        if (savedEffort) setReasoning(savedEffort);
+        /* eslint-enable react-hooks/set-state-in-effect */
+    }, []);
 
     // outside-click dismissal via document listener — a fixed backdrop div
     // gets trapped under the hero's entrance-animation stacking context
@@ -110,7 +123,7 @@ export default function AgentComposer({
     }
 
     // the drag scrub calls this on every pointermove — skip the no-op so a
-    // single drag writes one cookie per stop crossed, not one per frame
+    // single drag writes one entry per stop crossed, not one per frame
     function chooseEffort(next: string) {
         if (next === reasoning) return;
         setReasoning(next);
@@ -174,7 +187,7 @@ export default function AgentComposer({
                             "hover:bg-foreground hover:text-background"
                         }
                     >
-                        <FaStop />
+                        <Stop />
                     </button>
                 ) : (
                     <button
@@ -187,7 +200,7 @@ export default function AgentComposer({
                             "disabled:hover:bg-transparent disabled:hover:text-current"
                         }
                     >
-                        <FaArrowUp />
+                        <ArrowUp />
                     </button>
                 )}
             </div>
@@ -212,7 +225,7 @@ export default function AgentComposer({
                     <span className={"shrink-0 overflow-hidden rounded-full"}>
                         <ModelLogo slug={model} name={selected?.name ?? model} size={16} />
                     </span>
-                    <FaChevronDown
+                    <ChevronDown
                         aria-hidden
                         className={`h-2.5 w-2.5 transition-transform ${open ? "rotate-180" : ""}`}
                     />
@@ -298,7 +311,7 @@ export default function AgentComposer({
                             }
                         >
                             <span>{reasoning}</span>
-                            <FaChevronDown
+                            <ChevronDown
                                 aria-hidden
                                 className={`h-2.5 w-2.5 transition-transform ${effortOpen ? "rotate-180" : ""}`}
                             />

@@ -1,0 +1,51 @@
+[package]
+name = "saturn"
+version = "0.1.0"
+description = "Saturn workflow automation"
+edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+# tray-icon: the window closes to the menu bar rather than exiting, so the tray
+# is the only way back to a hidden window — and the only way to actually quit.
+# image-png: decodes icons/tray.png at startup. The bundled app icon arrives
+# pre-decoded through tauri-build, but the tray needs a separate template image
+# and `Image::from_bytes` is gated behind this.
+tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
+# Second launch focuses the running window instead of opening a second process
+# against the same saturn.db. SQLite is single-writer and `Store` is one
+# connection behind a mutex, so two processes would not queue — they would
+# collide, and the loser sees SQLITE_BUSY on a write it already reported as done.
+tauri-plugin-single-instance = "2"
+# Login item, behind the Settings toggle. Writes a LaunchAgent plist naming the
+# binary's current path, which is why the app has to live in /Applications
+# before the toggle is switched on.
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["time", "rt", "sync", "macros"] }
+# Discord's Gateway is a WebSocket and has no polling equivalent — the one place
+# in the app that genuinely needs a socket held open. rustls to match reqwest;
+# native-tls here would drag Security.framework back into the build.
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+# rustls, not native-tls: keeps the build off system OpenSSL / Security.framework.
+# blocking: the interpreter is synchronous and each run owns a std thread, which
+# is the one place a blocking client is safe (never a tokio worker).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+# 0.39, not 0.40: rusqlite 0.40 pulls libsqlite3-sys 0.38.1, whose build script uses
+# `cfg_select!` — still unstable on rustc 1.94. Revisit when that stabilizes.
+rusqlite = { version = "0.39", features = ["bundled", "serde_json"] }
+sqlite-vec = "0.1.9"
+# Keychain, keyed off the bundle identifier. apple-native only — the linux/windows
+# backends would pull dbus and the windows crates for a macOS-only v1.
+keyring = { version = "3", features = ["apple-native"] }
+# PKCE: a 32-byte verifier, base64url, and its SHA-256 challenge. All three are
+# node:crypto one-liners in lib/mcp.ts with no Rust stdlib equivalent.
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"

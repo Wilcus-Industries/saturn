@@ -1,11 +1,12 @@
 // User registry: MCP servers and skills added in dashboard settings
 // (registry_entry table). Rows convert to workflow CatalogEntry nodes
 // keyed "mcp:<uuid>:*" / "skill:<uuid>" so the designer can render them.
-// Client-safe (no pg import) — the DB query lives in lib/registry.server.ts.
+// Client-safe — the SQLite query and every mutation live in
+// src-tauri/src/registry.rs, reached over IPC (lib/ipc.tsx).
 import { ALL_TOOLS } from "@/lib/agent";
 import { type CatalogEntry, type McpToolParam, valuePort } from "@/lib/workflow";
 
-export type RegistryKind = "mcp" | "skill" | "memory" | "variable" | "sandbox";
+type RegistryKind = "mcp" | "skill" | "memory" | "variable";
 export type McpTool = {
     name: string;
     access: "read" | "write";
@@ -37,10 +38,15 @@ export type RegistryEntryRow = {
     value: string; // plaintext for regular (non-secret) variables only; '' otherwise
 };
 
-export const MAX_ENTRIES_PER_KIND = 50;
 export const MAX_MCP_TOOLS = 40;
 
-export const userNodeKey = (kind: RegistryKind, id: string) => `${kind}:${id}`;
+// Saturn Agent's own memory store, seeded by store.rs's SCHEMA and mirrored in
+// src-tauri/src/saturn.rs as MEMORY_ID. Rename, wipe and per-item delete all
+// stay allowed; only the store itself is undeletable (registry::delete_entry
+// refuses, so the UI hides the button rather than being the guard).
+export const SATURN_MEMORY_ID = "00000000-0000-4000-8000-000000000001";
+
+const userNodeKey = (kind: RegistryKind, id: string) => `${kind}:${id}`;
 
 // canonical uuid shape check, shared by every id-validating route/action/tool.
 // Anchored + case-insensitive, never /g — no lastIndex state, so one shared
@@ -51,7 +57,7 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 // sentinel client-side; only executeIntegration swaps in the real value,
 // server-side, scoped to the owning user. The plaintext never enters the
 // graph, the interpreter, logs, or onValue samples.
-export const VARIABLE_PREFIX = "variable:";
+const VARIABLE_PREFIX = "variable:";
 export function variableIdFromNodeType(type: string): string | null {
     if (!type.startsWith(VARIABLE_PREFIX)) return null;
     const id = type.slice(VARIABLE_PREFIX.length);
@@ -72,39 +78,6 @@ export function faviconDomain(serverUrl: string): string {
     const host = new URL(serverUrl).hostname;
     const labels = host.split(".");
     return labels.length <= 2 ? host : labels.slice(-2).join(".");
-}
-
-// discovered tools replace the stored allowlist. access is the user's grant:
-// a tool the user already configured keeps its enabled/access choices, except
-// read-only tools are capped at "read" (a write grant there is meaningless).
-// newly-seen read-only tools start on, write-capable ones start off.
-// freshly discovered readOnly/description/params always overwrite what's stored.
-export function mergeTools(
-    existing: McpTool[],
-    discovered: {
-        name: string;
-        readOnly: boolean | undefined;
-        description?: string;
-        params?: McpToolParam[];
-    }[],
-): McpTool[] {
-    const byName = new Map(existing.map((t) => [t.name, t]));
-    return discovered.slice(0, MAX_MCP_TOOLS).map(({ name, readOnly, description, params }) => {
-        // readOnly: undefined deliberately lands in the object so it
-        // overwrites a stale stored value (JSON serialization drops the key)
-        const fresh = {
-            readOnly,
-            ...(description ? { description } : {}),
-            ...(params ? { params } : {}),
-        };
-        const kept = byName.get(name);
-        if (kept) return { ...kept, ...fresh, ...(readOnly ? { access: "read" as const } : {}) };
-        // new tools: declared read-only start enabled; declared write-capable
-        // start off at write; unknown start off at read (least privilege)
-        if (readOnly === true) return { name, access: "read", enabled: true, ...fresh };
-        if (readOnly === false) return { name, access: "write", enabled: false, ...fresh };
-        return { name, access: "read", enabled: false, ...fresh };
-    });
 }
 
 // skill grant chip: a single "skill" value output wired into an agent's
@@ -132,21 +105,6 @@ function toMemoryEntry(row: RegistryEntryRow): CatalogEntry {
         inputs: [],
         outputs: [valuePort("memory")],
         emoji: row.emoji,
-        description: row.description,
-    };
-}
-
-// sandbox grant chip: a single "sandbox" value output wired into an agent's
-// "sandbox" port grants the sandbox (resolved statically from the node type).
-// Single-edge on the agent side — one sandbox per agent. Sandbox chips render
-// a terminal icon, not an emoji, so no emoji field is passed.
-function toSandboxEntry(row: RegistryEntryRow): CatalogEntry {
-    return {
-        key: userNodeKey(row.kind, row.id),
-        label: row.name,
-        category: "sandbox",
-        inputs: [],
-        outputs: [valuePort("sandbox")],
         description: row.description,
     };
 }
@@ -191,6 +149,23 @@ function toVariableEntry(row: RegistryEntryRow): CatalogEntry {
     };
 }
 
+// chat grant chip: a single "session" value output wired into an agent's
+// "session" port makes that agent's conversation persist across runs. NOT a
+// registry kind — chats are `saturn_session` rows with their own table and
+// CRUD — so this is a fourth source of catalog entries, merged into byKey
+// alongside CATALOG and buildUserCatalog. Mirrors src-tauri/src/saturn.rs's
+// session_catalog: change one, change both.
+export const sessionEntry = (id: string, name: string): CatalogEntry => ({
+    key: `session:${id}`,
+    label: name,
+    category: "session",
+    inputs: [],
+    outputs: [valuePort("session")],
+    // chips render their emoji (skill/memory carry a user-chosen one); a chat
+    // has no icon of its own, so every one of them wears the same speech bubble
+    emoji: "💬",
+});
+
 export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
     rows.map((row) =>
         row.kind === "skill"
@@ -199,7 +174,5 @@ export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
               ? toMemoryEntry(row)
               : row.kind === "variable"
                 ? toVariableEntry(row)
-                : row.kind === "sandbox"
-                  ? toSandboxEntry(row)
-                  : toServerEntry(row),
+                : toServerEntry(row),
     );

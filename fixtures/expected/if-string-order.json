@@ -1,0 +1,504 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "U+FFFD / U+1F680 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+FFFD / U+1F680 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+FFFD / U+1F680 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+FFFD / U+1F680 > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+FFFD / U+1F680 <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+FFFD / U+1F680 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+FFFD / U+1F680 contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+E000 / U+1F680 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+E000 / U+1F680 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+E000 / U+1F680 < → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+E000 / U+1F680 > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+E000 / U+1F680 <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+E000 / U+1F680 >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+E000 / U+1F680 contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+00E9 / z == → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+00E9 / z != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+00E9 / z < → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+00E9 / z > → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+00E9 / z <= → false"
+    },
+    {
+      "kind": "print",
+      "text": "U+00E9 / z >= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "U+00E9 / z contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "e+U+0301 / U+00E9 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "e+U+0301 / U+00E9 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "e+U+0301 / U+00E9 < → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "e+U+0301 / U+00E9 > → false"
+    },
+    {
+      "kind": "print",
+      "text": "e+U+0301 / U+00E9 <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "e+U+0301 / U+00E9 >= → false"
+    },
+    {
+      "kind": "print",
+      "text": "e+U+0301 / U+00E9 contains → false"
+    },
+    {
+      "kind": "print",
+      "text": "a+U+1F680+b / U+1F680 == → false"
+    },
+    {
+      "kind": "print",
+      "text": "a+U+1F680+b / U+1F680 != → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "a+U+1F680+b / U+1F680 < → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "a+U+1F680+b / U+1F680 > → false"
+    },
+    {
+      "kind": "print",
+      "text": "a+U+1F680+b / U+1F680 <= → TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "a+U+1F680+b / U+1F680 >= → false"
+    },
+    {
+      "kind": "print",
+      "text": "a+U+1F680+b / U+1F680 contains → TRUE"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (70 steps)"
+    }
+  ],
+  "values": [
+    [
+      "l0",
+      "out",
+      "�"
+    ],
+    [
+      "r0",
+      "out",
+      "🚀"
+    ],
+    [
+      "l0",
+      "out",
+      "�"
+    ],
+    [
+      "r0",
+      "out",
+      "🚀"
+    ],
+    [
+      "l0",
+      "out",
+      "�"
+    ],
+    [
+      "r0",
+      "out",
+      "🚀"
+    ],
+    [
+      "l0",
+      "out",
+      "�"
+    ],
+    [
+      "r0",
+      "out",
+      "🚀"
+    ],
+    [
+      "l0",
+      "out",
+      "�"
+    ],
+    [
+      "r0",
+      "out",
+      "🚀"
+    ],
+    [
+      "l0",
+      "out",
+      "�"
+    ],
+    [
+      "r0",
+      "out",
+      "🚀"
+    ],
+    [
+      "l0",
+      "out",
+      "�"
+    ],
+    [
+      "r0",
+      "out",
+      "🚀"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "🚀"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "🚀"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "🚀"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "🚀"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "🚀"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "🚀"
+    ],
+    [
+      "l1",
+      "out",
+      ""
+    ],
+    [
+      "r1",
+      "out",
+      "🚀"
+    ],
+    [
+      "l2",
+      "out",
+      "é"
+    ],
+    [
+      "r2",
+      "out",
+      "z"
+    ],
+    [
+      "l2",
+      "out",
+      "é"
+    ],
+    [
+      "r2",
+      "out",
+      "z"
+    ],
+    [
+      "l2",
+      "out",
+      "é"
+    ],
+    [
+      "r2",
+      "out",
+      "z"
+    ],
+    [
+      "l2",
+      "out",
+      "é"
+    ],
+    [
+      "r2",
+      "out",
+      "z"
+    ],
+    [
+      "l2",
+      "out",
+      "é"
+    ],
+    [
+      "r2",
+      "out",
+      "z"
+    ],
+    [
+      "l2",
+      "out",
+      "é"
+    ],
+    [
+      "r2",
+      "out",
+      "z"
+    ],
+    [
+      "l2",
+      "out",
+      "é"
+    ],
+    [
+      "r2",
+      "out",
+      "z"
+    ],
+    [
+      "l3",
+      "out",
+      "é"
+    ],
+    [
+      "r3",
+      "out",
+      "é"
+    ],
+    [
+      "l3",
+      "out",
+      "é"
+    ],
+    [
+      "r3",
+      "out",
+      "é"
+    ],
+    [
+      "l3",
+      "out",
+      "é"
+    ],
+    [
+      "r3",
+      "out",
+      "é"
+    ],
+    [
+      "l3",
+      "out",
+      "é"
+    ],
+    [
+      "r3",
+      "out",
+      "é"
+    ],
+    [
+      "l3",
+      "out",
+      "é"
+    ],
+    [
+      "r3",
+      "out",
+      "é"
+    ],
+    [
+      "l3",
+      "out",
+      "é"
+    ],
+    [
+      "r3",
+      "out",
+      "é"
+    ],
+    [
+      "l3",
+      "out",
+      "é"
+    ],
+    [
+      "r3",
+      "out",
+      "é"
+    ],
+    [
+      "l4",
+      "out",
+      "a🚀b"
+    ],
+    [
+      "r4",
+      "out",
+      "🚀"
+    ],
+    [
+      "l4",
+      "out",
+      "a🚀b"
+    ],
+    [
+      "r4",
+      "out",
+      "🚀"
+    ],
+    [
+      "l4",
+      "out",
+      "a🚀b"
+    ],
+    [
+      "r4",
+      "out",
+      "🚀"
+    ],
+    [
+      "l4",
+      "out",
+      "a🚀b"
+    ],
+    [
+      "r4",
+      "out",
+      "🚀"
+    ],
+    [
+      "l4",
+      "out",
+      "a🚀b"
+    ],
+    [
+      "r4",
+      "out",
+      "🚀"
+    ],
+    [
+      "l4",
+      "out",
+      "a🚀b"
+    ],
+    [
+      "r4",
+      "out",
+      "🚀"
+    ],
+    [
+      "l4",
+      "out",
+      "a🚀b"
+    ],
+    [
+      "r4",
+      "out",
+      "🚀"
+    ]
+  ]
+}

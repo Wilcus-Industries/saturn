@@ -1,0 +1,55 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "branch A"
+    },
+    {
+      "kind": "print",
+      "text": "branch B"
+    },
+    {
+      "kind": "info",
+      "text": "await: 2/2 branches — continuing"
+    },
+    {
+      "kind": "print",
+      "text": "[\"c\\\"quoted\\\"\",\"a\",2]"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (5 steps)"
+    }
+  ],
+  "values": [
+    [
+      "s3",
+      "out",
+      "c\"quoted\""
+    ],
+    [
+      "s1",
+      "out",
+      "a"
+    ],
+    [
+      "s2",
+      "out",
+      "2"
+    ],
+    [
+      "aw",
+      "results",
+      "[\"c\\\"quoted\\\"\",\"a\",2]"
+    ],
+    [
+      "aw",
+      "results",
+      "[\"c\\\"quoted\\\"\",\"a\",2]"
+    ]
+  ]
+}

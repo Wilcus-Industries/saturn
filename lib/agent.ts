@@ -1,70 +1,18 @@
-// Client-safe agent types and helpers shared by the workflow test-run
-// interpreter (browser) and the callAgentModel server action. Server-only
-// code (OpenRouter client, prompt assembly) lives in lib/agent.server.ts —
-// same layering split as lib/registry.ts / lib/registry.server.ts.
-
-// a granted MCP tool, resolved to its registry entry — the wire-format
-// function names OpenRouter sees never leave the server. exclude is only
-// meaningful on ALL_TOOLS refs: tool names the server node's per-node
-// selection withholds from the server-side expansion.
-export type AgentToolRef = { entryId: string; toolName: string; exclude?: string[] };
-
-// a model-requested tool call, already decoded back to registry terms;
-// arguments is the raw JSON-object string (callMcpTool's input contract)
-export type AgentToolCall = {
-    id: string;
-    entryId: string;
-    toolName: string;
-    arguments: string;
-};
-
-export type AgentMessage =
-    | { role: "user"; content: string }
-    | { role: "assistant"; content: string; toolCalls?: AgentToolCall[] }
-    | { role: "tool"; toolCallId: string; content: string };
-
-// result of one real MCP tool call (callMcpTool action / executeMcpTool
-// core) — errors return as values so consoles and run logs can render them
-export type McpCallResult = { text: string } | { error: string };
-
-// result of one LLM turn (callAgentModel action / executeAgentTurn core);
-// image is a data:image/… URL, set only for output=image agent turns
-export type AgentModelResult =
-    | { content: string; toolCalls: AgentToolCall[]; image?: string }
-    | { error: string };
-
-export const MAX_AGENT_TURNS = 8; // LLM calls per agent loop
-export const MAX_AGENT_MESSAGES = 60; // transcript length cap per model call
-export const MAX_TOOL_CALLS_PER_TURN = 5;
-
-// shared model-id shape + reasoning-mode allowlist for both agent paths
-// (executeAgentTurn and the Agent-page chat runAgentChat)
-export const MODEL_ID = /^[\w.:/-]{1,128}$/;
-export const REASONING_MODES = new Set(["off", "low", "medium", "high"]);
-
-// allowlist a reasoning-mode string → OpenRouter `reasoning` param. Unknown or
-// blank → undefined (model default); "off" disables reasoning; effort levels
-// (low/medium/high) pass through as { effort }.
-export function toReasoningParam(
-    mode: string | undefined,
-): { enabled: false } | { effort: string } | undefined {
-    if (typeof mode !== "string" || !REASONING_MODES.has(mode)) return undefined;
-    return mode === "off" ? { enabled: false } : { effort: mode };
-}
+// The agent caps and grant helpers the DESIGNER needs — validation warnings and
+// the tool picker. Executing an agent turn is entirely Rust (src-tauri/src/
+// agent.rs, openrouter.rs); these constants mirror the ones enforced there.
 
 // grants are now edges from chip nodes into the agent's tools/skills ports —
-// these cap how many an agent may carry (mirrored by the server's request
-// validation in lib/runner.server.ts)
+// these cap how many an agent may carry (mirrored by src-tauri/src/agent.rs,
+// enforced on every agent request in src-tauri/src/runner.rs)
 export const MAX_GRANTED_TOOLS = 20;
 export const MAX_GRANTED_SKILLS = 10;
 
-// wire-format tool names exposed to an agent granted a memory store node —
-// the persistent-memory read/write/delete surface (built server-side)
-export const MEMORY_TOOL_NAMES = ["memory_search", "memory_save", "memory_forget"] as const;
-
-// wire-format tool names exposed to an agent granted a sandbox node — the
-// persistent-sandbox exec/write/read surface (built server-side)
-export const SANDBOX_TOOL_NAMES = ["sandbox_exec", "sandbox_write_file", "sandbox_read_file"] as const;
+// what a Saturn Agent turn runs on when nothing picked a model: the chat's
+// initial selection, and what a saturn-agent node with a blank model field
+// resolves to. Mirrors src-tauri/src/saturn.rs's DEFAULT_MODEL, which is the
+// one the node actually uses — change one, change both.
+export const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
 
 // sentinel toolName of the MCP server grant chip (node type "mcp:<uuid>:*"
 // — the only mcp node type the catalog emits). It resolves like any tool
@@ -72,15 +20,14 @@ export const SANDBOX_TOOL_NAMES = ["sandbox_exec", "sandbox_write_file", "sandbo
 // minus the ref's exclude list — no real tool is ever named "*" (registry
 // skips one that is), so the sentinel can't collide.
 export const ALL_TOOLS = "*";
-export const isAllToolsRef = (ref: AgentToolRef): boolean => ref.toolName === ALL_TOOLS;
 
 // per-node tool selection: a server node's config.exclude holds a JSON
 // array (as a string — graph config values are strings) of tool names to
 // withhold. Caps mirror lib/registry.ts's MAX_MCP_TOOLS / tool-name length
 // (importing registry here would cycle: registry imports this module).
-export const MAX_EXCLUDED_TOOLS = 40;
+const MAX_EXCLUDED_TOOLS = 40;
 
-export const isToolExclusionList = (x: unknown): x is string[] =>
+const isToolExclusionList = (x: unknown): x is string[] =>
     Array.isArray(x) &&
     x.length <= MAX_EXCLUDED_TOOLS &&
     x.every((s) => typeof s === "string" && s.length > 0 && s.length <= 60);
@@ -95,37 +42,4 @@ export function parseToolExclusions(raw: string | undefined): string[] | null {
     } catch {
         return null;
     }
-}
-
-// grants resolve statically from the source chip node's type, never by
-// evaluating it as a value. Node types are "mcp:<36-char-uuid>:<toolName>"
-// and "skill:<uuid>" — fixed-offset slices, never split: tool names may
-// contain ":". "mcp:" is 4 chars, so the uuid spans [4,40) and ":" sits at
-// index 40; a valid tool name is the non-empty remainder from 41. The parse
-// still accepts retired per-tool types ("mcp:<uuid>:<toolName>") — the
-// interpreter's catalog-entry gate drops those grants, not the parser.
-export function toolRefFromNodeType(type: string): AgentToolRef | null {
-    if (!type.startsWith("mcp:") || type[40] !== ":" || type.length <= 41) return null;
-    return { entryId: type.slice(4, 40), toolName: type.slice(41) };
-}
-
-// "skill:" is 6 chars; a valid skill node type is exactly the prefix + a
-// 36-char uuid remainder
-export function skillIdFromNodeType(type: string): string | null {
-    if (!type.startsWith("skill:") || type.length !== 42) return null;
-    return type.slice(6);
-}
-
-// "memory:" is 7 chars; a valid memory store node type is exactly the prefix
-// + a 36-char uuid remainder (total 43)
-export function memoryIdFromNodeType(type: string): string | null {
-    if (!type.startsWith("memory:") || type.length !== 43) return null;
-    return type.slice(7);
-}
-
-// "sandbox:" is 8 chars; a valid sandbox node type is exactly the prefix + a
-// 36-char uuid remainder (total 44)
-export function sandboxIdFromNodeType(type: string): string | null {
-    if (!type.startsWith("sandbox:") || type.length !== 44) return null;
-    return type.slice(8);
 }

@@ -1,15 +1,27 @@
 "use client";
 
-// The Saturn Agent conversation lives OUTSIDE React, in module state. The
-// dashboard chat and the designer's docked panel are two different pages, so
-// moving between them unmounts and remounts the chat — with the transcript and
-// the fetch owned by the component, "open in designer" aborted the very turn it
-// was handing over and shipped a frozen snapshot of it. Here the stream keeps
-// running across the navigation and whichever chat is mounted renders it.
-// Still non-persistent: module state dies with the tab, nothing is stored.
+// The Saturn Agent conversation lives OUTSIDE React, in module state. Rust owns
+// the stream now — `saturn_send` spawns a thread that keeps writing whether or
+// not a component is mounted — so this is no longer here to keep a fetch alive.
+// It survives for four reasons:
+//
+//   1. It is the only sink a module-scope Tauri listener can write to. The
+//      `saturn-delta` listeners are registered once for the life of the process
+//      and never unlistened; they need somewhere to put frames that outlives
+//      every mount.
+//   2. It holds the handoff one-shot (`requestHandoff`/`takeHandoff`) across the
+//      dashboard → designer navigation.
+//   3. It fans the `g` frame out to whichever designer canvas is open.
+//   4. It caches the transcript, so moving between the dashboard chat and the
+//      docked panel doesn't refetch `saturn_get_messages` mid-stream.
+//
+// The transcript itself is persistent — it lives in `saturn_message` and Rust
+// appends to it. This is a cache of one session's window, not the record.
+
+import { call, callVoid, onEvent } from "@/lib/ipc";
 
 // one rendered turn. An assistant turn is an ordered part list, not two fixed
-// strings: the server's tool loop interleaves reasoning → text → tool → more
+// strings: the tool loop interleaves reasoning → text → tool → more
 // reasoning across turns, and the parts preserve that order. `error` marks a
 // failed turn (transport or model error) rendered as a faint red line.
 export type ToolPart = {
@@ -29,7 +41,7 @@ type Assistant = Extract<ChatMessage, { role: "assistant" }>;
 
 let messages: ChatMessage[] = [];
 let streaming = false;
-let controller: AbortController | null = null;
+let sessionId = "";
 // workflow id the chat asked the designer to open, read once on arrival
 let handoff: string | null = null;
 
@@ -45,9 +57,10 @@ export function subscribe(fn: () => void): () => void {
 }
 export const getMessages = (): ChatMessage[] => messages;
 export const getStreaming = (): boolean => streaming;
+export const getSessionId = (): string => sessionId;
 
-// useSyncExternalStore server snapshots — the store is client-only, so SSR
-// always renders the empty conversation (a fresh load has one anyway)
+// useSyncExternalStore server snapshots — the store is client-only, so the
+// prerendered HTML always shows the empty conversation (a fresh load has one anyway)
 const EMPTY: ChatMessage[] = [];
 export const serverMessages = (): ChatMessage[] => EMPTY;
 export const serverStreaming = (): boolean => false;
@@ -76,7 +89,8 @@ function patchLast(fn: (m: Assistant) => void) {
     emit();
 }
 
-// one NDJSON frame → transcript edit. Every payload parse is guarded: a
+// one `saturn-delta` frame → transcript edit. Same frame vocabulary the hosted
+// NDJSON stream used, so this is unchanged. Every payload parse is guarded: a
 // malformed frame is dropped, never thrown, so the stream survives it.
 function apply(t: string, d: string) {
     if (t === "r" || t === "c") {
@@ -138,80 +152,73 @@ function apply(t: string, d: string) {
     }
 }
 
+// Registered once, for the life of the process, and deliberately never
+// unlistened: a turn started here must keep landing while the chat is unmounted
+// by the dashboard ⇄ designer navigation. The sessionId filter is what stops a
+// `saturn-agent` node run writing into whichever chat happens to be open.
+//
+// The window guard is for the static export's prerender pass, which evaluates
+// this module in Node — Tauri's `listen` reaches for `window` at import.
+if (typeof window !== "undefined") {
+    void onEvent<{ sessionId?: string; t?: string; d?: string }>("saturn-delta", (f) => {
+        if (f.sessionId !== sessionId) return;
+        if (typeof f.t === "string" && typeof f.d === "string") apply(f.t, f.d);
+    });
+    void onEvent<{ sessionId?: string }>("saturn-done", (f) => {
+        if (f.sessionId !== sessionId) return;
+        streaming = false;
+        emit();
+    });
+}
+
+/// Switch the visible chat. Replaces the cached transcript with the stored one —
+/// a session change mid-stream is possible, and the deltas for the old session
+/// simply stop matching the filter.
+export async function setSession(id: string): Promise<void> {
+    sessionId = id;
+    localStorage.setItem("saturnSession", id);
+    messages = [];
+    streaming = false;
+    emit();
+    const stored = await call<{ role: string; content: string; parts: Part[] }[]>(
+        "saturn_get_messages",
+        { sessionId: id },
+    );
+    // a slow load for a session the user already switched away from must not
+    // overwrite the one now on screen
+    if (sessionId !== id) return;
+    messages = stored.map((m) =>
+        m.role === "user"
+            ? { role: "user", content: m.content }
+            : { role: "assistant", parts: m.parts },
+    );
+    emit();
+}
+
 export async function send(
     text: string,
     model: string,
     reasoning: string,
     workflowId?: string,
 ): Promise<void> {
-    if (streaming) return;
+    if (streaming || !sessionId) return;
 
-    // transcript to POST — prior turns as plain {role, content}: only the text
-    // parts travel, reasoning and tool calls are display-only (tool calls are
-    // per-request ephemeral by design)
-    const outgoing: { role: string; content: string }[] = [];
-    for (const m of messages) {
-        if (m.role === "user") {
-            outgoing.push({ role: "user", content: m.content });
-            continue;
-        }
-        const said = m.parts.flatMap((p) => (p.kind === "text" ? [p.text] : [])).join("");
-        if (said) outgoing.push({ role: "assistant", content: said });
-    }
-    outgoing.push({ role: "user", content: text });
-
+    // the user turn and the empty assistant the deltas will fill. Rust appends
+    // both to `saturn_message` itself — this is the optimistic echo, not the record.
     messages = [...messages, { role: "user", content: text }, { role: "assistant", parts: [] }];
     streaming = true;
     emit();
 
-    const ac = new AbortController();
-    controller = ac;
     try {
-        const res = await fetch("/api/agent/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model, reasoning, messages: outgoing, workflowId }),
-            signal: ac.signal,
-        });
-        if (!res.ok || !res.body) {
-            patchLast((m) => {
-                m.error = res.status === 401 ? "session expired — reload" : "request failed";
-            });
-            return;
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = "";
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-            let nl: number;
-            while ((nl = buf.indexOf("\n")) !== -1) {
-                const line = buf.slice(0, nl).trim();
-                buf = buf.slice(nl + 1);
-                if (!line) continue;
-                try {
-                    const frame: { t?: unknown; d?: unknown } = JSON.parse(line);
-                    if (typeof frame.t === "string" && typeof frame.d === "string") {
-                        apply(frame.t, frame.d);
-                    }
-                } catch {
-                    // a bad frame (or a consumer that threw on one) must never
-                    // take the rest of the stream down with it
-                }
-            }
-        }
+        await call("saturn_send", { sessionId, model, reasoning, text, workflowId });
     } catch (err) {
-        // user-initiated stop is not an error
-        if (!(err instanceof DOMException && err.name === "AbortError")) {
-            patchLast((m) => void (m.error = "connection lost"));
-        }
-    } finally {
+        // the spawn itself failed, so no `saturn-done` is coming — clear here
+        patchLast((m) => void (m.error = err instanceof Error ? err.message : String(err)));
         streaming = false;
-        controller = null;
         emit();
     }
 }
 
-export const stop = () => controller?.abort();
+// cooperative — Rust unwinds the turn between socket reads and tool calls, then
+// emits `saturn-done`, which is what actually clears `streaming`
+export const stop = () => callVoid("saturn_stop");

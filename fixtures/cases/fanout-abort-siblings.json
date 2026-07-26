@@ -1,0 +1,120 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "a1",
+        "type": "print",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "message": "branch A first step"
+        }
+      },
+      {
+        "id": "boom",
+        "type": "if",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "operator": ""
+        }
+      },
+      {
+        "id": "aT",
+        "type": "print",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "message": "branch A never"
+        }
+      },
+      {
+        "id": "b1",
+        "type": "print",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "message": "branch B first step"
+        }
+      },
+      {
+        "id": "b2",
+        "type": "print",
+        "x": 300,
+        "y": 0,
+        "config": {
+          "message": "branch B second step"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "a1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "a1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "boom",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "boom",
+          "portId": "true"
+        },
+        "to": {
+          "nodeId": "aT",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "b1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "b1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "b2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "info",
+      "text": "running http request…"
+    },
+    {
+      "kind": "error",
+      "text": "http request: stub http-request refused"
+    },
+    {
+      "kind": "error",
+      "text": "run aborted"
+    }
+  ],
+  "values": []
+}

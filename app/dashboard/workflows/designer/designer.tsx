@@ -1,0 +1,1227 @@
+"use client";
+
+import {
+    type Dispatch,
+    type SetStateAction,
+    useCallback,
+    useDeferredValue,
+    useEffect,
+    useMemo,
+    useReducer,
+    useRef,
+    useState,
+    useTransition,
+} from "react";
+import {
+    CATALOG_BY_KEY,
+    canConnect,
+    type CatalogEntry,
+    chipKind,
+    defaultNodeConfig,
+    edgesToReplace,
+    entryStyles,
+    missingEntry,
+    type ValidationIssue,
+    type WorkflowGraph,
+} from "@/lib/workflow";
+import { call, callVoid, type ConsoleLine, onEvent } from "@/lib/ipc";
+import { takeHandoff } from "@/app/dashboard/(shell)/agentChatStore";
+import AgentPanel from "./agentPanel";
+import Canvas, { type CanvasHandle, type PendingDrag } from "./canvas";
+import ConsolePanel from "./console";
+import type { PendingEdge } from "./edges";
+import EntryIcon from "./entryIcon";
+import {
+    GRID,
+    grabOffsetY,
+    HEADER_H,
+    isModelEntry,
+    NODE_W,
+    nodeWidth,
+} from "./geometry";
+import ModelLogo from "./modelLogo";
+import { graphReducer, initHistory } from "./graphReducer";
+import type {
+    OpenCronHandler,
+    OpenInfoHandler,
+    OpenPickerHandler,
+    OpenSystemHandler,
+    OpenToolsHandler,
+    OpenVariableHandler,
+    PortPointerDownHandler,
+} from "./node";
+import ChipInfoPopover from "./chipInfoPopover";
+import CronPopover from "./cronPopover";
+import SystemPopover from "./systemPopover";
+import ToolPickerPopover from "./toolPickerPopover";
+import { describeCron } from "@/lib/cron";
+import { variableIdFromNodeType, variableSentinel } from "@/lib/registry";
+import PathPicker, { type PickerSample } from "./pathPicker";
+import Toolbox from "./toolbox";
+import Topbar from "./topbar";
+import VariableModal, { type VariableRow } from "./variableModal";
+
+// don't JSON.parse arbitrarily huge samples for the path picker. Rust caps
+// `run-value` text at exactly this many UTF-16 units with no truncation marker,
+// so a sample AT the cap is one that was cut and would fail to parse — hence
+// the `>=` at the use site, not `>`.
+const MAX_SAMPLE_CHARS = 500_000;
+
+// one OpenRouter model as list_openrouter_models returns it (that struct is the
+// one with rename_all, so these keys really are camelCase). Declared here rather
+// than imported: the old lib/openrouter.server.ts is gone.
+export type OpenrouterModel = {
+    id: string;
+    name: string;
+    outputModalities: string[];
+    supportsReasoning: boolean;
+};
+
+// window pointer listeners for gestures that outlive their start element
+// (toolbox spawn, port edge drags). Handlers live in a ref so the listeners
+// attach once per gesture but always see the latest closures.
+function useWindowDrag(
+    active: boolean,
+    handlers: {
+        onMove: (e: PointerEvent) => void;
+        onUp: (e: PointerEvent) => void;
+        onCancel: () => void;
+    },
+) {
+    const ref = useRef(handlers);
+    useEffect(() => {
+        ref.current = handlers;
+    });
+    useEffect(() => {
+        if (!active) return;
+        const onMove = (e: PointerEvent) => ref.current.onMove(e);
+        const onUp = (e: PointerEvent) => ref.current.onUp(e);
+        const onCancel = () => ref.current.onCancel();
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onCancel);
+        return () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+            window.removeEventListener("pointercancel", onCancel);
+        };
+    }, [active]);
+}
+
+export default function Designer({
+    workflow,
+    userCatalog,
+    variables,
+    openrouterModels,
+    githubLinked,
+    onRegistryChange,
+}: {
+    workflow: { id: string; name: string; emoji: string; graph: WorkflowGraph };
+    userCatalog: CatalogEntry[];
+    // secret variables for the toolbox's pinned split (name + has-value only)
+    variables: VariableRow[];
+    // null = no OpenRouter key; [] = unlocked but fetch failed
+    openrouterModels: OpenrouterModel[] | null;
+    // a GitHub PAT is stored. Push/issue/pr/release poll unauthenticated on
+    // public repos, so for those this is only a rate-limit hint — but github-star
+    // is not polled at all without one, so it also greys that chip out and warns
+    // on an already-placed star node.
+    githubLinked: boolean;
+    // the variable modal writes to the registry; the page owns that fetch
+    onRegistryChange: () => void;
+}) {
+    const [history, dispatch] = useReducer(graphReducer, workflow.graph, initHistory);
+    const present = history.present;
+
+    // static catalog + user registry entries + "(deleted)" placeholders for
+    // any node type that no longer resolves (deleted registry entry or a
+    // node type removed from the static catalog).
+    // Keyed on the node TYPES, never on present.nodes: every drag frame
+    // allocates a fresh nodes array, and a new byKey identity breaks the memo
+    // of every Node on the canvas (byKey is a prop on all of them).
+    const nodeTypeKey = present.nodes.map((n) => n.type).join("\u0000");
+    const byKey = useMemo(() => {
+        const map: Record<string, CatalogEntry> = { ...CATALOG_BY_KEY };
+        for (const entry of userCatalog) map[entry.key] = entry;
+        for (const type of nodeTypeKey ? nodeTypeKey.split("\u0000") : []) {
+            if (!map[type]) map[type] = missingEntry(type);
+        }
+        return map;
+    }, [userCatalog, nodeTypeKey]);
+
+    // slug → output modalities, driving the agent node's output select
+    const modelModalities = useMemo(
+        () => new Map((openrouterModels ?? []).map((m) => [m.id, m.outputModalities])),
+        [openrouterModels],
+    );
+    // slug → reasoning capability, driving the agent node's reasoning select
+    const modelReasoning = useMemo(
+        () => new Map((openrouterModels ?? []).map((m) => [m.id, m.supportsReasoning])),
+        [openrouterModels],
+    );
+
+    // live validation surfaced in the topbar (issues panel) and as per-node
+    // dots. The deferred graph IS the debounce — present settles between edits,
+    // and the walk is linear over a graph capped at MAX_NODES, so re-running it
+    // per settled edit is cheap. Suppressed on an empty graph so a fresh
+    // workflow doesn't nag ("no event node") before anything is placed.
+    //
+    // Rust owns the rules (src-tauri/src/workflow.rs validate_graph_strict) and
+    // rebuilds byKey from the database itself — catalog + registry — so the
+    // designer and the run pipeline cannot disagree about the same graph. That
+    // is also why githubLinked isn't sent: the command reads the Keychain.
+    const deferredGraph = useDeferredValue(present);
+    const [validated, setValidated] = useState<ValidationIssue[]>([]);
+    useEffect(() => {
+        if (deferredGraph.nodes.length === 0) return;
+        let alive = true;
+        call<{ issues: ValidationIssue[] }>("validate_graph", { graph: deferredGraph })
+            // a failed validation is not a clean graph — but it is also not a
+            // set of findings we can name, so the panel goes quiet rather than
+            // showing a stale verdict for an edited graph
+            .then((v) => alive && setValidated(v.issues))
+            .catch(() => alive && setValidated([]));
+        return () => {
+            alive = false;
+        };
+    }, [deferredGraph]);
+    const issues = useMemo<ValidationIssue[]>(
+        () => (deferredGraph.nodes.length === 0 ? [] : validated),
+        [deferredGraph, validated],
+    );
+    // node id → the worst level an issue pins to it (error wins over warning);
+    // a node absent from the map has no issue. Feeds the canvas's per-node dot.
+    const issuesByNode = useMemo(() => {
+        const map = new Map<string, "error" | "warning">();
+        for (const issue of issues) {
+            if (!issue.nodeId) continue;
+            if (issue.level === "error") map.set(issue.nodeId, "error");
+            else if (!map.has(issue.nodeId)) map.set(issue.nodeId, "warning");
+        }
+        return map;
+    }, [issues]);
+
+    // selection lives outside history so undo/redo doesn't thrash it
+    const [selection, setSelection] = useState<Set<string>>(new Set());
+    // the selected edge (null = none). Node and edge selection are mutually
+    // exclusive: every node-selection change routes through selectNodes, which
+    // also clears the edge; selectEdge does the reverse. An edge click selects
+    // it (no longer instant-deletes); Delete/Backspace or the midpoint × removes.
+    const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+    const selectNodes = useCallback<Dispatch<SetStateAction<Set<string>>>>((update) => {
+        setSelectedEdgeId(null);
+        setSelection(update);
+    }, []);
+    const selectEdge = useCallback((id: string) => {
+        setSelectedEdgeId(id);
+        setSelection(new Set());
+    }, []);
+    const deleteEdge = useCallback((id: string) => {
+        dispatch({ type: "deleteEdge", id });
+    }, []);
+    // clicking a node-bearing issue in the topbar's issues panel selects that
+    // node — routed through selectNodes (stable), which also clears any edge
+    // selection so the two selection kinds stay mutually exclusive
+    const selectIssueNode = useCallback(
+        (nodeId: string) => selectNodes(new Set([nodeId])),
+        [selectNodes],
+    );
+
+    // saved snapshot as state (not a ref) so a successful save re-renders
+    // the dirty indicator immediately. Compared by REFERENCE: the reducer
+    // allocates a new `present` per mutation and undo/redo restore the exact
+    // snapshot objects, so identity answers "dirty?" without stringifying the
+    // whole document (agent system prompts included) at pointer-event rate.
+    const [savedGraph, setSavedGraph] = useState(workflow.graph);
+    const dirty = present !== savedGraph;
+
+    const [error, setError] = useState<string | null>(null);
+
+    // transient toast: a bottom-center monospace pill that auto-dismisses after
+    // ~2.5s; a fresh notify() replaces whatever is showing. Consumed by the edge
+    // drop handler below (invalid-drop reasons + replaced-connection notice) and
+    // later phases (failed-spawn feedback), without threading new props through
+    // the memoized Node. Never persisted — dies with the page.
+    const [toast, setToast] = useState<string | null>(null);
+    const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const notify = useCallback((text: string) => {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setToast(text);
+        toastTimerRef.current = setTimeout(() => setToast(null), 2500);
+    }, []);
+    useEffect(() => () => {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    }, []);
+
+    // the embedded Saturn Agent panel. Open state and width are never persisted
+    // — they die with the page, like the console.
+    const [agentOpen, setAgentOpen] = useState(false);
+    // arriving from the dashboard chat's "open in designer" chip: the
+    // conversation itself lives in module state (agentChatStore), still
+    // streaming if the turn hadn't finished — all that crosses is the intent to
+    // show it here. An effect, not a lazy useState initializer: reading an
+    // external store during render would desync hydration.
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot read of an external store; a lazy initializer would desync hydration
+        if (takeHandoff(workflow.id)) setAgentOpen(true);
+    }, [workflow.id]);
+
+    // the agent saved a graph for THIS workflow: adopt it as one undo step and
+    // mark it saved (Rust already persisted it, so the autosave must not
+    // immediately write it back). Unsaved canvas edits are clobbered — Cmd+Z
+    // recovers them, because replaceGraph pushes the current present onto the
+    // undo stack. Stable: the memoized Node never sees it, but AgentChat's
+    // graph subscription depends on it.
+    const handleAgentGraph = useCallback(
+        (graph: unknown) => {
+            // shape-checked in Rust before the frame is emitted — save_graph runs
+            // validate_graph_strict and store::set_graph's check_graph (the port
+            // of the old isWorkflowGraph), which is why there is no second
+            // validator here. This only proves something arrived.
+            const g = graph as WorkflowGraph | null;
+            if (!g || !Array.isArray(g.nodes) || !Array.isArray(g.edges)) return;
+            dispatch({ type: "replaceGraph", graph: g });
+            setSavedGraph(g);
+            // the swapped-in graph may reuse node ids for different nodes — the
+            // cheap membership check below can't see that, so drop the selection
+            selectNodes(new Set());
+            notify("agent updated the graph");
+        },
+        [notify, selectNodes],
+    );
+
+    // arrow-key nudge coalescing: a burst of arrow presses moves the selection
+    // one grid cell each via TRANSIENT moveNodes (same action a live drag uses
+    // mid-gesture — no history push), then a settle timer commits the whole
+    // burst as ONE undo step through the existing before/commitDrag machinery.
+    // `before` snapshots the graph on the first press of a burst. Flushed early
+    // by any non-arrow key action, a selection change, or unmount (see below).
+    const nudgeRef = useRef<{
+        before: WorkflowGraph | null;
+        timer: ReturnType<typeof setTimeout> | null;
+    }>({ before: null, timer: null });
+    const flushNudge = useCallback(() => {
+        const n = nudgeRef.current;
+        if (n.timer) {
+            clearTimeout(n.timer);
+            n.timer = null;
+        }
+        if (n.before) {
+            dispatch({ type: "commitDrag", before: n.before });
+            n.before = null;
+        }
+    }, []);
+    // a selection change means the user did something other than nudge (clicked
+    // a node, marqueed, cleared) — the burst is over, so commit it. The nudge
+    // itself never touches selection, so this never fires mid-burst. No-op when
+    // nothing is pending (mount, ordinary selection churn).
+    useEffect(() => {
+        flushNudge();
+    }, [selection, flushNudge]);
+
+    // test-run output; null = console hidden (never run, or closed)
+    const [consoleLines, setConsoleLines] = useState<ConsoleLine[] | null>(null);
+    // console panel height, drag-resized via its top edge; lives here (not in
+    // ConsolePanel) so it survives close/reopen but dies with the page —
+    // deliberately never persisted
+    const [consoleHeight, setConsoleHeight] = useState(160);
+    const [running, setRunning] = useState(false);
+
+    // the test event runner: every event node is an independent entry point,
+    // labelled by its schedule (or the entry label for non-schedule events)
+    const events = useMemo(
+        () =>
+            present.nodes
+                .filter((n) => byKey[n.type]?.category === "events")
+                .map((n) => {
+                    const entry = byKey[n.type];
+                    const cron = (n.config.cron ?? "").trim();
+                    const label = entry?.config?.some((f) => f.id === "cron")
+                        ? cron
+                            ? describeCron(cron)
+                            : "not scheduled"
+                        : (entry?.label ?? n.type);
+                    return { id: n.id, label };
+                }),
+        [present.nodes, byKey],
+    );
+    const [selectedEventId, setSelectedEventId] = useState("");
+    // keep the selected event valid as the graph changes; default to the first
+    const [prevEventKey, setPrevEventKey] = useState("");
+    const eventKey = events.map((e) => e.id).join(",");
+    if (prevEventKey !== eventKey) {
+        setPrevEventKey(eventKey);
+        if (!events.some((e) => e.id === selectedEventId)) {
+            setSelectedEventId(events[0]?.id ?? "");
+        }
+    }
+
+    // per-port values from the last test run, for the extract path picker.
+    // A ref: nothing renders from these until a picker opens (which snapshots
+    // what it needs). Never persisted — samples die with the page.
+    const samplesRef = useRef(new Map<string, string>()); // "nodeId:portId" → text
+    // live unlisten handles for the run in flight; also torn down on unmount so
+    // a leaked listener can't push the next run's lines into a dead component
+    const runListenersRef = useRef<(() => void)[]>([]);
+    const stopListening = useCallback(() => {
+        for (const un of runListenersRef.current) un();
+        runListenersRef.current = [];
+    }, []);
+    // unmounted flag, the same shape useAsync uses for its listen(): the run
+    // lives in Rust and outlives this component, so both the listen() handles
+    // and the launch itself can land after "← workflows" and must be undone.
+    const deadRef = useRef(false);
+
+    const runGraph = async () => {
+        if (running) return; // the Rust stop flag is process-wide: one run at a time
+        setRunning(true);
+        setConsoleLines([]);
+        samplesRef.current = new Map();
+        const emit = (line: ConsoleLine) => setConsoleLines((prev) => [...(prev ?? []), line]);
+        // cron and event runs stream on the same three channels. Filtering on
+        // the run id can't work — test_run resolves before the run row exists,
+        // so the id is unknown until the first line lands, and "first id wins"
+        // would latch onto a background run that spoke first and then discard
+        // every line of this one. `trigger` is on the payload for exactly this,
+        // and only one manual run can be in flight (the guard above).
+        const mine = (e: { trigger: string }) => e.trigger === "manual";
+        // whether an error line already reached the console — read by
+        // run-finished, which repeats that same text in its `error` field
+        let sawError = false;
+        const finish = () => {
+            stopListening();
+            setRunning(false);
+        };
+        try {
+            // subscribe BEFORE anything can emit: test_run is the only producer
+            // of these events, so nothing is lost by being early, while a
+            // subscription behind the pre-save can resolve after unmount
+            const handles = await Promise.all([
+                onEvent<{ trigger: string } & ConsoleLine>("run-log", (line) => {
+                    if (!mine(line)) return;
+                    if (line.kind === "error") sawError = true;
+                    emit(line);
+                }),
+                onEvent<{ trigger: string; nodeId: string; portId: string; text: string }>(
+                    "run-value",
+                    (v) => {
+                        if (mine(v)) samplesRef.current.set(`${v.nodeId}:${v.portId}`, v.text);
+                    },
+                ),
+                onEvent<{ trigger: string; status: string; error: string }>("run-finished", (r) => {
+                    if (!mine(r)) return;
+                    // a panic in the run thread kills the log sender, so the
+                    // console never saw the failure and this payload is the only
+                    // witness to it. An ordinary failed run already streamed its
+                    // error line — `error` IS that line — so don't print twice.
+                    // (`error` is already a whole message — "run failed" for a
+                    // panic — so it goes on the console verbatim, unprefixed)
+                    if (r.status === "error" && !sawError) {
+                        emit({ kind: "error", text: r.error || "run failed" });
+                    }
+                    finish();
+                }),
+            ]);
+            // listen() is an IPC round-trip: unmounted while it was in flight,
+            // these handles land on a dead component and nothing will drop them
+            if (deadRef.current) {
+                for (const un of handles) un();
+                return;
+            }
+            runListenersRef.current = handles;
+            // test_run executes the SAVED graph — Rust re-reads the row — so a
+            // change still inside the autosave debounce has to land first, or
+            // the user tests nodes that aren't on screen any more
+            if (present !== savedGraph) {
+                await call("save_workflow", { id: workflow.id, graph: present });
+                setSavedGraph(present);
+            }
+            // Rust seeds each platform event node with its canned sample
+            // payload (events::sample_payload, built by the transports' own
+            // payload builders), so a payload → extract chain runs against
+            // realistic data with no second sample living here.
+            await call("test_run", {
+                workflowId: workflow.id,
+                entryNodeIds: selectedEventId ? [selectedEventId] : undefined,
+            });
+            // unmounted while the launch was in flight: the run is spawned and
+            // detached now, and the cleanup's stop_run fired before it existed
+            if (deadRef.current) callVoid("stop_run");
+        } catch (err) {
+            // a failed pre-save lands here too — better to say so than to run
+            // the stale graph the database still holds
+            const message = err instanceof Error ? err.message : String(err);
+            emit({ kind: "error", text: `run failed: ${message}` });
+            finish();
+        }
+    };
+    // real cancellation: the Rust interpreter checks its flag between steps and
+    // lands the run with a "run stopped" error line, which ends it via run-finished
+    const stopRun = () => callVoid("stop_run");
+
+    // adjust-state-during-render: when the graph changes (edit/undo/redo),
+    // prune selection to surviving nodes and clear a stale "save failed"
+    const [prevPresent, setPrevPresent] = useState(present);
+    if (prevPresent !== present) {
+        setPrevPresent(present);
+        // only a MEMBERSHIP change can strand a selection — a drag/nudge frame
+        // rewrites positions, so skip the id scan (and the possible re-render)
+        // then. replaceGraph is the one action that can swap ids at equal count;
+        // handleAgentGraph, its only dispatcher, clears the selection itself.
+        if (selection.size && present.nodes.length !== prevPresent.nodes.length) {
+            const alive = new Set(present.nodes.map((n) => n.id));
+            const kept = [...selection].filter((id) => alive.has(id));
+            if (kept.length !== selection.size) setSelection(new Set(kept));
+        }
+        // drop a stale edge selection (edge deleted, or its node removed)
+        if (selectedEdgeId && !present.edges.some((e) => e.id === selectedEdgeId)) {
+            setSelectedEdgeId(null);
+        }
+        if (error) setError(null);
+    }
+
+    // toolbox drag-spawn: the toolbox captures the pointer on pointerdown and
+    // hands us the key; a ghost chip follows the pointer (fixed, client
+    // coords) and pointerup inside the canvas adds the node at the world point
+    const canvasRef = useRef<CanvasHandle>(null);
+    const [spawn, setSpawn] = useState<{
+        key: string;
+        x: number;
+        y: number;
+        // preset from the toolbox chip (openrouter model chips prefill
+        // config.model and show the model's display name on the ghost)
+        config?: Record<string, string>;
+        label?: string;
+    } | null>(null);
+    const spawnEntry = spawn ? byKey[spawn.key] : null;
+
+    // a variable drag (toolbox chip or on-canvas box) lights up the config slots
+    // it can snap into; the slot under the pointer highlights strongest. kind
+    // splits the accent (violet secret / sky regular); hoverKey = "nodeId:fieldId"
+    // under the pointer ("" when none). null when no variable is dragging.
+    const [varDrag, setVarDrag] = useState<{ kind: "secret" | "regular"; hoverKey: string } | null>(
+        null,
+    );
+    // the config drop slot under a client point, skipping the dragged box itself
+    // (elementsFromPoint sees through it); "" when the point is over no slot
+    const varHoverKeyAt = useCallback(
+        (clientX: number, clientY: number, sourceNodeId?: string) => {
+            for (const el of document.elementsFromPoint(clientX, clientY)) {
+                const drop = (el as HTMLElement).closest?.("[data-config-drop]") as HTMLElement | null;
+                if (
+                    drop?.dataset.nodeId &&
+                    drop.dataset.nodeId !== sourceNodeId &&
+                    drop.dataset.fieldId
+                )
+                    return `${drop.dataset.nodeId}:${drop.dataset.fieldId}`;
+            }
+            return "";
+        },
+        [],
+    );
+    // an on-canvas variable box reports its live drag here (Node → this), so the
+    // same slot highlighting drives box drags too; null clears it
+    const handleVarBoxDrag = useCallback(
+        (p: { sourceNodeId: string; clientX: number; clientY: number; secret: boolean } | null) => {
+            if (!p) {
+                setVarDrag(null);
+                return;
+            }
+            setVarDrag({
+                kind: p.secret ? "secret" : "regular",
+                hoverKey: varHoverKeyAt(p.clientX, p.clientY, p.sourceNodeId),
+            });
+        },
+        [varHoverKeyAt],
+    );
+
+    const spawnKey = spawn?.key ?? null;
+    useWindowDrag(spawnKey !== null, {
+        onMove: (e) => {
+            setSpawn((s) => (s ? { ...s, x: e.clientX, y: e.clientY } : s));
+            // a variable chip dragging over the canvas highlights snap slots
+            if (spawnKey && variableIdFromNodeType(spawnKey))
+                setVarDrag({
+                    kind: byKey[spawnKey]?.secret === false ? "regular" : "secret",
+                    hoverKey: varHoverKeyAt(e.clientX, e.clientY),
+                });
+        },
+        onUp: (e) => {
+            const preset = spawn?.config;
+            setSpawn(null);
+            setVarDrag(null);
+            if (!spawnKey) return; // no active spawn (unreachable — guarded above)
+            // a variable dropped onto an app/event config box snaps in as its
+            // {{var:<uuid>}} sentinel — no edge, no standalone box. Resolve the
+            // drop zone geometrically (the ghost is pointer-events-none).
+            const varId = variableIdFromNodeType(spawnKey);
+            if (varId) {
+                const drop = document
+                    .elementFromPoint(e.clientX, e.clientY)
+                    ?.closest<HTMLElement>("[data-config-drop]");
+                if (drop?.dataset.nodeId && drop.dataset.fieldId) {
+                    dispatch({
+                        type: "assignConfig",
+                        nodeId: drop.dataset.nodeId,
+                        field: drop.dataset.fieldId,
+                        value: variableSentinel(varId),
+                        dropPortEdges: true,
+                    });
+                    notify(`set ${byKey[spawnKey]?.label ?? "variable"}`);
+                    return;
+                }
+            }
+            const point = canvasRef.current?.clientToWorld(e.clientX, e.clientY);
+            // clientToWorld returns null when the pointer is outside the canvas
+            // bounds — the drop missed its target, so say so instead of no-oping
+            if (!point) {
+                notify("drop on the canvas to place the node");
+                return;
+            }
+            // one event node per workflow — the toolbox chip is already disabled
+            // when one exists; this guards any other drop path (e.g. dropping a
+            // ghost that was mid-flight when the graph gained its event)
+            if (byKey[spawnKey]?.category === "events" && events.length > 0) {
+                notify("one event node per workflow — remove the existing one first");
+                return;
+            }
+            // rectangles drop with the header centered under the pointer;
+            // model circles / event blocks / grant chips center the block itself
+            // (grabOffsetY encodes the per-shape grab center — see geometry.ts).
+            // Placement is free-form — no grid snap.
+            const entry = byKey[spawnKey];
+            const w = entry ? nodeWidth(entry) : NODE_W;
+            const dy = entry ? grabOffsetY(entry) : HEADER_H / 2;
+            // fresh object per spawn — never share a mutable config; catalog
+            // field defaults seed first, a toolbox preset wins
+            const config = { ...(entry ? defaultNodeConfig(entry) : {}), ...(preset ?? {}) };
+            dispatch({
+                type: "addNode",
+                node: {
+                    id: crypto.randomUUID(),
+                    type: spawnKey,
+                    x: point.x - w / 2,
+                    y: point.y - dy,
+                    config,
+                },
+            });
+        },
+        onCancel: () => {
+            setSpawn(null);
+            setVarDrag(null);
+        },
+    });
+
+    // port drag → edge creation. The port button holds pointer capture, so
+    // pointermove/up bubble to window regardless of what's under the pointer.
+    const [pendingDrag, setPendingDrag] = useState<PendingDrag | null>(null);
+    const [pendingPoint, setPendingPoint] = useState<{ x: number; y: number } | null>(null);
+
+    const startEdgeDrag: PortPointerDownHandler = useCallback((e, nodeId, portId, kind, dir) => {
+        setPendingDrag({ from: { nodeId, portId }, kind, dir });
+        setPendingPoint(canvasRef.current?.clientToWorld(e.clientX, e.clientY) ?? null);
+    }, []);
+
+    useWindowDrag(pendingDrag !== null, {
+        onMove: (e) => {
+            const point = canvasRef.current?.clientToWorld(e.clientX, e.clientY);
+            if (point) setPendingPoint(point);
+        },
+        onUp: (e) => {
+            if (!pendingDrag) return;
+            setPendingDrag(null);
+            setPendingPoint(null);
+            // pointer capture retargets pointerup to the port button — the
+            // drop target must be resolved geometrically, never from e.target
+            const target = document
+                .elementFromPoint(e.clientX, e.clientY)
+                ?.closest<HTMLElement>("[data-port]");
+            // dropping on empty canvas (nothing under the cursor) is a legit
+            // cancel gesture — stay silent. Every other bare-return below became
+            // a specific toast so the drop never fails wordlessly.
+            if (!target) return;
+            const { nodeId, portId, kind, dir } = target.dataset;
+            if (!nodeId || !portId) return; // a [data-port] element always carries both
+            if (kind !== pendingDrag.kind) {
+                notify("flow and value ports don't connect");
+                return;
+            }
+            if (dir !== "in" && dir !== "out") return; // malformed dataset (unreachable)
+            if (dir === pendingDrag.dir) {
+                notify("connect an output to an input");
+                return;
+            }
+            // drags may start from an input port — the stored edge is always out→in
+            const drop = { nodeId, portId };
+            const [from, to] =
+                pendingDrag.dir === "out" ? [pendingDrag.from, drop] : [drop, pendingDrag.from];
+            // ordered cheap reason checks so the failure names the actual
+            // problem; canConnect stays authoritative for the final accept.
+            if (from.nodeId === to.nodeId) {
+                notify("can't connect a node to itself");
+                return;
+            }
+            const toNode = present.nodes.find((n) => n.id === to.nodeId);
+            const toPort = toNode ? byKey[toNode.type]?.inputs.find((p) => p.id === to.portId) : undefined;
+            const fromNode = present.nodes.find((n) => n.id === from.nodeId);
+            const srcChip = chipKind(fromNode ? byKey[fromNode.type] : undefined);
+            if (toPort?.accepts && srcChip !== toPort.accepts) {
+                notify(`this port only takes a ${toPort.accepts} chip`);
+                return;
+            }
+            if (srcChip && !toPort?.accepts) {
+                notify("grant chips only connect to an agent's matching port");
+                return;
+            }
+            const duplicate = present.edges.some(
+                (edge) =>
+                    edge.from.nodeId === from.nodeId && edge.from.portId === from.portId &&
+                    edge.to.nodeId === to.nodeId && edge.to.portId === to.portId,
+            );
+            if (duplicate) {
+                notify("already connected");
+                return;
+            }
+            if (!canConnect(present, from, to, byKey)) {
+                notify("can't connect these ports");
+                return;
+            }
+            // the value-input single-edge limit replaces the old edge atomically
+            // — one history entry for the whole swap (flow outputs fan out;
+            // await "values" is multi-edge)
+            const replacing = edgesToReplace(present, from, to, byKey);
+            dispatch({
+                type: "addEdge",
+                edge: { id: crypto.randomUUID(), from, to, kind: pendingDrag.kind },
+                replacing,
+            });
+            if (replacing.length) notify("replaced the existing connection");
+        },
+        onCancel: () => {
+            setPendingDrag(null);
+            setPendingPoint(null);
+        },
+    });
+
+    const pendingEdge: PendingEdge | null =
+        pendingDrag && pendingPoint
+            ? { from: pendingDrag.from, kind: pendingDrag.kind, toWorldPoint: pendingPoint }
+            : null;
+
+    // extract path picker: the sample is resolved once at open (stable while
+    // the popover is up) and `before` snapshots the graph for one undo step
+    const [picker, setPicker] = useState<{
+        nodeId: string;
+        fieldId: string;
+        anchor: { x: number; y: number };
+        sample: PickerSample;
+        before: WorkflowGraph;
+    } | null>(null);
+
+    // stable (reads through refs) so the memoized Node isn't re-rendered by
+    // a new handler identity every designer render
+    const openPicker: OpenPickerHandler = useCallback((anchor, nodeId, fieldId) => {
+        const graph = graphRef.current;
+        // the sample comes from whatever feeds the node's first value input —
+        // derived from the catalog entry so this isn't coupled to extract's
+        // port naming
+        const node = graph.nodes.find((n) => n.id === nodeId);
+        const entry = node ? byKeyRef.current[node.type] : undefined;
+        // sample the port that actually feeds this field: when the field
+        // declares an overriddenBy port (paired input), read that port's edge;
+        // otherwise fall back to the node's first value input (extract's
+        // historical behavior — its `path` field has no overriddenBy)
+        const field = entry?.config?.find((f) => f.id === fieldId);
+        const portId = field?.overriddenBy ?? entry?.inputs.find((p) => p.kind === "value")?.id;
+        const edge = portId
+            ? graph.edges.find(
+                  (e) =>
+                      e.kind === "value" &&
+                      e.to.nodeId === nodeId &&
+                      e.to.portId === portId,
+              )
+            : undefined;
+        let sample: PickerSample;
+        if (!edge) {
+            sample = { kind: "no-edge" };
+        } else {
+            const text = samplesRef.current.get(`${edge.from.nodeId}:${edge.from.portId}`);
+            if (text === undefined) sample = { kind: "no-sample" };
+            else if (text.length >= MAX_SAMPLE_CHARS) sample = { kind: "too-large" };
+            else {
+                try {
+                    sample = { kind: "json", value: JSON.parse(text) };
+                } catch {
+                    sample = { kind: "raw", text };
+                }
+            }
+        }
+        setPicker({ nodeId, fieldId, anchor, sample, before: graph });
+    }, []);
+
+    const handlePick = (path: string) => {
+        if (!picker) return;
+        dispatch({ type: "setConfig", nodeId: picker.nodeId, field: picker.fieldId, value: path });
+        dispatch({ type: "commitConfig", before: picker.before });
+        setPicker(null);
+    };
+
+    // schedule-node cron popover: `before` snapshots the graph so the whole
+    // editing session collapses into one undo step, committed on close
+    const [cronEdit, setCronEdit] = useState<{
+        nodeId: string;
+        anchor: { x: number; y: number };
+        initial: string;
+        before: WorkflowGraph;
+    } | null>(null);
+
+    const openCron: OpenCronHandler = useCallback((anchor, nodeId) => {
+        const graph = graphRef.current;
+        const node = graph.nodes.find((n) => n.id === nodeId);
+        setCronEdit({ nodeId, anchor, initial: node?.config.cron ?? "", before: graph });
+    }, []);
+
+    const handleCronChange = useCallback((cron: string) => {
+        setCronEdit((cur) => {
+            if (cur) dispatch({ type: "setConfig", nodeId: cur.nodeId, field: "cron", value: cron });
+            return cur;
+        });
+    }, []);
+    const closeCron = () => {
+        if (cronEdit) dispatch({ type: "commitConfig", before: cronEdit.before });
+        setCronEdit(null);
+    };
+
+    // mcp-server-node tool picker popover: same before/commit undo coalescing
+    // as the cron popover — one undo step for the whole editing session
+    const [toolsEdit, setToolsEdit] = useState<{
+        nodeId: string;
+        anchor: { x: number; y: number };
+        before: WorkflowGraph;
+    } | null>(null);
+
+    const openTools: OpenToolsHandler = useCallback((anchor, nodeId) => {
+        setToolsEdit({ nodeId, anchor, before: graphRef.current });
+    }, []);
+
+    const handleToolsChange = (value: string) => {
+        setToolsEdit((cur) => {
+            if (cur) dispatch({ type: "setConfig", nodeId: cur.nodeId, field: "exclude", value });
+            return cur;
+        });
+    };
+    const closeTools = () => {
+        if (toolsEdit) dispatch({ type: "commitConfig", before: toolsEdit.before });
+        setToolsEdit(null);
+    };
+
+    // agent-node system-prompt popover: same before/commit undo coalescing as
+    // the cron popover — the whole editing session is one undo step. `initial`
+    // snapshots config.system when the popover opens; the textarea drives itself
+    // and each keystroke dispatches setConfig onto the graph.
+    const [systemEdit, setSystemEdit] = useState<{
+        nodeId: string;
+        anchor: { x: number; y: number };
+        initial: string;
+        before: WorkflowGraph;
+    } | null>(null);
+
+    const openSystem: OpenSystemHandler = useCallback((anchor, nodeId) => {
+        const graph = graphRef.current;
+        const node = graph.nodes.find((n) => n.id === nodeId);
+        setSystemEdit({ nodeId, anchor, initial: node?.config.system ?? "", before: graph });
+    }, []);
+
+    const handleSystemChange = useCallback((value: string) => {
+        setSystemEdit((cur) => {
+            if (cur)
+                dispatch({ type: "setConfig", nodeId: cur.nodeId, field: "system", value });
+            return cur;
+        });
+    }, []);
+    const closeSystem = () => {
+        if (systemEdit) dispatch({ type: "commitConfig", before: systemEdit.before });
+        setSystemEdit(null);
+    };
+
+    // skill/memory chip info popover: read-only, so no undo coalescing — the
+    // entry is resolved through byKeyRef at open time (memo-safe, like the
+    // other popover openers) and snapshotted into state
+    const [infoView, setInfoView] = useState<{
+        anchor: { x: number; y: number };
+        entry: CatalogEntry;
+    } | null>(null);
+    const openInfo: OpenInfoHandler = useCallback((anchor, nodeId) => {
+        const node = graphRef.current.nodes.find((n) => n.id === nodeId);
+        const entry = node ? byKeyRef.current[node.type] : undefined;
+        if (entry) setInfoView({ anchor, entry });
+    }, []);
+
+    // secret-variable edit modal, lifted out of the toolbox so a variable node
+    // on the canvas can open it too. "new" (toolbox +add) / a row (toolbox edit
+    // or a canvas node click) / null closed. A canvas click resolves the row by
+    // uuid from the node type via variablesRef (memo-safe stable callback).
+    const [variableModal, setVariableModal] = useState<VariableRow | "new" | null>(null);
+    const openVariable: OpenVariableHandler = useCallback((nodeId) => {
+        const node = graphRef.current.nodes.find((n) => n.id === nodeId);
+        const id = node ? variableIdFromNodeType(node.type) : null;
+        const row = id ? variablesRef.current.find((v) => v.id === id) : undefined;
+        if (row) setVariableModal(row);
+    }, []);
+
+    const [saving, startSaving] = useTransition();
+    const save = () => {
+        if (saving || !dirty) return;
+        setError(null);
+        const snapshot = present;
+        startSaving(async () => {
+            try {
+                await call("save_workflow", { id: workflow.id, graph: snapshot });
+                setSavedGraph(snapshot);
+            } catch {
+                setError("save failed");
+            }
+        });
+    };
+
+    // autosave: debounce after the last change; back off after a failure.
+    // `present` in deps restarts the timer on every edit, so transient drag
+    // frames keep pushing the save out until the graph settles — but nothing
+    // else (selection churn, console lines streaming in) resets it.
+    useEffect(() => {
+        if (!dirty || saving) return;
+        const id = setTimeout(save, error ? 5000 : 800);
+        return () => clearTimeout(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- save is rebuilt every render; these deps cover everything it reads
+    }, [present, dirty, saving, error]);
+
+    // live mirrors for stable callbacks (memoized Node re-renders only when
+    // its own props change, so anything it reads mid-gesture comes through
+    // refs) and for the unmount flush below
+    const graphRef = useRef(present);
+    const savedGraphRef = useRef(savedGraph);
+    const byKeyRef = useRef(byKey);
+    const selectionRef = useRef(selection);
+    // live mirror of the variables prop so openVariable (a stable callback fed
+    // to the memoized Node) resolves the clicked row without re-identifying
+    const variablesRef = useRef(variables);
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/immutability -- deliberate live-mirror refs, written in an effect (never during render)
+        graphRef.current = present;
+        savedGraphRef.current = savedGraph;
+        // eslint-disable-next-line react-hooks/immutability -- see above
+        byKeyRef.current = byKey;
+        selectionRef.current = selection;
+        // eslint-disable-next-line react-hooks/immutability -- see above
+        variablesRef.current = variables;
+    });
+
+    // flush on unmount: in-app navigation (e.g. "← workflows") doesn't fire
+    // beforeunload, and edits inside the debounce window would be lost.
+    // Fire-and-forget — the SPA stays alive across client-side navigation.
+    useEffect(() => {
+        deadRef.current = false; // reset on (re)mount — StrictMode's dev remount runs the cleanup first
+        return () => {
+            deadRef.current = true;
+            // commit any pending nudge FIRST (also clears its settle timer so it
+            // can't fire post-unmount), before this flush reads graphRef. The
+            // transient moves already live in graphRef, so the save is correct
+            // either way — this ordering is about the timer and undo hygiene.
+            flushNudge();
+            if (graphRef.current !== savedGraphRef.current) {
+                callVoid("save_workflow", { id: workflow.id, graph: graphRef.current });
+            }
+            // a run may still be streaming, and it lives in Rust — dropping the
+            // listeners alone leaves it running, so reopening the workflow and
+            // hitting ▶ would interleave two "manual" runs into one console
+            // (and share one ■, since the Rust stop flag is process-wide)
+            if (runListenersRef.current.length) callVoid("stop_run");
+            stopListening();
+        };
+    }, [workflow.id, flushNudge, stopListening]);
+
+    // warn before leaving with unsaved changes
+    useEffect(() => {
+        if (!dirty) return;
+        const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+        window.addEventListener("beforeunload", warn);
+        return () => window.removeEventListener("beforeunload", warn);
+    }, [dirty]);
+
+    // Cmd/Ctrl+D: copies of the selected nodes plus the edges running between
+    // them, offset a grid cell, selected afterwards; one undo step
+    const duplicateSelection = () => {
+        // one event node per workflow — never copy event nodes (duplicating a
+        // graph that already has one would create a second)
+        const copyable = present.nodes.filter(
+            (n) => selection.has(n.id) && byKey[n.type]?.category !== "events",
+        );
+        if (!copyable.length) return;
+        const idMap = new Map(copyable.map((n) => [n.id, crypto.randomUUID()]));
+        const nodes = copyable.map((n) => ({
+            ...n,
+            id: idMap.get(n.id)!,
+            x: n.x + GRID,
+            y: n.y + GRID,
+            config: { ...n.config },
+        }));
+        const edges = present.edges
+            .filter((e) => idMap.has(e.from.nodeId) && idMap.has(e.to.nodeId))
+            .map((e) => ({
+                ...e,
+                id: crypto.randomUUID(),
+                from: { ...e.from, nodeId: idMap.get(e.from.nodeId)! },
+                to: { ...e.to, nodeId: idMap.get(e.to.nodeId)! },
+            }));
+        dispatch({ type: "addNodes", nodes, edges });
+        selectNodes(new Set(nodes.map((n) => n.id)));
+    };
+
+    // one window keydown handler; re-attached each render so it always sees
+    // fresh state (cheap, avoids a ref dance)
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            const key = e.key.toLowerCase();
+            const mod = e.metaKey || e.ctrlKey;
+            // any non-arrow key ends a pending nudge burst, committing it as one
+            // undo step before this key's own action (delete/undo/duplicate/…)
+            if (!e.key.startsWith("Arrow")) flushNudge();
+            if (mod && key === "s") {
+                e.preventDefault();
+                save();
+                return;
+            }
+            const target = e.target as HTMLElement;
+            if (
+                target instanceof HTMLInputElement ||
+                target instanceof HTMLTextAreaElement ||
+                target instanceof HTMLSelectElement
+            ) {
+                return;
+            }
+            if (e.key === "Backspace" || e.key === "Delete") {
+                // no preventDefault: Backspace's history-back default is killed
+                // globally in app/layout.tsx, before hydration. Don't add one back
+                // a selected edge deletes first — before the node fall-through
+                if (selectedEdgeId) dispatch({ type: "deleteEdge", id: selectedEdgeId });
+                else if (selection.size) dispatch({ type: "deleteNodes", ids: [...selection] });
+            } else if (mod && key === "z") {
+                e.preventDefault();
+                dispatch({ type: e.shiftKey ? "redo" : "undo" });
+            } else if (mod && key === "y") {
+                e.preventDefault();
+                dispatch({ type: "redo" });
+            } else if (mod && key === "a") {
+                e.preventDefault();
+                selectNodes(new Set(present.nodes.map((n) => n.id)));
+            } else if (mod && key === "d") {
+                e.preventDefault();
+                duplicateSelection();
+            } else if (e.key.startsWith("Arrow") && selection.size) {
+                // nudge the selection one grid cell; a burst of presses coalesces
+                // into ONE undo step via a settle timer (see nudgeRef/flushNudge)
+                e.preventDefault();
+                const dx = e.key === "ArrowLeft" ? -GRID : e.key === "ArrowRight" ? GRID : 0;
+                const dy = e.key === "ArrowUp" ? -GRID : e.key === "ArrowDown" ? GRID : 0;
+                if (dx === 0 && dy === 0) return; // a non-directional arrow (unreachable)
+                const n = nudgeRef.current;
+                if (!n.before) n.before = present; // first press of the burst snapshots
+                if (n.timer) clearTimeout(n.timer);
+                dispatch({ type: "moveNodes", ids: [...selection], dx, dy });
+                n.timer = setTimeout(flushNudge, 500);
+            } else if (e.key === "Escape") {
+                // Escape ladder (bubble phase). Ordering contract: a node's
+                // drag-cancel listener runs in the CAPTURE phase and
+                // stopPropagation()s while a node drag is active, so this ladder
+                // is skipped during a drag (no double-fire clearing the
+                // selection). It only reaches here when no node drag is active.
+                if (cronEdit) closeCron();
+                else if (toolsEdit) closeTools();
+                else if (systemEdit) closeSystem();
+                else if (infoView) setInfoView(null);
+                else if (picker) setPicker(null);
+                else if (pendingDrag) {
+                    setPendingDrag(null);
+                    setPendingPoint(null);
+                } else if (spawn) setSpawn(null);
+                else if (selectedEdgeId) setSelectedEdgeId(null);
+                else setSelection(new Set());
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    });
+
+    return (
+        <div className={"flex h-dvh flex-col bg-background"}>
+            <Topbar
+                workflowId={workflow.id}
+                emoji={workflow.emoji}
+                name={workflow.name}
+                dirty={dirty}
+                saving={saving}
+                error={error}
+                issues={issues}
+                onSelectIssue={selectIssueNode}
+                events={events}
+                selectedEventId={selectedEventId}
+                onSelectEvent={setSelectedEventId}
+                onRun={runGraph}
+                onStop={stopRun}
+                running={running}
+            />
+            <div className={"flex min-h-0 flex-1"}>
+                <Toolbox
+                    userCatalog={userCatalog}
+                    variables={variables}
+                    openrouterModels={openrouterModels}
+                    githubLinked={githubLinked}
+                    hasEvent={events.length > 0}
+                    onSpawnStart={(key, x, y, preset) =>
+                        setSpawn({ key, x, y, config: preset?.config, label: preset?.label })
+                    }
+                    onEditVariable={setVariableModal}
+                />
+                <Canvas
+                    ref={canvasRef}
+                    graph={present}
+                    graphRef={graphRef}
+                    byKey={byKey}
+                    selection={selection}
+                    selectionRef={selectionRef}
+                    setSelection={selectNodes}
+                    dispatch={dispatch}
+                    pending={pendingEdge}
+                    drag={pendingDrag}
+                    selectedEdgeId={selectedEdgeId}
+                    onSelectEdge={selectEdge}
+                    onDeleteEdge={deleteEdge}
+                    modelModalities={modelModalities}
+                    modelReasoning={modelReasoning}
+                    issuesByNode={issuesByNode}
+                    varDrag={varDrag}
+                    onPortPointerDown={startEdgeDrag}
+                    onOpenPicker={openPicker}
+                    onOpenCron={openCron}
+                    onOpenTools={openTools}
+                    onOpenInfo={openInfo}
+                    onOpenVariable={openVariable}
+                    onOpenSystem={openSystem}
+                    onVarDrag={handleVarBoxDrag}
+                    agentOpen={agentOpen}
+                    onToggleAgent={() => setAgentOpen((o) => !o)}
+                />
+                {agentOpen && (
+                    <AgentPanel
+                        workflowId={workflow.id}
+                        models={openrouterModels}
+                        onGraph={handleAgentGraph}
+                        onClose={() => setAgentOpen(false)}
+                    />
+                )}
+            </div>
+
+            {consoleLines !== null && (
+                <ConsolePanel
+                    lines={consoleLines}
+                    height={consoleHeight}
+                    onResize={setConsoleHeight}
+                    onClear={() => setConsoleLines([])}
+                    onClose={() => setConsoleLines(null)}
+                />
+            )}
+
+            {picker && (
+                <PathPicker
+                    anchor={picker.anchor}
+                    sample={picker.sample}
+                    onPick={handlePick}
+                    onClose={() => setPicker(null)}
+                />
+            )}
+
+            {cronEdit && (
+                <CronPopover
+                    anchor={cronEdit.anchor}
+                    initial={cronEdit.initial}
+                    onChange={handleCronChange}
+                    onClose={closeCron}
+                />
+            )}
+
+            {toolsEdit &&
+                (() => {
+                    const node = present.nodes.find((n) => n.id === toolsEdit.nodeId);
+                    const entry = node ? byKey[node.type] : undefined;
+                    if (!node || !entry) return null;
+                    return (
+                        <ToolPickerPopover
+                            anchor={toolsEdit.anchor}
+                            entry={entry}
+                            exclude={node.config.exclude ?? ""}
+                            onChange={handleToolsChange}
+                            onClose={closeTools}
+                        />
+                    );
+                })()}
+
+            {infoView && (
+                <ChipInfoPopover
+                    anchor={infoView.anchor}
+                    entry={infoView.entry}
+                    onClose={() => setInfoView(null)}
+                />
+            )}
+
+            {systemEdit && (
+                <SystemPopover
+                    anchor={systemEdit.anchor}
+                    initial={systemEdit.initial}
+                    onChange={handleSystemChange}
+                    onClose={closeSystem}
+                />
+            )}
+
+            {variableModal && (
+                <VariableModal
+                    target={variableModal}
+                    onClose={() => setVariableModal(null)}
+                    onSaved={onRegistryChange}
+                />
+            )}
+
+            {/* drag-spawn ghost chip following the pointer */}
+            {spawn && spawnEntry && (
+                <div
+                    style={{ left: spawn.x + 10, top: spawn.y + 6 }}
+                    className={`pointer-events-none fixed z-50 flex items-center gap-2 border border-foreground/15 border-l-2 bg-background px-2 py-1.5 font-mono text-xs ${
+                        entryStyles(spawnEntry).borderL
+                    }`}
+                >
+                    {isModelEntry(spawnEntry) ? (
+                        <ModelLogo
+                            slug={spawn.config?.model ?? ""}
+                            name={spawn.label ?? spawnEntry.label}
+                            size={16}
+                        />
+                    ) : (
+                        <EntryIcon entry={spawnEntry} />
+                    )}
+                    <span>{spawn.label ?? spawnEntry.label}</span>
+                </div>
+            )}
+
+            {/* transient bottom-center toast (notify) */}
+            {toast && (
+                <div
+                    role={"status"}
+                    className={
+                        "pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 border border-foreground/20 bg-background px-3 py-1.5 font-mono text-xs text-foreground shadow-lg"
+                    }
+                >
+                    {toast}
+                </div>
+            )}
+        </div>
+    );
+}

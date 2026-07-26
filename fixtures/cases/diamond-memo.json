@@ -1,0 +1,281 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "S",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": "seed"
+        }
+      },
+      {
+        "id": "C1",
+        "type": "concat",
+        "x": 120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "N",
+        "type": "not",
+        "x": 180,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "A",
+        "type": "and",
+        "x": 240,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "E",
+        "type": "extract",
+        "x": 300,
+        "y": 0,
+        "config": {
+          "path": "x"
+        }
+      },
+      {
+        "id": "C2",
+        "type": "concat",
+        "x": 360,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "C3",
+        "type": "concat",
+        "x": 420,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "C4",
+        "type": "concat",
+        "x": 480,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p1",
+        "type": "print",
+        "x": 540,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p2",
+        "type": "print",
+        "x": 600,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "S",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "C1",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "S",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "C1",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "S",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "N",
+          "portId": "in"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "N",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "A",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "N",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "A",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "S",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "E",
+          "portId": "value"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "E",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "C2",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "E",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "C2",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "C1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "C3",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "C2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "C3",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e10",
+        "from": {
+          "nodeId": "C3",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "C4",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e11",
+        "from": {
+          "nodeId": "A",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "C4",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e12",
+        "from": {
+          "nodeId": "C4",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e13",
+        "from": {
+          "nodeId": "E",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e14",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e15",
+        "from": {
+          "nodeId": "p1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

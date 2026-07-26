@@ -14,7 +14,6 @@ export default function ModalShell({
     title,
     submitLabel,
     action,
-    entryId,
     onOpen,
     wide = false,
     children,
@@ -23,7 +22,6 @@ export default function ModalShell({
     title: string;
     submitLabel: string;
     action: (formData: FormData) => Promise<{ error: string } | undefined>;
-    entryId?: string;
     onOpen?: () => void;
     wide?: boolean; // wider + scrollable panel (the mcp server form)
     children: ReactNode;
@@ -80,8 +78,6 @@ export default function ModalShell({
                             className={"flex flex-col gap-4"}
                         >
                             <h2 className={"font-mono text-xl"}>{title}</h2>
-
-                            {entryId && <input type={"hidden"} name={"id"} value={entryId} />}
 
                             {children}
 

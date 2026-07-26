@@ -1,0 +1,59 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "bad",
+        "type": "integration:discord-webhook",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "webhookUrl": "https://example.invalid/hook",
+          "message": "m",
+          "stub": "error"
+        }
+      },
+      {
+        "id": "after",
+        "type": "print",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "message": "never printed"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "bad",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "bad",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "after",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

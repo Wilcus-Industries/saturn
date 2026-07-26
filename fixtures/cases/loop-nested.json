@@ -1,0 +1,199 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "outerItems",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": "[\"x\",\"y\"]"
+        }
+      },
+      {
+        "id": "innerItems",
+        "type": "string",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "value": "1,2,3"
+        }
+      },
+      {
+        "id": "outer",
+        "type": "loop",
+        "x": 180,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "inner",
+        "type": "loop",
+        "x": 240,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "cat",
+        "type": "concat",
+        "x": 300,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "p",
+        "type": "print",
+        "x": 360,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "done",
+        "type": "print",
+        "x": 420,
+        "y": 0,
+        "config": {
+          "message": "outer done"
+        }
+      },
+      {
+        "id": "innerDone",
+        "type": "print",
+        "x": 480,
+        "y": 0,
+        "config": {
+          "message": "inner done"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "outerItems",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "outer",
+          "portId": "items"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "innerItems",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "inner",
+          "portId": "items"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "outer",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "outer",
+          "portId": "body"
+        },
+        "to": {
+          "nodeId": "inner",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "outer",
+          "portId": "item"
+        },
+        "to": {
+          "nodeId": "cat",
+          "portId": "a"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "inner",
+          "portId": "item"
+        },
+        "to": {
+          "nodeId": "cat",
+          "portId": "b"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "cat",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "p",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "inner",
+          "portId": "body"
+        },
+        "to": {
+          "nodeId": "p",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e8",
+        "from": {
+          "nodeId": "outer",
+          "portId": "done"
+        },
+        "to": {
+          "nodeId": "done",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e9",
+        "from": {
+          "nodeId": "inner",
+          "portId": "done"
+        },
+        "to": {
+          "nodeId": "innerDone",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

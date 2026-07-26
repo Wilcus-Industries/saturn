@@ -1,0 +1,195 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "warn",
+      "text": "agent: \"search server\" has an invalid tool selection — granting all enabled tools"
+    },
+    {
+      "kind": "warn",
+      "text": "agent: tool edge from \"(deleted)\" is not an MCP server — ignored"
+    },
+    {
+      "kind": "warn",
+      "text": "agent: tool edge from \"string\" is not an MCP server — ignored"
+    },
+    {
+      "kind": "warn",
+      "text": "agent: skill edge from \"string\" is not a skill — ignored"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: → big…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: big → xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… (truncated)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent → agent[user:8,assistant:0,tool:24013](194#f4ea1c68)"
+    },
+    {
+      "kind": "print",
+      "text": "agent[user:8,assistant:0,tool:24013](194#f4ea1c68)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: → boom…"
+    },
+    {
+      "kind": "warn",
+      "text": "agent: boom: stub mcp refused aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent → agent[user:9,assistant:0,tool:60](103#b183d4ee)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: → memory_search…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: memory_search → mem:cccccccc-cccc-4ccc-8ccc-cccccccccccc/memory_search(7#bb9236a4)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent → agent[user:17,assistant:0,tool:66](151#94bb757c)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "warn",
+      "text": "agent: 2 tool call(s) over the per-turn cap (5) dropped"
+    },
+    {
+      "kind": "info",
+      "text": "agent: → search…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: search → mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/search(7#bb9236a4)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: → search…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: search → mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/search(7#bf8ffe59)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: → search…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: search → mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/search(7#bf8dbfc2)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: → search…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: search → mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/search(7#bb89e7df)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: → search…"
+    },
+    {
+      "kind": "info",
+      "text": "agent: search → mcp:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/search(7#bb9b3100)"
+    },
+    {
+      "kind": "info",
+      "text": "agent: calling stub/model…"
+    },
+    {
+      "kind": "info",
+      "text": "agent → agent[user:11,assistant:0,tool:59,tool:59,tool:59,tool:59,tool:59](115#a6022d16)"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (5 steps)"
+    }
+  ],
+  "values": [
+    [
+      "prompt",
+      "out",
+      "TOOL big"
+    ],
+    [
+      "a",
+      "result",
+      "agent[user:8,assistant:0,tool:24013](194#f4ea1c68)"
+    ],
+    [
+      "a",
+      "result",
+      "agent[user:8,assistant:0,tool:24013](194#f4ea1c68)"
+    ],
+    [
+      "prompt2",
+      "out",
+      "TOOL boom"
+    ],
+    [
+      "b",
+      "result",
+      "agent[user:9,assistant:0,tool:60](103#b183d4ee)"
+    ],
+    [
+      "prompt3",
+      "out",
+      "MEM memory_search"
+    ],
+    [
+      "c",
+      "result",
+      "agent[user:17,assistant:0,tool:66](151#94bb757c)"
+    ],
+    [
+      "prompt4",
+      "out",
+      "MANY search"
+    ],
+    [
+      "d",
+      "result",
+      "agent[user:11,assistant:0,tool:59,tool:59,tool:59,tool:59,tool:59](115#a6022d16)"
+    ]
+  ]
+}

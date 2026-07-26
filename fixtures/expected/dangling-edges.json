@@ -1,0 +1,27 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": ""
+    },
+    {
+      "kind": "print",
+      "text": "reached past the dangling edge"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (2 steps)"
+    }
+  ],
+  "values": [
+    [
+      "ghostSrc",
+      "out",
+      ""
+    ]
+  ]
+}

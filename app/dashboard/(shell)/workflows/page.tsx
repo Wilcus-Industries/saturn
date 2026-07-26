@@ -1,62 +1,34 @@
-import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
-import { getSessionCached } from "@/lib/subscription";
-import type { WorkflowRow } from "@/lib/workflow";
-import WorkflowCard from "./workflowCard";
+"use client";
+
+import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
+import WorkflowCard, { type CardRow } from "./workflowCard";
 import WorkflowModal from "./workflowModal";
 
-// scheduled agentic workflows; session check lives here, not the layout
-export default async function Workflows() {
-    const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
+// module-level so it's stable — useAsync takes `load` as its dependency
+const load = () => call<CardRow[]>("list_workflows");
 
-    // lateral join pulls each workflow's newest run for the card status chip
-    const { rows } = await db.query<
-        Pick<WorkflowRow, "id" | "name" | "emoji" | "description" | "active"> & {
-            last_run_status: "running" | "success" | "error" | null;
-            last_run_started_at: Date | null;
-        }
-    >(
-        `select w.id, w.name, w.emoji, w.description, w.active,
-                r.status as last_run_status, r.started_at as last_run_started_at
-         from workflow w
-         left join lateral (
-             select status, started_at from workflow_run
-             where workflow_id = w.id
-             order by started_at desc
-             limit 1
-         ) r on true
-         where w.user_id = $1
-         order by w.created_at desc`,
-        [session.user.id],
-    );
+// scheduled agentic workflows
+export default function Workflows() {
+    const { data, error, loading, reload } = useAsync(load);
 
     return (
         <div className={"flex flex-col gap-6"}>
             <h1 className={"font-mono text-3xl"}>Workflows</h1>
 
-            {rows.length === 0 && (
+            {loading && <Loading what={"loading workflows"} />}
+            {error && <ErrorNote error={error} retry={reload} />}
+            {data?.length === 0 && (
                 <p className={"font-mono text-sm text-gray-400"}>
                     no workflows yet — create one to get started
                 </p>
             )}
 
+            {/* the "+" card renders immediately: creating doesn't need the list */}
             <div className={"grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"}>
-                {rows.map((workflow) => (
-                    <WorkflowCard
-                        key={workflow.id}
-                        workflow={workflow}
-                        lastRun={
-                            workflow.last_run_status && workflow.last_run_started_at
-                                ? {
-                                      status: workflow.last_run_status,
-                                      startedAt: workflow.last_run_started_at,
-                                  }
-                                : null
-                        }
-                    />
+                {data?.map((workflow) => (
+                    <WorkflowCard key={workflow.id} workflow={workflow} onChanged={reload} />
                 ))}
-                <WorkflowModal />
+                <WorkflowModal onSaved={reload} />
             </div>
         </div>
     );

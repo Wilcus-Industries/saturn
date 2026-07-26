@@ -1,0 +1,314 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "space padded index [[10,20,30] /  1] → 20"
+    },
+    {
+      "kind": "print",
+      "text": "hex index [[10,20,30] / 0x2] → 30"
+    },
+    {
+      "kind": "print",
+      "text": "exponent index [[10,20,30] / 1e0] → 20"
+    },
+    {
+      "kind": "print",
+      "text": "signed index [[10,20,30] / +1] → 20"
+    },
+    {
+      "kind": "print",
+      "text": "zero padded index [[10,20,30] / 01] → 20"
+    },
+    {
+      "kind": "print",
+      "text": "negative zero index [[10,20,30] / -0] → 10"
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"1.0\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "decimal index splits on the dot [[10,20,30] / 1.0] → "
+    },
+    {
+      "kind": "print",
+      "text": "two segments walk two arrays [[[1,2],[3,4]] / 1.0] → 3"
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"a.b\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "key containing a dot [{\"a.b\":1} / a.b] → "
+    },
+    {
+      "kind": "print",
+      "text": "numeric key on an object [{\"1\":\"obj\"} / 1] → obj"
+    },
+    {
+      "kind": "warn",
+      "text": "extract: path \"a\" not found — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "path into a number scalar [42 / a] → "
+    },
+    {
+      "kind": "print",
+      "text": "whole boolean document [true / ] → true"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (12 steps)"
+    }
+  ],
+  "values": [
+    [
+      "lbl0",
+      "out",
+      "space padded index [[10,20,30] /  1] → "
+    ],
+    [
+      "src0",
+      "out",
+      "[10,20,30]"
+    ],
+    [
+      "ex0",
+      "out",
+      "20"
+    ],
+    [
+      "cat0",
+      "out",
+      "space padded index [[10,20,30] /  1] → 20"
+    ],
+    [
+      "lbl1",
+      "out",
+      "hex index [[10,20,30] / 0x2] → "
+    ],
+    [
+      "src1",
+      "out",
+      "[10,20,30]"
+    ],
+    [
+      "ex1",
+      "out",
+      "30"
+    ],
+    [
+      "cat1",
+      "out",
+      "hex index [[10,20,30] / 0x2] → 30"
+    ],
+    [
+      "lbl2",
+      "out",
+      "exponent index [[10,20,30] / 1e0] → "
+    ],
+    [
+      "src2",
+      "out",
+      "[10,20,30]"
+    ],
+    [
+      "ex2",
+      "out",
+      "20"
+    ],
+    [
+      "cat2",
+      "out",
+      "exponent index [[10,20,30] / 1e0] → 20"
+    ],
+    [
+      "lbl3",
+      "out",
+      "signed index [[10,20,30] / +1] → "
+    ],
+    [
+      "src3",
+      "out",
+      "[10,20,30]"
+    ],
+    [
+      "ex3",
+      "out",
+      "20"
+    ],
+    [
+      "cat3",
+      "out",
+      "signed index [[10,20,30] / +1] → 20"
+    ],
+    [
+      "lbl4",
+      "out",
+      "zero padded index [[10,20,30] / 01] → "
+    ],
+    [
+      "src4",
+      "out",
+      "[10,20,30]"
+    ],
+    [
+      "ex4",
+      "out",
+      "20"
+    ],
+    [
+      "cat4",
+      "out",
+      "zero padded index [[10,20,30] / 01] → 20"
+    ],
+    [
+      "lbl5",
+      "out",
+      "negative zero index [[10,20,30] / -0] → "
+    ],
+    [
+      "src5",
+      "out",
+      "[10,20,30]"
+    ],
+    [
+      "ex5",
+      "out",
+      "10"
+    ],
+    [
+      "cat5",
+      "out",
+      "negative zero index [[10,20,30] / -0] → 10"
+    ],
+    [
+      "lbl6",
+      "out",
+      "decimal index splits on the dot [[10,20,30] / 1.0] → "
+    ],
+    [
+      "src6",
+      "out",
+      "[10,20,30]"
+    ],
+    [
+      "ex6",
+      "out",
+      ""
+    ],
+    [
+      "cat6",
+      "out",
+      "decimal index splits on the dot [[10,20,30] / 1.0] → "
+    ],
+    [
+      "lbl7",
+      "out",
+      "two segments walk two arrays [[[1,2],[3,4]] / 1.0] → "
+    ],
+    [
+      "src7",
+      "out",
+      "[[1,2],[3,4]]"
+    ],
+    [
+      "ex7",
+      "out",
+      "3"
+    ],
+    [
+      "cat7",
+      "out",
+      "two segments walk two arrays [[[1,2],[3,4]] / 1.0] → 3"
+    ],
+    [
+      "lbl8",
+      "out",
+      "key containing a dot [{\"a.b\":1} / a.b] → "
+    ],
+    [
+      "src8",
+      "out",
+      "{\"a.b\":1}"
+    ],
+    [
+      "ex8",
+      "out",
+      ""
+    ],
+    [
+      "cat8",
+      "out",
+      "key containing a dot [{\"a.b\":1} / a.b] → "
+    ],
+    [
+      "lbl9",
+      "out",
+      "numeric key on an object [{\"1\":\"obj\"} / 1] → "
+    ],
+    [
+      "src9",
+      "out",
+      "{\"1\":\"obj\"}"
+    ],
+    [
+      "ex9",
+      "out",
+      "obj"
+    ],
+    [
+      "cat9",
+      "out",
+      "numeric key on an object [{\"1\":\"obj\"} / 1] → obj"
+    ],
+    [
+      "lbl10",
+      "out",
+      "path into a number scalar [42 / a] → "
+    ],
+    [
+      "src10",
+      "out",
+      "42"
+    ],
+    [
+      "ex10",
+      "out",
+      ""
+    ],
+    [
+      "cat10",
+      "out",
+      "path into a number scalar [42 / a] → "
+    ],
+    [
+      "lbl11",
+      "out",
+      "whole boolean document [true / ] → "
+    ],
+    [
+      "src11",
+      "out",
+      "true"
+    ],
+    [
+      "ex11",
+      "out",
+      "true"
+    ],
+    [
+      "cat11",
+      "out",
+      "whole boolean document [true / ] → true"
+    ]
+  ]
+}

@@ -1,0 +1,22 @@
+<!-- macOS template image: black shapes and alpha, nothing else. AppKit derives
+     every state from the alpha channel — inverted on a dark menu bar, filled
+     white while the menu is open — so any colour here would be discarded and any
+     grey would render as a muddy partial mask.
+
+     Sized 44x32 rather than square because tray-icon scales to 18pt of HEIGHT
+     and preserves aspect (tray-icon-0.24.1 macos/mod.rs:296). A square canvas
+     would fit Saturn's 2:1 silhouette to 18pt wide and leave it ~9pt tall — half
+     the menu bar's usable height. This renders ~25x18pt.
+
+     The ring is masked away where it approaches the planet instead of crossing
+     it. At 18pt a stroke passing over a filled disc merges into a blob; the gap
+     is what keeps two shapes reading as two shapes. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="32" viewBox="0 0 44 32">
+    <mask id="behind">
+        <rect width="44" height="32" fill="#fff"/>
+        <circle cx="22" cy="16" r="11.2" fill="#000"/>
+    </mask>
+    <ellipse cx="22" cy="16" rx="19" ry="6.6" fill="none" stroke="#000" stroke-width="3.2"
+             transform="rotate(-30 22 16)" mask="url(#behind)"/>
+    <circle cx="22" cy="16" r="8.6" fill="#000"/>
+</svg>

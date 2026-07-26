@@ -1,0 +1,60 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "warn",
+      "text": "await: \"results\" read before the node ran — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": ""
+    },
+    {
+      "kind": "print",
+      "text": "[\"only\"]"
+    },
+    {
+      "kind": "print",
+      "text": "[]"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (5 steps)"
+    }
+  ],
+  "values": [
+    [
+      "aw",
+      "results",
+      ""
+    ],
+    [
+      "s1",
+      "out",
+      "only"
+    ],
+    [
+      "aw",
+      "results",
+      "[\"only\"]"
+    ],
+    [
+      "aw",
+      "results",
+      "[\"only\"]"
+    ],
+    [
+      "aw2",
+      "results",
+      "[]"
+    ],
+    [
+      "aw2",
+      "results",
+      "[]"
+    ]
+  ]
+}

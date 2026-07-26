@@ -1,0 +1,35 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "warn",
+      "text": "cannot evaluate output \"out\" of no-such-type — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": ""
+    },
+    {
+      "kind": "print",
+      "text": "before"
+    },
+    {
+      "kind": "warn",
+      "text": "\"no-such-type\" skipped"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (3 steps)"
+    }
+  ],
+  "values": [
+    [
+      "ghost",
+      "out",
+      ""
+    ]
+  ]
+}

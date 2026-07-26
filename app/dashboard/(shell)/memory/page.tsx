@@ -1,22 +1,23 @@
+"use client";
+
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { countMemoryItems, MAX_MEMORY_ITEMS } from "@/lib/memory.server";
-import { getUserRegistry } from "@/lib/registry.server";
-import { getSessionCached } from "@/lib/subscription";
 import ConfirmButton from "@/app/dashboard/confirmButton";
-import { deleteMemoryStore } from "./actions";
-import MemoryModal from "./memoryModal";
+import EntryModal from "@/app/dashboard/entryModal";
+import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
+import { type RegistryEntryRow, SATURN_MEMORY_ID } from "@/lib/registry";
 
-// persistent agent-memory stores; session check lives here, not the layout
-export default async function Memory() {
-    const session = await getSessionCached();
-    if (!session?.user) redirect("/onboard");
-
-    const [registry, counts] = await Promise.all([
-        getUserRegistry(session.user.id),
-        countMemoryItems(session.user.id),
+// module-level so it is stable for useAsync — nothing here depends on props
+const load = () =>
+    Promise.all([
+        call<RegistryEntryRow[]>("list_registry"),
+        call<Record<string, number>>("count_memory_items"),
     ]);
-    const stores = registry.filter((entry) => entry.kind === "memory");
+
+// persistent agent-memory stores
+export default function Memory() {
+    const { data, error, loading, reload } = useAsync(load);
+    const stores = (data?.[0] ?? []).filter((entry) => entry.kind === "memory");
+    const counts = data?.[1] ?? {};
 
     return (
         <div className={"flex flex-col gap-6"}>
@@ -27,7 +28,10 @@ export default async function Memory() {
                 one to an agent node in the workflow designer to grant it memory.
             </p>
 
-            {stores.length === 0 && (
+            {loading && <Loading what={"loading stores"} />}
+            {error && <ErrorNote error={error} retry={reload} />}
+
+            {data && stores.length === 0 && (
                 <p className={"font-mono text-sm text-gray-400"}>
                     no memory stores yet — create one to get started
                 </p>
@@ -35,7 +39,7 @@ export default async function Memory() {
 
             <div className={"grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"}>
                 {stores.map((entry) => {
-                    const count = counts.get(entry.id) ?? 0;
+                    const count = counts[entry.id] ?? 0;
                     return (
                         <div
                             key={entry.id}
@@ -45,7 +49,7 @@ export default async function Memory() {
                             <div className={"flex items-start gap-3"}>
                                 <span className={"text-2xl"}>{entry.emoji}</span>
                                 <Link
-                                    href={`/dashboard/memory/${entry.id}`}
+                                    href={`/dashboard/memory/store/?id=${entry.id}`}
                                     className={"min-w-0 flex-1 font-mono text-sm hover:underline"}
                                 >
                                     <span className={"block truncate"}>{entry.name}</span>
@@ -66,15 +70,29 @@ export default async function Memory() {
                                     border-foreground/15 pt-2 font-mono text-xs text-gray-400`}
                             >
                                 <Link
-                                    href={`/dashboard/memory/${entry.id}`}
+                                    href={`/dashboard/memory/store/?id=${entry.id}`}
                                     className={"hover:text-foreground"}
                                 >
-                                    {count} / {MAX_MEMORY_ITEMS}{" "}
-                                    {count === 1 ? "memory" : "memories"} →
+                                    {count} {count === 1 ? "memory" : "memories"} →
                                 </Link>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
-                                    <MemoryModal entry={entry} />
-                                    <ConfirmButton id={entry.id} action={deleteMemoryStore} />
+                                    <EntryModal kind={"memory"} entry={entry} onSaved={reload} />
+                                    {/* Saturn's own store is undeletable — the
+                                        Rust guard refuses it, so showing the
+                                        button would only offer a rejection */}
+                                    {entry.id !== SATURN_MEMORY_ID && (
+                                        <ConfirmButton
+                                            // only throws on a malformed id; a row that
+                                            // is already gone resolves false, and either
+                                            // way the refetch shows the truth
+                                            onConfirm={async () => {
+                                                await call("delete_registry_entry", {
+                                                    id: entry.id,
+                                                }).catch(() => {});
+                                                reload();
+                                            }}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -82,7 +100,7 @@ export default async function Memory() {
                 })}
             </div>
 
-            <MemoryModal />
+            <EntryModal kind={"memory"} onSaved={reload} />
         </div>
     );
 }

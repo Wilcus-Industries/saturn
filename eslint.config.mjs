@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // rust crate; the only JS under it is cargo build output
+    "src-tauri/**",
   ]),
 ]);
 

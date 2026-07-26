@@ -1,0 +1,194 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "secret variable → {{var:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}}"
+    },
+    {
+      "kind": "print",
+      "text": "regular variable → {{var:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb}}"
+    },
+    {
+      "kind": "warn",
+      "text": "(deleted): variable was deleted — its value will not resolve"
+    },
+    {
+      "kind": "print",
+      "text": "deleted variable → {{var:cccccccc-cccc-4ccc-8ccc-cccccccccccc}}"
+    },
+    {
+      "kind": "warn",
+      "text": "variable:dddddddd-dddd-4ddd-8ddd-dddddddddddd: variable was deleted — its value will not resolve"
+    },
+    {
+      "kind": "print",
+      "text": "unregistered variable → {{var:dddddddd-dddd-4ddd-8ddd-dddddddddddd}}"
+    },
+    {
+      "kind": "warn",
+      "text": "cannot evaluate output \"out\" of variable:not-a-uuid — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "malformed variable type → "
+    },
+    {
+      "kind": "print",
+      "text": "mcp chip as value → "
+    },
+    {
+      "kind": "print",
+      "text": "skill chip as value → "
+    },
+    {
+      "kind": "warn",
+      "text": "cannot evaluate output \"out\" of notes — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "memory chip as value → "
+    },
+    {
+      "kind": "warn",
+      "text": "\"search server\" is not executable — skipped"
+    },
+    {
+      "kind": "warn",
+      "text": "\"writing skill\" is not executable — skipped"
+    },
+    {
+      "kind": "print",
+      "text": "chain continued past the chips"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (11 steps)"
+    }
+  ],
+  "values": [
+    [
+      "lbl0",
+      "out",
+      "secret variable → "
+    ],
+    [
+      "vSecret",
+      "out",
+      "{{var:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}}"
+    ],
+    [
+      "cat0",
+      "out",
+      "secret variable → {{var:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}}"
+    ],
+    [
+      "lbl1",
+      "out",
+      "regular variable → "
+    ],
+    [
+      "vPlain",
+      "out",
+      "{{var:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb}}"
+    ],
+    [
+      "cat1",
+      "out",
+      "regular variable → {{var:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb}}"
+    ],
+    [
+      "lbl2",
+      "out",
+      "deleted variable → "
+    ],
+    [
+      "vGone",
+      "out",
+      "{{var:cccccccc-cccc-4ccc-8ccc-cccccccccccc}}"
+    ],
+    [
+      "cat2",
+      "out",
+      "deleted variable → {{var:cccccccc-cccc-4ccc-8ccc-cccccccccccc}}"
+    ],
+    [
+      "lbl3",
+      "out",
+      "unregistered variable → "
+    ],
+    [
+      "vUnknown",
+      "out",
+      "{{var:dddddddd-dddd-4ddd-8ddd-dddddddddddd}}"
+    ],
+    [
+      "cat3",
+      "out",
+      "unregistered variable → {{var:dddddddd-dddd-4ddd-8ddd-dddddddddddd}}"
+    ],
+    [
+      "lbl4",
+      "out",
+      "malformed variable type → "
+    ],
+    [
+      "vBad",
+      "out",
+      ""
+    ],
+    [
+      "cat4",
+      "out",
+      "malformed variable type → "
+    ],
+    [
+      "lbl5",
+      "out",
+      "mcp chip as value → "
+    ],
+    [
+      "chipMcp",
+      "out",
+      ""
+    ],
+    [
+      "cat5",
+      "out",
+      "mcp chip as value → "
+    ],
+    [
+      "lbl6",
+      "out",
+      "skill chip as value → "
+    ],
+    [
+      "chipSkill",
+      "out",
+      ""
+    ],
+    [
+      "cat6",
+      "out",
+      "skill chip as value → "
+    ],
+    [
+      "lbl7",
+      "out",
+      "memory chip as value → "
+    ],
+    [
+      "chipMem",
+      "out",
+      ""
+    ],
+    [
+      "cat7",
+      "out",
+      "memory chip as value → "
+    ]
+  ]
+}

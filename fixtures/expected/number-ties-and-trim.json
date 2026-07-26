@@ -1,0 +1,160 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "shortest-digits tie, spec takes the lower [-1420608204620385.2] -> -1420608204620385.2"
+    },
+    {
+      "kind": "print",
+      "text": "shortest-digits tie, spec keeps the upper [-105168144873702.38] -> -105168144873702.38"
+    },
+    {
+      "kind": "print",
+      "text": "shortest-digits tie, positive [1420396063617288.2] -> 1420396063617288.2"
+    },
+    {
+      "kind": "print",
+      "text": "BOM is StrWhiteSpace, so this is a number [\\ufeff42] -> 42"
+    },
+    {
+      "kind": "print",
+      "text": "BOM alone trims to empty -> 0"
+    },
+    {
+      "kind": "warn",
+      "text": "number \"42\" is not a number — using 0"
+    },
+    {
+      "kind": "print",
+      "text": "NEL is not StrWhiteSpace, so this warns and is 0 [\\u008542] -> 0"
+    },
+    {
+      "kind": "print",
+      "text": "BOM-prefixed string vs 42: numeric, TRUE"
+    },
+    {
+      "kind": "print",
+      "text": "NEL-prefixed string vs 42: false"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (10 steps)"
+    }
+  ],
+  "values": [
+    [
+      "l0",
+      "out",
+      "shortest-digits tie, spec takes the lower [-1420608204620385.2] -> "
+    ],
+    [
+      "n0",
+      "out",
+      "-1420608204620385.2"
+    ],
+    [
+      "c0",
+      "out",
+      "shortest-digits tie, spec takes the lower [-1420608204620385.2] -> -1420608204620385.2"
+    ],
+    [
+      "l1",
+      "out",
+      "shortest-digits tie, spec keeps the upper [-105168144873702.38] -> "
+    ],
+    [
+      "n1",
+      "out",
+      "-105168144873702.38"
+    ],
+    [
+      "c1",
+      "out",
+      "shortest-digits tie, spec keeps the upper [-105168144873702.38] -> -105168144873702.38"
+    ],
+    [
+      "l2",
+      "out",
+      "shortest-digits tie, positive [1420396063617288.2] -> "
+    ],
+    [
+      "n2",
+      "out",
+      "1420396063617288.2"
+    ],
+    [
+      "c2",
+      "out",
+      "shortest-digits tie, positive [1420396063617288.2] -> 1420396063617288.2"
+    ],
+    [
+      "l3",
+      "out",
+      "BOM is StrWhiteSpace, so this is a number [\\ufeff42] -> "
+    ],
+    [
+      "n3",
+      "out",
+      "42"
+    ],
+    [
+      "c3",
+      "out",
+      "BOM is StrWhiteSpace, so this is a number [\\ufeff42] -> 42"
+    ],
+    [
+      "l4",
+      "out",
+      "BOM alone trims to empty -> "
+    ],
+    [
+      "n4",
+      "out",
+      "0"
+    ],
+    [
+      "c4",
+      "out",
+      "BOM alone trims to empty -> 0"
+    ],
+    [
+      "l5",
+      "out",
+      "NEL is not StrWhiteSpace, so this warns and is 0 [\\u008542] -> "
+    ],
+    [
+      "n5",
+      "out",
+      "0"
+    ],
+    [
+      "c5",
+      "out",
+      "NEL is not StrWhiteSpace, so this warns and is 0 [\\u008542] -> 0"
+    ],
+    [
+      "s0",
+      "out",
+      "﻿42"
+    ],
+    [
+      "r0",
+      "out",
+      "42"
+    ],
+    [
+      "s1",
+      "out",
+      "42"
+    ],
+    [
+      "r1",
+      "out",
+      "42"
+    ]
+  ]
+}

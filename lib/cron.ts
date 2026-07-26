@@ -26,29 +26,6 @@ function minuteStep(field: string): number | null {
     return num(field.slice(2), 2, 30);
 }
 
-const FIELD_RANGES: [min: number, max: number][] = [
-    [0, 59], // minute
-    [0, 23], // hour
-    [1, 31], // day of month
-    [1, 12], // month
-    [0, 6], // day of week
-];
-
-// accepts the grammar the visual builder can emit: exactly 5 fields, each
-// "*" or a plain in-range integer (no ranges/steps/lists), plus "*/n" in the
-// minute field only. Server actions validate with this — the create form is
-// a public POST endpoint.
-export function isValidCron(cron: string): boolean {
-    const fields = cron.trim().split(/\s+/);
-    if (fields.length !== 5) return false;
-    return fields.every(
-        (f, i) =>
-            f === "*" ||
-            num(f, FIELD_RANGES[i][0], FIELD_RANGES[i][1]) !== null ||
-            (i === 0 && minuteStep(f) !== null),
-    );
-}
-
 export function describeCron(cron: string): string {
     const fields = cron.trim().split(/\s+/);
     if (fields.length !== 5) return cron;
@@ -88,19 +65,4 @@ export function describeCron(cron: string): string {
     }
 
     return cron;
-}
-
-// does the cron fire at this instant? Evaluated against UTC fields. Plain AND
-// across all 5 fields — the standard dom/dow OR rule is deliberately skipped
-// because the builder never restricts both. Invalid cron never matches.
-export function cronMatches(cron: string, d: Date): boolean {
-    if (!isValidCron(cron)) return false;
-    const fields = cron.trim().split(/\s+/);
-    const values = [d.getUTCMinutes(), d.getUTCHours(), d.getUTCDate(), d.getUTCMonth() + 1, d.getUTCDay()];
-    return fields.every((f, i) => {
-        if (f === "*") return true;
-        const step = i === 0 ? minuteStep(f) : null;
-        if (step !== null) return values[i] % step === 0;
-        return Number(f) === values[i];
-    });
 }

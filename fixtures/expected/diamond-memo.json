@@ -1,0 +1,80 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "warn",
+      "text": "extract: value is not JSON — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": "seedseedfalse"
+    },
+    {
+      "kind": "warn",
+      "text": "extract: value is not JSON — using \"\""
+    },
+    {
+      "kind": "print",
+      "text": ""
+    },
+    {
+      "kind": "info",
+      "text": "run finished (2 steps)"
+    }
+  ],
+  "values": [
+    [
+      "S",
+      "out",
+      "seed"
+    ],
+    [
+      "C1",
+      "out",
+      "seedseed"
+    ],
+    [
+      "E",
+      "out",
+      ""
+    ],
+    [
+      "C2",
+      "out",
+      ""
+    ],
+    [
+      "C3",
+      "out",
+      "seedseed"
+    ],
+    [
+      "N",
+      "out",
+      "false"
+    ],
+    [
+      "A",
+      "out",
+      "false"
+    ],
+    [
+      "C4",
+      "out",
+      "seedseedfalse"
+    ],
+    [
+      "S",
+      "out",
+      "seed"
+    ],
+    [
+      "E",
+      "out",
+      ""
+    ]
+  ]
+}

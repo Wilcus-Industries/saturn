@@ -1,0 +1,89 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "config only"
+    },
+    {
+      "kind": "print",
+      "text": "VALUE"
+    },
+    {
+      "kind": "print",
+      "text": "legacy prefix VALUE"
+    },
+    {
+      "kind": "print",
+      "text": "VALUE"
+    },
+    {
+      "kind": "image",
+      "text": "data:image/png;base64,QUJD"
+    },
+    {
+      "kind": "print",
+      "text": "caption"
+    },
+    {
+      "kind": "image",
+      "text": "data:image/png;base64,QUJD"
+    },
+    {
+      "kind": "image",
+      "text": "data:image/png;base64,QUJD"
+    },
+    {
+      "kind": "print",
+      "text": "VALUE"
+    },
+    {
+      "kind": "print",
+      "text": ""
+    },
+    {
+      "kind": "info",
+      "text": "run finished (9 steps)"
+    }
+  ],
+  "values": [
+    [
+      "val",
+      "out",
+      "VALUE"
+    ],
+    [
+      "val",
+      "out",
+      "VALUE"
+    ],
+    [
+      "val",
+      "out",
+      "VALUE"
+    ],
+    [
+      "img",
+      "out",
+      "data:image/png;base64,QUJD"
+    ],
+    [
+      "img",
+      "out",
+      "data:image/png;base64,QUJD"
+    ],
+    [
+      "img",
+      "out",
+      "data:image/png;base64,QUJD"
+    ],
+    [
+      "val",
+      "out",
+      "VALUE"
+    ]
+  ]
+}

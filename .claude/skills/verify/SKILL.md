@@ -1,33 +1,62 @@
 ---
 name: verify
-description: How to run and verify Saturn changes end-to-end (dev server, auth, driving the dashboard)
+description: How to run and verify Saturn changes end-to-end (the desktop app, its data, driving the dashboard)
 ---
 
 # Verifying Saturn
 
+Saturn is a native macOS app, not a web page. `npm run dev` is `tauri dev`: it
+starts the Next dev server on :3000 **and** the Rust backend, and opens the
+window. All four background loops (cron scheduler, Discord gateway, Telegram
+poller, GitHub poller) run in it, so scheduled and event-driven workflows are
+live in dev.
+
 ## Launch
 
-- The user usually already has `npm run dev` on http://localhost:3000 (starting a second instance errors with "Another next dev server is already running" and falls back to :3002 — check `curl -s -o /dev/null -w "%{http_code}" localhost:3000` first and reuse it; it hot-reloads your edits).
-- Server log: `.next/dev/logs/next-development.log` (JSON lines; Browser + Server entries). Check timestamps — errors may predate your change.
+- `npm run dev` from the repo root. Frontend edits hot-reload; a Rust edit
+  rebuilds and relaunches the app.
+- `tauri-plugin-single-instance` is registered first, deliberately: a second
+  `npm run dev` focuses the existing window instead of opening a second process
+  against the same `saturn.db`. Kill the first one before starting a second.
+- Closing the window only **hides** it — the process keeps running with its
+  loops. Quit from the tray icon.
+- Rust `println!`/`eprintln!` goes to the terminal running `tauri dev`; the
+  transports log there (`[telegram <fp>] …`, `[gateway] …`).
+- Frontend console + network: right-click in the window → Inspect Element opens
+  WebKit's inspector.
 
-## Database + background work
+## Checks
 
-- Local dev runs against the **Neon dev branch** (`.env.local` DATABASE_URL) — fully separate from prod; write freely. `scripts/dev-db.sh reset` re-copies prod state and deactivates every workflow (branch reset keeps the same endpoint host, so the `.env.local` URL stays valid).
-- Plain `npm run dev` never starts background loops (scheduler, Discord gateway, Telegram poller, sandbox reaper). To verify scheduled/event workflows use `npm run dev:full` (sets `SATURN_DEV_BACKGROUND=1`).
-- Copied workflows carry real bot tokens: reactivate only the workflow under test, and swap in a dev bot token first (same-token Telegram polling 409s against prod; Discord double-delivers).
-- Sandboxes stay Pi-only (`SANDBOX_PODMAN_SOCKET` unset locally → tools return "sandbox runtime not configured").
+- `cd src-tauri && cargo test` — the only test suite (131 tests, including the
+  47 golden interpreter fixtures). Run it for any interpreter, runner, events,
+  integrations or registry change.
+- `npm run lint` — regenerates-and-compares `catalog.json`, then ESLint. Any
+  edit to a descriptor in `lib/integrations.ts` needs
+  `node scripts/gen-catalog.mjs` or this fails.
+- `npx tsc --noEmit` — the frontend's only other static check.
 
-## Auth
+## Data
 
-- Google OAuth only — no headless login path. Drive with claude-in-chrome against the user's Chrome; their localhost session is usually already signed in. If not signed in, ask the user to sign in rather than automating OAuth.
+- One SQLite file, `saturn.db`, in the app's data dir
+  (`~/Library/Application Support/com.wilcus.saturn/`). Inspect with
+  `sqlite3`; the app holds one connection behind a mutex, so close the app
+  before writing to it yourself.
+- Secrets are **not** in the database. They live in the login Keychain under
+  the `com.wilcus.saturn` service and are write-only through the UI — no read
+  path returns one. Check with Keychain Access, or
+  `security find-generic-password -s com.wilcus.saturn`.
+- No environment variables. Nothing in `app/`, `lib/` or `src-tauri/` reads one.
 
-## Driving
+## Driving the UI
 
-- `/dashboard/workflows` — create throwaway workflows via the "+" card for destructive tests; never touch the user's real workflows (e.g. "Check email").
-- Two-step delete buttons (settings entries, workflows) auto-disarm after 3s — a disarm can fire *between* browser_batch calls and your next click re-arms instead of confirming. Put arm-click + confirm-click in the SAME browser_batch, back to back.
-- Card grids reflow after a delete — a second click at the old coordinates lands on the next card. Screenshot before clicking again.
+Drive the WebView with claude-in-chrome only against `http://localhost:3000`
+in the user's Chrome — the dev server serves the same frontend, but with no
+Tauri IPC, so every `call()` fails. That is enough for pure layout work and
+nothing else; anything touching data has to be driven by hand in the app window
+or asserted through `cargo test`.
 
-## Gotchas
-
-- No test suite; `npm run lint` + `npx tsc --noEmit` are the only static checks.
-- Stripe webhook flows need `stripe listen --forward-to localhost:3000/api/auth/stripe/webhook`.
+- `/dashboard/workflows` — create throwaway workflows via the "+" card for
+  destructive tests; never touch the user's real workflows.
+- Two-step delete buttons (settings entries, workflows) auto-disarm after 3s.
+- Card grids reflow after a delete — a second click at the old coordinates
+  lands on the next card.

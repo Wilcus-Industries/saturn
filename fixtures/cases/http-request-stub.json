@@ -1,0 +1,92 @@
+{
+  "graph": {
+    "nodes": [
+      { "id": "ev", "type": "run", "x": 0, "y": 0, "config": {} },
+      {
+        "id": "h1",
+        "type": "integration:http-request",
+        "x": 60,
+        "y": 0,
+        "config": { "method": "GET", "url": "https://example.invalid/a", "headers": "", "body": "" }
+      },
+      { "id": "p1", "type": "print", "x": 120, "y": 0, "config": {} },
+      {
+        "id": "h2",
+        "type": "integration:http-request",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "method": "POST",
+          "url": "https://example.invalid/overridden",
+          "headers": "",
+          "body": "",
+          "notAField": "kept in the config digest"
+        }
+      },
+      { "id": "p2", "type": "print", "x": 240, "y": 0, "config": {} },
+      {
+        "id": "h3",
+        "type": "integration:http-request",
+        "x": 300,
+        "y": 0,
+        "config": {
+          "method": "GET",
+          "url": "https://example.invalid/big",
+          "headers": "",
+          "body": "",
+          "stub": "big"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": { "nodeId": "h1", "portId": "response" },
+        "to": { "nodeId": "p1", "portId": "message" },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": { "nodeId": "h1", "portId": "response" },
+        "to": { "nodeId": "h2", "portId": "url" },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": { "nodeId": "h2", "portId": "response" },
+        "to": { "nodeId": "p2", "portId": "message" },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": { "nodeId": "ev", "portId": "out" },
+        "to": { "nodeId": "h1", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": { "nodeId": "h1", "portId": "out" },
+        "to": { "nodeId": "p1", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e5",
+        "from": { "nodeId": "p1", "portId": "out" },
+        "to": { "nodeId": "h2", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e6",
+        "from": { "nodeId": "h2", "portId": "out" },
+        "to": { "nodeId": "p2", "portId": "in" },
+        "kind": "flow"
+      },
+      {
+        "id": "e7",
+        "from": { "nodeId": "p2", "portId": "out" },
+        "to": { "nodeId": "h3", "portId": "in" },
+        "kind": "flow"
+      }
+    ]
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "items",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21"
+        }
+      },
+      {
+        "id": "lp",
+        "type": "loop",
+        "x": 120,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "send",
+        "type": "integration:http-request",
+        "x": 180,
+        "y": 0,
+        "config": {
+          "method": "GET",
+          "url": "https://example.invalid/x",
+          "headers": "",
+          "body": ""
+        }
+      },
+      {
+        "id": "after",
+        "type": "print",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "message": "never"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "items",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "lp",
+          "portId": "items"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "lp",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "lp",
+          "portId": "body"
+        },
+        "to": {
+          "nodeId": "send",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "lp",
+          "portId": "done"
+        },
+        "to": {
+          "nodeId": "after",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

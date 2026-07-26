@@ -1,0 +1,70 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "print",
+      "text": "branch A"
+    },
+    {
+      "kind": "print",
+      "text": "shared value → true"
+    },
+    {
+      "kind": "print",
+      "text": "branch B"
+    },
+    {
+      "kind": "print",
+      "text": "shared value → true"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (4 steps)"
+    }
+  ],
+  "values": [
+    [
+      "lbl",
+      "out",
+      "shared value → "
+    ],
+    [
+      "src",
+      "out",
+      ""
+    ],
+    [
+      "neg",
+      "out",
+      "true"
+    ],
+    [
+      "cat",
+      "out",
+      "shared value → true"
+    ],
+    [
+      "lbl",
+      "out",
+      "shared value → "
+    ],
+    [
+      "src",
+      "out",
+      ""
+    ],
+    [
+      "neg",
+      "out",
+      "true"
+    ],
+    [
+      "cat",
+      "out",
+      "shared value → true"
+    ]
+  ]
+}

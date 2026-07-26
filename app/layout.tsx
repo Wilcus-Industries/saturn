@@ -1,8 +1,10 @@
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 import {Geist, Geist_Mono} from "next/font/google";
-import {ORG_NAME, SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, GITHUB_URL, siteUrl} from "@/lib/seo";
 import "./globals.css";
 
+// next/font downloads these at BUILD time and emits them into the export as
+// static assets, so nothing is fetched from Google at runtime — which is what
+// makes them work inside the Tauri WebView under a `default-src 'self'` CSP.
 const geistSans = Geist({
     variable: "--font-geist-sans",
     subsets: ["latin"],
@@ -13,74 +15,25 @@ const geistMono = Geist_Mono({
     subsets: ["latin"],
 });
 
-// og:image / twitter:image / icons / manifest links come from the file
-// conventions (app/opengraph-image.tsx, app/twitter-image.tsx, app/icon.png,
-// app/apple-icon.png, app/manifest.ts) — they override the metadata object,
-// so those fields are deliberately absent here
-export const metadata: Metadata = {
-    metadataBase: new URL(siteUrl),
-    title: {
-        default: SITE_TITLE,
-        template: `%s · ${SITE_NAME}`,
-    },
-    description: SITE_DESCRIPTION,
-    applicationName: SITE_NAME,
-    keywords: [
-        "agentic automations",
-        "AI agents",
-        "workflow automation",
-        "MCP",
-        "Model Context Protocol",
-        "node-based editor",
-        "cron automation",
-        "OpenRouter",
-        "model credits",
-        "open source",
-        "LLM workflows",
-        "no-code workflows",
-        "Discord bot",
-        "Telegram bot",
-        "AI agent memory",
-        "Linux sandboxes",
-        "self-hosted",
-    ],
-    authors: [{ name: ORG_NAME, url: GITHUB_URL }],
-    creator: ORG_NAME,
-    publisher: ORG_NAME,
-    category: "technology",
-    robots: {
-        index: true,
-        follow: true,
-        googleBot: {
-            index: true,
-            follow: true,
-            "max-image-preview": "large",
-            "max-snippet": -1,
-            "max-video-preview": -1,
-        },
-    },
-    openGraph: {
-        type: "website",
-        siteName: SITE_NAME,
-        locale: "en_US",
-        url: "/",
-        title: SITE_TITLE,
-        description: SITE_DESCRIPTION,
-    },
-    twitter: {
-        card: "summary_large_image",
-        title: SITE_TITLE,
-        description: SITE_DESCRIPTION,
-    },
-};
+export const metadata: Metadata = { title: "Saturn" };
 
-export const viewport: Viewport = {
-    themeColor: [
-        { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-        { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
-    ],
-    colorScheme: "light dark",
-};
+// Sidebar width before first paint. Same trick as a dark-mode flash guard: read
+// the preference synchronously in <head> and stamp <html>, so the CSS in
+// globals.css has it on the very first frame. localStorage replaces the cookie
+// the server used to read — there is no server. Wrapped in try/catch because a
+// blocked storage API must not take the whole app down.
+const SIDEBAR_SCRIPT =
+    `try{if(localStorage.sidebar==="collapsed")document.documentElement.dataset.sidebar="collapsed"}catch(e){}`;
+
+// WebKit's default action for Backspace outside a text field is history-back —
+// and on a Mac keyboard the Delete key IS Backspace. There is no browser chrome
+// here and no page wants it, so it is killed once, globally, rather than in
+// every keydown handler. In <head> and not an effect because a keypress during
+// the hydration window would still navigate; capture phase so it lands before
+// any handler, but preventDefault alone — propagation continues, so the
+// designer's own Backspace/Delete branch still deletes the selection.
+const BACKSPACE_SCRIPT =
+    `addEventListener("keydown",function(e){var t=e.target||{};if(e.key==="Backspace"&&!t.isContentEditable&&!/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||""))e.preventDefault()},true)`;
 
 export default function RootLayout({
                                        children,
@@ -90,7 +43,12 @@ export default function RootLayout({
     return (
         <html
             lang="en"
+            suppressHydrationWarning
             className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+            <head>
+                <script dangerouslySetInnerHTML={{ __html: SIDEBAR_SCRIPT }} />
+                <script dangerouslySetInnerHTML={{ __html: BACKSPACE_SCRIPT }} />
+            </head>
             <body className="min-h-full flex flex-col">
                 {children}
             </body>

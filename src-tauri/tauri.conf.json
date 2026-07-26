@@ -1,0 +1,39 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Saturn",
+  "version": "0.1.0",
+  "identifier": "com.wilcus.saturn",
+  "build": {
+    "frontendDist": "../out",
+    "beforeDevCommand": "npx next dev",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Saturn",
+        "width": 1100,
+        "height": 750,
+        "minWidth": 768,
+        "minHeight": 480,
+        "url": "/dashboard/agent/"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost data: https://www.google.com https://*.gstatic.com; connect-src 'self' ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost data: https://www.google.com https://*.gstatic.com; connect-src 'self' ipc: http://ipc.localhost ws://localhost:3000"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ]
+  }
+}
