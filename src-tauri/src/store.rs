@@ -55,6 +55,16 @@ create virtual table if not exists memory_item using vec0(
     +content text,
     created_at integer
 );
+
+-- Saturn Agent's own memory store, seeded in SQL rather than Rust: execute_batch
+-- runs on every boot, so `insert or ignore` is idempotent AND reaches a saturn.db
+-- that already exists — which a new column could not. MAX_ENTRIES_PER_KIND is a
+-- create-time check this deliberately bypasses: a user with 50 stores of their
+-- own must still get Saturn's. registry::delete_entry refuses to remove it.
+insert or ignore into registry_entry (id, kind, name, emoji, description, config, created_at, updated_at)
+values ('00000000-0000-4000-8000-000000000001', 'memory', 'Saturn', '🪐',
+        'What Saturn Agent remembers across conversations.', '{}',
+        unixepoch() * 1000, unixepoch() * 1000);
 "#;
 
 fn now() -> i64 {

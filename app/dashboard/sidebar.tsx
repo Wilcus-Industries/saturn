@@ -51,7 +51,7 @@ export default function Sidebar() {
                 className={"flex h-16 shrink-0 items-center gap-2 pl-[10px]"}
             >
                 <div className={"shrink-0"}>
-                    <AsciiSaturn />
+                    <AsciiSaturn scale={4} />
                 </div>
                 <span
                     data-sidebar-label

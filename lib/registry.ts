@@ -40,6 +40,12 @@ export type RegistryEntryRow = {
 
 export const MAX_MCP_TOOLS = 40;
 
+// Saturn Agent's own memory store, seeded by store.rs's SCHEMA and mirrored in
+// src-tauri/src/saturn.rs as MEMORY_ID. Rename, wipe and per-item delete all
+// stay allowed; only the store itself is undeletable (registry::delete_entry
+// refuses, so the UI hides the button rather than being the guard).
+export const SATURN_MEMORY_ID = "00000000-0000-4000-8000-000000000001";
+
 const userNodeKey = (kind: RegistryKind, id: string) => `${kind}:${id}`;
 
 // canonical uuid shape check, shared by every id-validating route/action/tool.
@@ -142,6 +148,23 @@ function toVariableEntry(row: RegistryEntryRow): CatalogEntry {
         outputs: [valuePort("value")],
     };
 }
+
+// chat grant chip: a single "session" value output wired into an agent's
+// "session" port makes that agent's conversation persist across runs. NOT a
+// registry kind — chats are `saturn_session` rows with their own table and
+// CRUD — so this is a fourth source of catalog entries, merged into byKey
+// alongside CATALOG and buildUserCatalog. Mirrors src-tauri/src/saturn.rs's
+// session_catalog: change one, change both.
+export const sessionEntry = (id: string, name: string): CatalogEntry => ({
+    key: `session:${id}`,
+    label: name,
+    category: "session",
+    inputs: [],
+    outputs: [valuePort("session")],
+    // chips render their emoji (skill/memory carry a user-chosen one); a chat
+    // has no icon of its own, so every one of them wears the same speech bubble
+    emoji: "💬",
+});
 
 export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
     rows.map((row) =>

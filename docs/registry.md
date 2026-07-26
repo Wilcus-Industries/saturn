@@ -161,6 +161,28 @@ row, so every node wired to that store keeps resolving.
 
 The agent-side mechanics are in `docs/nodes.md`.
 
+### Saturn's own store cannot be deleted
+
+One `memory` entry always exists — id `00000000-0000-4000-8000-000000000001`
+(`saturn::MEMORY_ID`, mirrored as `lib/registry.ts`'s `SATURN_MEMORY_ID`): what
+Saturn Agent remembers across conversations.
+
+It is seeded **in SQL, inside `store.rs`'s `SCHEMA`**, not in Rust.
+`execute_batch(SCHEMA)` runs on every boot, so `insert or ignore` is idempotent
+*and* reaches a `saturn.db` that already exists — which a new column could not.
+It bypasses `MAX_ENTRIES_PER_KIND` on purpose: a user with 50 stores of their own
+must still get Saturn's.
+
+`registry::delete_entry` refuses it, ahead of even the uuid shape check. The
+guard sits on the **store method, not the command** — the same reasoning
+`subscriptions_changed()` gets, so no future IPC command or Saturn tool can route
+around it. `/dashboard/memory/` hides the row's delete button; the button is UI,
+the guard is the rule.
+
+Rename, wipe and per-item delete all stay allowed: the store is permanent, its
+contents are the user's. It is also an ordinary `memory:<uuid>` chip in the
+toolbox, so an `agent` node can be granted what Saturn remembers.
+
 ## Variables
 
 Name + a `secret` flag. **Two modes, fixed at creation** — the checkbox is

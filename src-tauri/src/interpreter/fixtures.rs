@@ -86,6 +86,37 @@ fn stub_tool(memory: bool, entry_id: &str, tool: &str, input: &str) -> Result<St
     }
 }
 
+/// The `saturn-agent` node's whole turn. Authored, not ported — the node
+/// postdates the oracle — so it reports exactly the three arguments the
+/// interpreter decides: the session name and model AFTER their defaults, and
+/// the resolved prompt. Model "stub-error" fails, like the agent stub's.
+fn stub_saturn(session: &str, model: &str, prompt: &str) -> Result<String, String> {
+    if model == "stub-error" {
+        return Err("stub saturn failure".into());
+    }
+    Ok(format!("saturn[{session}/{model}]({})", digest(prompt)))
+}
+
+/// The `agent` node's session port. Authored, not ported — chat chips postdate
+/// the oracle, so no `expected/` file reaches these. One canned prior turn per
+/// session id keeps the seeded transcript visible in the stub model's shape
+/// report (`user:N,…`); "empty" is the fresh-chat case.
+fn stub_history(session_id: &str) -> Result<Vec<crate::openrouter::AgentMessage>, String> {
+    match session_id {
+        "boom" => Err("stub chat unreadable".into()),
+        "empty" => Ok(Vec::new()),
+        id => Ok(vec![crate::openrouter::AgentMessage::User { content: format!("prior:{id}") }]),
+    }
+}
+
+fn stub_record(session_id: &str, prompt: &str, reply: &str) -> Result<(), String> {
+    if session_id == "readonly" {
+        return Err("stub chat is read-only".into());
+    }
+    let _ = (prompt, reply);
+    Ok(())
+}
+
 /// `JSON.stringify(req, Object.keys(req).sort())`. A property-list replacer
 /// applies at EVERY nesting level, and none of the request's own key names are
 /// message or tool-ref key names — so every nested object serializes as `{}` and
@@ -331,7 +362,14 @@ fn golden_fixtures() {
             payloads.as_ref(),
             Some(&registry),
             &tx,
-            Effects { send: &stub_send, model: &stub_model, tool: &stub_tool },
+            Effects {
+                send: &stub_send,
+                model: &stub_model,
+                tool: &stub_tool,
+                saturn: &stub_saturn,
+                history: &stub_history,
+                record: &stub_record,
+            },
             None,
         );
         drop(tx);

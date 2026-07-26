@@ -10,6 +10,7 @@ mod memory;
 mod openrouter;
 mod registry;
 mod runner;
+mod saturn;
 mod secrets;
 mod store;
 mod telegram;
@@ -124,6 +125,23 @@ fn save_workflow(store: State<Store>, id: String, graph: Value) -> Result<(), St
     }
 }
 
+/// Deep validation for the designer's issues panel and per-node dots — the one
+/// implementation there is. `byKey` is deliberately NOT an argument: Rust
+/// rebuilds it from the static catalog plus the user's registry, i.e. from the
+/// database, which is what makes the designer and the run pipeline *unable* to
+/// disagree about the same graph. Advisory only — `save_workflow` keeps
+/// `check_graph` and nothing more, because the designer autosaves half-wired
+/// graphs constantly.
+#[tauri::command]
+fn validate_graph(store: State<Store>, graph: Value) -> Result<workflow::Validation, String> {
+    let rows = registry::get_user_registry(&store, &KEYCHAIN)?;
+    let mut by_key: HashMap<String, interpreter::CatalogEntry> =
+        interpreter::CATALOG.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    by_key.extend(registry::build_user_catalog(&rows));
+    by_key.extend(saturn::session_catalog(&store));
+    Ok(workflow::validate_graph_strict(&graph, &by_key, Some(has_github_pat())))
+}
+
 /// `active` gates scheduled and event execution only — a test run still works
 /// when it is off. Explicit desired state, so a double-click is idempotent.
 #[tauri::command]
@@ -216,6 +234,99 @@ fn test_run(
 #[tauri::command]
 fn stop_run() {
     TEST_RUN_CANCEL.store(true, Ordering::Relaxed);
+}
+
+// --- saturn agent ----------------------------------------------------------
+
+/// Streams one Saturn Agent turn. Returns as soon as the turn is spawned;
+/// `saturn-delta` frames arrive as the model writes, and `saturn-done` closes it
+/// out — the same frame vocabulary the hosted NDJSON stream used, because the
+/// client's `apply()` is recovered verbatim.
+///
+/// `test_run`'s shape, deliberately: `#[tauri::command(async)]` would hand the
+/// body to a tokio worker, and `stream_chat` builds a *blocking* reqwest client,
+/// which must never happen there. A plain std thread is the requirement.
+#[tauri::command]
+fn saturn_send(
+    app: AppHandle,
+    store: State<Store>,
+    session_id: String,
+    model: String,
+    reasoning: Option<String>,
+    text: String,
+    workflow_id: Option<String>,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    saturn::SATURN_CANCEL.store(false, Ordering::Relaxed);
+    std::thread::spawn(move || {
+        let frame = |t: &str, d: &str| {
+            let _ = app.emit(
+                "saturn-delta",
+                json!({ "sessionId": session_id, "t": t, "d": d }),
+            );
+        };
+        let mut emit = frame;
+        let result = saturn::run_turn(
+            &store,
+            &KEYCHAIN,
+            &saturn::TurnRequest {
+                session_id: &session_id,
+                model: &model,
+                reasoning: reasoning.as_deref(),
+                text: &text,
+                workflow_id: workflow_id.as_deref(),
+                nested: false,
+            },
+            &mut emit,
+            Some(&saturn::SATURN_CANCEL),
+        );
+        if let Err(err) = result {
+            frame("e", &err);
+        }
+        // always, on every path: the composer clears `streaming` on nothing else
+        let _ = app.emit("saturn-done", json!({ "sessionId": session_id }));
+    });
+    Ok(())
+}
+
+/// Stops the streaming turn. Cooperative — `stream_chat` checks the flag between
+/// socket reads and `run_turn` between tool calls, so an in-flight request still
+/// finishes before the turn closes out. Always succeeds; stopping nothing is a
+/// no-op.
+#[tauri::command]
+fn saturn_stop() {
+    saturn::SATURN_CANCEL.store(true, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn saturn_list_sessions(store: State<Store>) -> Result<Vec<saturn::SessionRow>, String> {
+    saturn::list_sessions(&store)
+}
+
+#[tauri::command]
+fn saturn_create_session(
+    store: State<Store>,
+    name: Option<String>,
+) -> Result<saturn::SessionRow, String> {
+    saturn::create_session(&store, name.as_deref())
+}
+
+#[tauri::command]
+fn saturn_rename_session(store: State<Store>, id: String, name: String) -> Result<(), String> {
+    saturn::rename_session(&store, &id, &name)
+}
+
+#[tauri::command]
+fn saturn_delete_session(store: State<Store>, id: String) -> Result<(), String> {
+    saturn::delete_session(&store, &id)
+}
+
+#[tauri::command]
+fn saturn_get_messages(
+    store: State<Store>,
+    session_id: String,
+) -> Result<Vec<saturn::StoredMessage>, String> {
+    saturn::get_messages(&store, &session_id)
 }
 
 // --- secrets ---------------------------------------------------------------
@@ -468,7 +579,12 @@ fn main() {
             // app_data_dir is ~/Library/Application Support/<bundle identifier>, so the
             // db path follows tauri.conf.json's identifier and cannot drift from it.
             let db = app.path().app_data_dir()?.join("saturn.db");
-            app.manage(Store::open(&db)?);
+            let store = Store::open(&db)?;
+            // Saturn Agent owns its own two tables, like github.rs's cursor
+            // table — created before anything can read them, and before the
+            // window is up.
+            saturn::init(&store)?;
+            app.manage(store);
             // The four background loops. Each one reads `Store` out of managed
             // state, so all four must be started after `manage`. No supervisor:
             // a task that dies dies alone — which is already the isolation a
@@ -537,11 +653,19 @@ fn main() {
             create_workflow,
             update_workflow,
             save_workflow,
+            validate_graph,
             set_workflow_active,
             delete_workflow,
             list_runs,
             test_run,
             stop_run,
+            saturn_send,
+            saturn_stop,
+            saturn_list_sessions,
+            saturn_create_session,
+            saturn_rename_session,
+            saturn_delete_session,
+            saturn_get_messages,
             has_openrouter_key,
             set_openrouter_key,
             has_github_pat,

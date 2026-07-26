@@ -1,5 +1,5 @@
 //! Port of lib/agent.server.ts — the OpenRouter chat-completions client behind
-//! both the agent node (`chat_complete`) and the Agent-page chat
+//! both the agent node (`chat_complete`) and the Saturn Agent chat
 //! (`stream_chat`). OpenAI-compatible wire format.
 //!
 //! The wire-format function names never leave this module: a tool call comes
@@ -83,7 +83,7 @@ pub enum AgentMessage {
     Tool { tool_call_id: String, content: String },
 }
 
-/// OpenAI-compatible message. Public because the Agent-page chat builds its own
+/// OpenAI-compatible message. Public because the Saturn Agent chat builds its own
 /// transcripts against `stream_chat`.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "role", rename_all = "lowercase")]
@@ -442,17 +442,13 @@ fn parse_completion(
 
 // --- stream_chat -----------------------------------------------------------
 //
-// The Agent-page chat, and it has NO caller: lib/agentChat.server.ts (242 LOC,
-// the turn loop that drives this) was named in the Phase D plan but no lane
-// ported it, so the streaming client is complete and cold. Nothing else in the
-// app streams — the agent NODE uses `chat_complete`. Each item carries its own
-// allow rather than a blanket one on the module, so anything that goes dead in
-// the rest of this file still warns.
+// The Saturn Agent chat. `saturn::run_turn` is its only caller and drives the
+// multi-turn tool loop; the agent NODE uses `chat_complete` instead, because a
+// workflow run has nowhere to stream to.
 
 /// One incremental delta. Reasoning and content are separate channels because
 /// the Agent page renders them differently (grey vs white); `chat_complete`
 /// discards reasoning entirely.
-#[allow(dead_code)] // Agent-page chat — see the block comment above
 pub enum Delta<'a> {
     Reasoning(&'a str),
     Content(&'a str),
@@ -461,14 +457,12 @@ pub enum Delta<'a> {
 /// A tool call accumulated off the stream, still in wire terms — the streaming
 /// caller owns dispatch and answers by id, so nothing is decoded here.
 #[derive(Clone, Debug, PartialEq)]
-#[allow(dead_code)] // Agent-page chat — see the block comment above
 pub struct StreamToolCall {
     pub id: String,
     pub name: String,
     pub arguments: String,
 }
 
-#[allow(dead_code)] // Agent-page chat — see the block comment above
 pub struct StreamRequest<'a> {
     pub model: &'a str,
     pub system: &'a str,
@@ -486,7 +480,6 @@ pub struct StreamRequest<'a> {
 /// mid-`data:`, mid-JSON and mid-UTF-8, and getting that wrong works for short
 /// replies and corrupts long ones.
 #[derive(Default)]
-#[allow(dead_code)] // Agent-page chat — see the block comment above
 struct SseDecoder {
     /// bytes, not a String: a multi-byte character split across two chunks is
     /// not valid UTF-8 on its own. Only complete lines are ever decoded, and a
@@ -499,7 +492,6 @@ struct SseDecoder {
     calls: BTreeMap<i64, StreamToolCall>,
 }
 
-#[allow(dead_code)] // Agent-page chat — see the block comment above
 impl SseDecoder {
     fn push(&mut self, chunk: &[u8], on_delta: &mut dyn FnMut(Delta)) {
         self.buf.extend_from_slice(chunk);
@@ -582,11 +574,10 @@ impl SseDecoder {
     }
 }
 
-/// Streaming sibling of `chat_complete` for the Agent-page chat: surfaces
+/// Streaming sibling of `chat_complete` for the Saturn Agent chat: surfaces
 /// reasoning tokens and takes wire-shaped messages + tool defs directly — the
 /// caller owns the multi-turn loop and tool dispatch. Deltas go to `on_delta` as
 /// they arrive; the accumulated tool calls come back at the end.
-#[allow(dead_code)] // Agent-page chat — see the block comment above
 pub fn stream_chat(
     api_key: &str,
     req: &StreamRequest,

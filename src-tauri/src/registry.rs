@@ -24,7 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-use crate::interpreter::{CatalogEntry, ConfigField, Port};
+use crate::interpreter::{CatalogEntry, CatalogTool, ConfigField, Port};
 use crate::mcp::{DiscoveredTool, McpToolParam, TokenSet};
 use crate::secrets::{self, Secret, Vault};
 use crate::store::Store;
@@ -569,8 +569,8 @@ pub fn variable_lookup<'a>(
 
 // --- catalog ----------------------------------------------------------------
 
-fn value_port(id: &str) -> Port {
-    Port { id: id.to_string(), kind: "value".to_string() }
+pub fn value_port(id: &str) -> Port {
+    Port { id: id.to_string(), kind: "value".to_string(), multi: false, accepts: None }
 }
 
 fn chip(row: &Entry, kind: Kind, port: &str) -> CatalogEntry {
@@ -578,8 +578,11 @@ fn chip(row: &Entry, kind: Kind, port: &str) -> CatalogEntry {
         key: user_node_key(kind, &row.id),
         category: kind.as_str().to_string(),
         label: row.name.clone(),
+        inputs: Vec::new(),
         outputs: vec![value_port(port)],
         config: Vec::new(),
+        required_config: Vec::new(),
+        tools: Vec::new(),
         missing: false,
         tool_name: None,
     }
@@ -610,8 +613,19 @@ pub fn build_user_catalog(rows: &[Entry]) -> HashMap<String, CatalogEntry> {
                     key: format!("mcp:{}:{ALL_TOOLS}", row.id),
                     category: "mcp".to_string(),
                     label: row.name.clone(),
+                    inputs: Vec::new(),
                     outputs: vec![value_port("tool")],
                     config: vec![ConfigField { id: "exclude".to_string() }],
+                    required_config: Vec::new(),
+                    // exactly the runtime expansion set, so `validate_graph`
+                    // warns about an excluded name the chip would never grant.
+                    // Guard the sentinel: a real tool named "*" never grants.
+                    tools: row
+                        .tools
+                        .iter()
+                        .filter(|t| t.enabled && can_call_tool(t) && t.name != ALL_TOOLS)
+                        .map(|t| CatalogTool { name: t.name.clone() })
+                        .collect(),
                     missing: false,
                     tool_name: Some(ALL_TOOLS.to_string()),
                 },
@@ -961,6 +975,12 @@ pub fn write_mcp_oauth(
 /// an orphaned token is a leak, and orphaned vectors are a store's worth of the
 /// user's data with nothing left to read it.
 pub fn delete_entry(store: &Store, vault: &dyn Vault, id: &str) -> Result<bool, String> {
+    // Before the shape check, and on the store method rather than the command:
+    // the same reasoning `subscriptions_changed()` gets — no future IPC command
+    // or Saturn tool can route around a guard that lives here.
+    if id == crate::saturn::MEMORY_ID {
+        return Err("Saturn's memory store cannot be deleted".into());
+    }
     if !is_uuid(id) {
         return Err("Invalid id".into());
     }
@@ -997,6 +1017,16 @@ mod tests {
         fn new() -> Tmp {
             let dir = std::env::temp_dir().join(format!("saturn-registry-{}", uuid()));
             let store = Store::open(&dir.join("saturn.db")).unwrap();
+            // Every database is seeded with Saturn Agent's own memory store
+            // (store.rs's SCHEMA). Raw SQL rather than `delete_entry`, which
+            // refuses it on purpose — these tests are about the *user's*
+            // registry, and counting it into every assertion would only make
+            // them read as arithmetic. That it exists, survives a reopen and
+            // cannot be deleted is asserted in saturn.rs instead.
+            store
+                .conn()
+                .execute("delete from registry_entry where id = ?1", [crate::saturn::MEMORY_ID])
+                .unwrap();
             Tmp(dir, store)
         }
     }

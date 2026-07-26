@@ -4,16 +4,6 @@
 // src-tauri/src/workflow.rs, which is what actually gates a save.
 
 import catalogJson from "@/catalog.json";
-import { MAX_GRANTED_SKILLS, MAX_GRANTED_TOOLS, parseToolExclusions } from "@/lib/agent";
-import { isValidCron } from "@/lib/cron";
-import {
-    EVENT_PREFIX,
-    EXTENSION_EVENTS_BY_KEY,
-    INTEGRATION_PREFIX,
-    INTEGRATIONS_BY_ID,
-    integrationKey,
-    integrationProviderId,
-} from "@/lib/integrations";
 
 // The one GitHub event that a PAT is not optional for. Shared with the designer
 // toolbox, which greys the chip out on the same condition — two spellings of
@@ -28,6 +18,7 @@ export type NodeCategory =
     | "mcp"
     | "skill"
     | "memory"
+    | "session"
     | "variable"
     | "saturn"
     | "model"
@@ -49,14 +40,14 @@ export type McpToolParam = {
 // "tools"/"skills") — every other value input stays single-edge via
 // edgesToReplace.
 // accepts: value input that takes grant-chip outputs only ("tool" = an mcp
-// per-tool node, "skill" = a skill node, "memory" = a memory store node);
-// ordinary value edges are rejected.
+// per-tool node, "skill" = a skill node, "memory" = a memory store node,
+// "session" = a chat node); ordinary value edges are rejected.
 export type PortSpec = {
     id: string;
     label: string;
     kind: PortKind;
     multi?: boolean;
-    accepts?: "tool" | "skill" | "memory";
+    accepts?: "tool" | "skill" | "memory" | "session";
 };
 
 export type ConfigField = {
@@ -163,10 +154,16 @@ export const valuePort = (id: string, label = id): PortSpec => ({ id, label, kin
 // - await: join barrier for parallel branches, runs once every incoming flow
 //   edge arrived; "results" is a JSON array of the "values" edges in edge order.
 // - agent: grants are edges from chip nodes into the multi "tools"/"skills"
-//   ports; "memory" is single-edge (one store per agent) so edgesToReplace
-//   auto-swaps. config.system is authored via the system-prompt popover and the
-//   same-id port overrides it; config.model is the fallback when "model" is
+//   ports; "memory" and "session" are single-edge (one store, one chat per
+//   agent) so edgesToReplace auto-swaps. A wired "session" makes the agent's
+//   conversation persist across runs — the chat's window seeds the transcript
+//   and the exchange is appended back (src-tauri/src/saturn.rs). config.system
+//   is authored via the system-prompt popover and the same-id port overrides it; config.model is the fallback when "model" is
 //   unwired. "result" carries a data:image/… URL when output=image.
+// - saturn-agent: the agent node's shape, but it IS Saturn Agent — Saturn's own
+//   prompt, tools and memory, so there is no system/tools/skills/memory port to
+//   wire. config.session binds a chat by NAME (get-or-create, blank →
+//   "workflow"); blank config.model → src-tauri/src/saturn.rs's DEFAULT_MODEL.
 // - model: always one static node type — per-model toolbox chips just prefill
 //   config.model, so graphs never reference keys that vanish with the list.
 // - integration:*: every config field has a same-id value input that overrides
@@ -200,6 +197,7 @@ export function missingEntry(type: string): CatalogEntry {
         prefix === "mcp" ||
         prefix === "skill" ||
         prefix === "memory" ||
+        prefix === "session" ||
         prefix === "variable" ||
         prefix === "integration"
             ? prefix
@@ -261,6 +259,13 @@ export const CATEGORY_STYLES = {
         headerBg: "bg-fuchsia-500/10",
         text: "text-fuchsia-600 dark:text-fuchsia-400",
         edge: "#d946ef",
+    },
+    session: {
+        borderL: "border-l-indigo-500",
+        border: "border-indigo-500/60",
+        headerBg: "bg-indigo-500/10",
+        text: "text-indigo-600 dark:text-indigo-400",
+        edge: "#6366f1",
     },
     variable: {
         borderL: "border-l-violet-500",
@@ -343,16 +348,19 @@ function findPort(
     return entry[dir].find((p) => p.id === ref.portId) ?? null;
 }
 
-// grant-chip nodes: an mcp server node ("tool"), a skill node ("skill"), or a
-// memory store node ("memory"), whose value
+// grant-chip nodes: an mcp server node ("tool"), a skill node ("skill"), a
+// memory store node ("memory") or a chat node ("session"), whose value
 // output feeds only an agent's matching accepts port. Exported so the
 // designer's invalid-drop feedback can name the mismatch (chip into ordinary
 // port / wrong accepts port) without re-deriving these rules.
-export function chipKind(entry: CatalogEntry | undefined): "tool" | "skill" | "memory" | null {
+export function chipKind(
+    entry: CatalogEntry | undefined,
+): "tool" | "skill" | "memory" | "session" | null {
     if (!entry || entry.missing) return null;
     if (entry.category === "mcp" && typeof entry.toolName === "string") return "tool";
     if (entry.category === "skill") return "skill";
     if (entry.category === "memory") return "memory";
+    if (entry.category === "session") return "session";
     return null;
 }
 
@@ -400,305 +408,6 @@ export type ValidationIssue = {
     nodeId?: string;
     edgeId?: string;
 };
-
-// node types whose value output the event-subscription scan can resolve
-// statically (from config.value) when reading event-node config before any run
-// — every other source is dynamic and resolves to blank. Duplicated as
-// STATIC_VALUE_TYPES in src-tauri/src/events.rs so this validator's warning and
-// the resolver stay in lockstep.
-const STATIC_VALUE_TYPES = new Set(["string", "number", "literal"]);
-
-// deep validation for graphs authored without the designer's UI guardrails
-// (the MCP server's validate_graph/save_graph tools). Assumes the graph
-// already passed the Rust shape guard. Errors are states the canvas can't produce
-// (bad ports, kind mismatches, duplicate edges, fan-in on single-edge value
-// inputs, a chip wired into a mismatched accepts port, more than one event
-// node); warnings are legal-but-probably-unintended states (unknown node types
-// resolve as inert "(deleted)" placeholders, no event node means the workflow
-// never triggers, a chip output wired into an ordinary value input grants
-// nothing).
-//
-// Findings are collected as structured `issues` (each carrying the node/edge it
-// concerns where applicable); the flat `errors`/`warnings` string arrays are
-// derived from them in push order, so every existing consumer sees the exact
-// same strings in the exact same order.
-export function validateGraphStrict(
-    graph: WorkflowGraph,
-    byKey: Record<string, CatalogEntry>,
-    // githubLinked false = no GitHub PAT is set, which only `github-star` cares
-    // about (see the star warning below). Absent leaves star nodes unwarned, so
-    // every existing caller is unchanged.
-    opts?: { githubLinked?: boolean },
-): { errors: string[]; warnings: string[]; issues: ValidationIssue[] } {
-    const issues: ValidationIssue[] = [];
-    const err = (message: string, ref?: { nodeId?: string; edgeId?: string }) =>
-        issues.push({ level: "error", message, ...ref });
-    const warn = (message: string, ref?: { nodeId?: string; edgeId?: string }) =>
-        issues.push({ level: "warning", message, ...ref });
-
-    const known = (node: WorkflowNode) => {
-        const entry = byKey[node.type];
-        return entry && !entry.missing ? entry : null;
-    };
-    for (const node of graph.nodes) {
-        if (!known(node)) {
-            warn(
-                `node "${node.id}" has unknown type "${node.type}" — it renders as an inert (deleted) placeholder`,
-                { nodeId: node.id },
-            );
-        }
-    }
-    // entry points are event-category nodes (schedule, legacy start, future
-    // events); a workflow must have exactly one — none can never trigger, two+
-    // is disallowed (the designer permits only one)
-    const isEvent = (node: WorkflowNode) => known(node)?.category === "events";
-    const eventCount = graph.nodes.filter(isEvent).length;
-    if (eventCount === 0) {
-        warn("no event node — add a 'scheduled to run' block so the workflow can trigger");
-    } else if (eventCount > 1) {
-        err(`a workflow may have only one event node, but this graph has ${eventCount}`);
-    }
-    // a schedule node with a blank/invalid cron never fires
-    for (const node of graph.nodes) {
-        if (node.type !== "schedule") continue;
-        const cron = (node.config.cron ?? "").trim();
-        if (!cron) warn(`schedule node "${node.id}" has no cron — it will never fire`, { nodeId: node.id });
-        else if (!isValidCron(cron)) {
-            warn(`schedule node "${node.id}" has an invalid cron "${cron}" — it will never fire`, {
-                nodeId: node.id,
-            });
-        }
-    }
-
-    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
-    const seen = new Set<string>();
-    const valueInDegree = new Map<string, number>();
-    for (const edge of graph.edges) {
-        const fromNode = nodeById.get(edge.from.nodeId)!;
-        const toNode = nodeById.get(edge.to.nodeId)!;
-        const label = `edge "${edge.id}" (${edge.from.nodeId}.${edge.from.portId} → ${edge.to.nodeId}.${edge.to.portId})`;
-
-        if (edge.from.nodeId === edge.to.nodeId) {
-            err(`${label}: a node cannot connect to itself`, { edgeId: edge.id });
-            continue;
-        }
-        const dupKey = `${edge.from.nodeId}.${edge.from.portId}>${edge.to.nodeId}.${edge.to.portId}`;
-        if (seen.has(dupKey)) {
-            err(`${label}: duplicate edge`, { edgeId: edge.id });
-            continue;
-        }
-        seen.add(dupKey);
-
-        // edges anchored on unknown-type nodes can't be port-checked
-        // (placeholders have no ports) — the unknown-type warning covers them
-        const fromEntry = known(fromNode);
-        const toEntry = known(toNode);
-        if (!fromEntry || !toEntry) continue;
-
-        const fromPort = fromEntry.outputs.find((p) => p.id === edge.from.portId);
-        const toPort = toEntry.inputs.find((p) => p.id === edge.to.portId);
-        if (!fromPort) {
-            err(`${label}: "${fromNode.type}" has no output port "${edge.from.portId}"`, {
-                edgeId: edge.id,
-            });
-            continue;
-        }
-        if (!toPort) {
-            err(`${label}: "${toNode.type}" has no input port "${edge.to.portId}"`, {
-                edgeId: edge.id,
-            });
-            continue;
-        }
-        if (fromPort.kind !== toPort.kind || edge.kind !== fromPort.kind) {
-            err(
-                `${label}: port kinds don't match (${fromPort.kind} output → ${toPort.kind} input, edge kind "${edge.kind}")`,
-                { edgeId: edge.id },
-            );
-            continue;
-        }
-        // grant-chip gating (mirrors canConnect): an accepts port takes only
-        // its chip kind (hard error); a chip output wired into an ordinary
-        // value input grants nothing (warning — old graphs may carry these)
-        const srcChip = chipKind(fromEntry);
-        if (toPort.accepts) {
-            if (srcChip !== toPort.accepts) {
-                err(`${label}: input "${toPort.id}" accepts only ${toPort.accepts} grant-chip nodes`, {
-                    edgeId: edge.id,
-                });
-                continue;
-            }
-        } else if (srcChip) {
-            warn(
-                `${label}: ${srcChip} nodes only grant agents — this edge into an ordinary value input is ignored`,
-                { edgeId: edge.id },
-            );
-        }
-        if (toPort.kind === "value" && !toPort.multi) {
-            const inKey = `${edge.to.nodeId}.${edge.to.portId}`;
-            const count = (valueInDegree.get(inKey) ?? 0) + 1;
-            valueInDegree.set(inKey, count);
-            if (count === 2) {
-                err(
-                    `input ${inKey} has multiple incoming value edges — this value input accepts one edge`,
-                    { nodeId: edge.to.nodeId, edgeId: edge.id },
-                );
-            }
-        }
-    }
-
-    // grants are edges from chip nodes into the tools/skills ports; unresolvable
-    // sources are already covered by the unknown-type warning. config.model
-    // stays a fallback when the model port is unwired.
-    for (const node of graph.nodes) {
-        if (node.type !== "agent") continue;
-        const hasModelEdge = graph.edges.some(
-            (e) => e.to.nodeId === node.id && e.to.portId === "model" && e.kind === "value",
-        );
-        if (!hasModelEdge && !(node.config.model ?? "").trim()) {
-            warn(`agent "${node.id}" has no model — the run will fail`, { nodeId: node.id });
-        }
-        const grantCount = (portId: string) =>
-            graph.edges.filter((e) => e.to.nodeId === node.id && e.to.portId === portId).length;
-        if (grantCount("tools") > MAX_GRANTED_TOOLS) {
-            warn(
-                `agent "${node.id}" has more than ${MAX_GRANTED_TOOLS} tool grants — extras are dropped at run time`,
-                { nodeId: node.id },
-            );
-        }
-        if (grantCount("skills") > MAX_GRANTED_SKILLS) {
-            warn(
-                `agent "${node.id}" has more than ${MAX_GRANTED_SKILLS} skill grants — extras are dropped at run time`,
-                { nodeId: node.id },
-            );
-        }
-    }
-
-    // mcp server nodes: config.exclude prunes the tool grant per node — a
-    // malformed value is ignored at run time (all enabled tools granted), and
-    // excluded names the server doesn't have are harmless but likely typos
-    for (const node of graph.nodes) {
-        const entry = known(node);
-        if (!entry || chipKind(entry) !== "tool") continue;
-        const exclude = parseToolExclusions(node.config.exclude);
-        if (exclude === null) {
-            warn(
-                `mcp node "${node.id}": exclude is not a JSON array of tool names — ignored, all enabled tools granted`,
-                { nodeId: node.id },
-            );
-            continue;
-        }
-        const names = new Set((entry.tools ?? []).map((t) => t.name));
-        for (const name of exclude) {
-            if (!names.has(name)) {
-                warn(
-                    `mcp node "${node.id}": excluded tool "${name}" doesn't exist on ${entry.label} — ignored`,
-                    { nodeId: node.id },
-                );
-            }
-        }
-    }
-
-    // integration nodes fail at run time without their required config — a
-    // connected value port overrides the literal, so a port-fed field is fine
-    const fedPorts = new Set(
-        graph.edges.filter((e) => e.kind === "value").map((e) => `${e.to.nodeId}:${e.to.portId}`),
-    );
-    for (const node of graph.nodes) {
-        if (!node.type.startsWith(INTEGRATION_PREFIX)) continue;
-        const provider = INTEGRATIONS_BY_ID[integrationProviderId(node.type)];
-        if (!provider) continue; // unknown-type warning already covers it
-        for (const field of provider.requiredConfig) {
-            if (!(node.config[field] ?? "").trim() && !fedPorts.has(`${node.id}:${field}`)) {
-                warn(`${provider.label} "${node.id}" has no ${field} — the run will fail`, {
-                    nodeId: node.id,
-                });
-            }
-        }
-    }
-
-    // http request headers must be a JSON object of strings — a literal that
-    // isn't (and no port feeding it) fails the send at run time
-    for (const node of graph.nodes) {
-        if (node.type !== integrationKey("http-request")) continue;
-        const headers = (node.config.headers ?? "").trim();
-        if (!headers || fedPorts.has(`${node.id}:headers`)) continue;
-        let ok = false;
-        try {
-            const parsed: unknown = JSON.parse(headers);
-            ok =
-                typeof parsed === "object" &&
-                parsed !== null &&
-                !Array.isArray(parsed) &&
-                Object.values(parsed).every((v) => typeof v === "string");
-        } catch {
-            ok = false;
-        }
-        if (!ok) {
-            warn(`http request "${node.id}" headers is not a JSON object of strings, the run will fail`, {
-                nodeId: node.id,
-            });
-        }
-    }
-
-    // extension event nodes never fire without their required config (e.g. a
-    // Discord "mentioned" node with a blank bot token) — a port-fed field is
-    // fine, same as integrations
-    for (const node of graph.nodes) {
-        if (!node.type.startsWith(EVENT_PREFIX)) continue;
-        const event = EXTENSION_EVENTS_BY_KEY[node.type];
-        if (!event) continue; // unknown-type warning already covers it
-        for (const field of event.requiredConfig) {
-            if (!(node.config[field] ?? "").trim() && !fedPorts.has(`${node.id}:${field}`)) {
-                warn(`${event.label} "${node.id}" has no ${field} — the run will fail`, {
-                    nodeId: node.id,
-                });
-            }
-        }
-    }
-
-    // Only star needs the PAT. Its page-1 stargazers fetch deliberately skips
-    // if-none-match, so it cannot 304, and ~120 counted requests/hour overruns
-    // GitHub's 60/hr unauthenticated budget — which parks every other watch too,
-    // because the rate limit is per-token and the poller holds one. The toolbox
-    // greys the chip out; this catches a node placed before the PAT was removed.
-    // src-tauri/src/github.rs Resource::pollable is the guard that enforces it.
-    if (opts?.githubLinked === false) {
-        for (const node of graph.nodes) {
-            if (node.type !== STAR_EVENT_KEY) continue;
-            const label = EXTENSION_EVENTS_BY_KEY[node.type]?.label ?? node.type;
-            warn(
-                `${label} "${node.id}" needs a GitHub token — without one it is not polled at all; add one in settings`,
-                { nodeId: node.id },
-            );
-        }
-    }
-
-    // event config is read statically by the always-on listeners before any run
-    // (src-tauri/src/events.rs), so only variable/string/number sources can feed
-    // an event config port — a dynamic source silently resolves to blank
-    for (const edge of graph.edges) {
-        if (edge.kind !== "value") continue;
-        const toNode = nodeById.get(edge.to.nodeId);
-        if (!toNode?.type.startsWith(EVENT_PREFIX)) continue;
-        if (!EXTENSION_EVENTS_BY_KEY[toNode.type]) continue;
-        const src = nodeById.get(edge.from.nodeId);
-        if (!src) continue; // dangling-endpoint error already covers it
-        const srcEntry = known(src);
-        if (!srcEntry) continue; // unknown-type warning already covers it
-        if (srcEntry.category !== "variable" && !STATIC_VALUE_TYPES.has(src.type)) {
-            warn(
-                `event node "${toNode.id}": port "${edge.to.portId}" is fed by a ${srcEntry.label} node — event config resolves before any run, so only variable/string/number sources apply; this edge is ignored`,
-                { nodeId: toNode.id, edgeId: edge.id },
-            );
-        }
-    }
-
-    // derive the flat arrays in push order so every existing consumer (the MCP
-    // validate_graph/save_graph tools, saveWorkflow) sees identical strings
-    const errors = issues.filter((i) => i.level === "error").map((i) => i.message);
-    const warnings = issues.filter((i) => i.level === "warning").map((i) => i.message);
-    return { errors, warnings, issues };
-}
 
 // edges that must be deleted before adding from→to, to keep value inputs at
 // max 1 incoming edge (unless the port is multi). Flow outputs may fan out —

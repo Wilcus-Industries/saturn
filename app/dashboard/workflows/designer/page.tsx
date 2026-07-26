@@ -3,7 +3,8 @@
 import { Suspense, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
-import { buildUserCatalog, type RegistryEntryRow, UUID_RE } from "@/lib/registry";
+import type { SessionRow } from "@/app/dashboard/(shell)/agent/sessionPicker";
+import { buildUserCatalog, type RegistryEntryRow, sessionEntry, UUID_RE } from "@/lib/registry";
 import type { WorkflowGraph } from "@/lib/workflow";
 import Designer, { type OpenrouterModel } from "./designer";
 
@@ -23,15 +24,18 @@ function DesignerPage() {
         if (!UUID_RE.test(id)) throw new Error("no such workflow");
         // user-registered mcp servers/skills/memory/variables join the static
         // catalog as nodes; everything the page needs rides one fan-out
-        const [workflow, registry, openrouterModels, githubLinked] = await Promise.all([
+        const [workflow, registry, sessions, openrouterModels, githubLinked] = await Promise.all([
             call<Workflow>("get_workflow", { id }),
             call<RegistryEntryRow[]>("list_registry"),
+            // chats are not registry rows but they are catalog entries — the
+            // chip that grants an agent a persistent conversation
+            call<SessionRow[]>("saturn_list_sessions"),
             // null = no OpenRouter key (toolbox hints at settings); [] = unlocked
             // but the fetch failed
             call<OpenrouterModel[] | null>("list_openrouter_models"),
             call<boolean>("has_github_pat"),
         ]);
-        return { workflow, registry, openrouterModels, githubLinked };
+        return { workflow, registry, sessions, openrouterModels, githubLinked };
     }, [id]);
 
     // live:false — a background cron run firing `data-changed` would hand the
@@ -51,7 +55,7 @@ function DesignerPage() {
         );
     }
 
-    const { workflow, registry, openrouterModels, githubLinked } = data;
+    const { workflow, registry, sessions, openrouterModels, githubLinked } = data;
     // variables for the toolbox split — name + secret flag + whether a value is
     // set. For secrets the value never reaches the client (value is '' from the
     // guarded projection); regular variables carry their viewable plaintext.
@@ -71,7 +75,10 @@ function DesignerPage() {
             // leaving the route has to remount rather than re-render
             key={workflow.id}
             workflow={workflow}
-            userCatalog={buildUserCatalog(registry)}
+            userCatalog={[
+                ...buildUserCatalog(registry),
+                ...sessions.map((s) => sessionEntry(s.id, s.name)),
+            ]}
             variables={variables}
             openrouterModels={openrouterModels}
             githubLinked={githubLinked}

@@ -95,7 +95,7 @@ const EVENT_CLAIM_GUARD_S: i64 = 0;
 
 /// Value-node types whose `config.value` a subscription can resolve without
 /// running the graph (`STATIC_VALUE_TYPES`, lib/workflow.ts).
-const STATIC_VALUE_TYPES: [&str; 3] = ["string", "number", "literal"];
+pub(crate) const STATIC_VALUE_TYPES: [&str; 3] = ["string", "number", "literal"];
 
 /// The transport-facing half of an event node's descriptor. The config *field
 /// ids* are not repeated here — they come from `catalog.json`, which is

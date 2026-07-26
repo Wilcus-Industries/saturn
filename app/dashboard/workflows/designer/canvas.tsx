@@ -12,6 +12,7 @@ import {
     useRef,
     useState,
 } from "react";
+import { Robot } from "@/app/dashboard/icons";
 import {
     canConnect,
     type CatalogEntry,
@@ -166,6 +167,8 @@ export default function Canvas({
     onOpenVariable,
     onOpenSystem,
     onVarDrag,
+    agentOpen,
+    onToggleAgent,
     ref,
 }: {
     graph: WorkflowGraph;
@@ -208,6 +211,10 @@ export default function Canvas({
     onOpenVariable?: OpenVariableHandler;
     onOpenSystem?: OpenSystemHandler;
     onVarDrag?: OnVarDragHandler;
+    // the docked Saturn Agent panel (designer-owned state), toggled from the
+    // canvas control cluster next to fit
+    agentOpen: boolean;
+    onToggleAgent: () => void;
     ref?: Ref<CanvasHandle>;
 }) {
     const [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 });
@@ -662,10 +669,25 @@ export default function Canvas({
                     drag nodes from the toolbox · drag to pan · shift+drag to select
                 </p>
             )}
-            {/* canvas controls, bottom-right (fit hides on an empty graph). The
-                agent toggle lived here until Phase G ports Saturn's own tool
-                dispatch — nothing should route to a chat that can't answer. */}
+            {/* canvas controls, bottom-right: the agent toggle sits beside fit
+                and shares its chrome (fit hides on an empty graph) */}
             <div className={"absolute bottom-2 right-2 flex items-center gap-1"}>
+                <button
+                    type={"button"}
+                    onClick={onToggleAgent}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    aria-pressed={agentOpen}
+                    aria-label={"saturn agent"}
+                    title={"saturn agent"}
+                    className={`grid size-[22px] place-items-center rounded border bg-background
+                        transition-colors ${
+                            agentOpen
+                                ? "border-foreground/40 bg-foreground/10 text-foreground"
+                                : "border-foreground/15 text-gray-400 hover:text-foreground"
+                        }`}
+                >
+                    <Robot aria-hidden className={"size-3.5"} />
+                </button>
                 {graph.nodes.length > 0 && (
                     <button
                         type={"button"}

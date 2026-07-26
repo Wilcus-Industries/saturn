@@ -43,21 +43,18 @@ import {
     IF_BODY_H,
     IF_HEADER_H,
     IF_W,
+    chipSize,
     isAgentEntry,
+    isChipEntry,
     isEventEntry,
     isIfEntry,
     isLiteralEntry,
     isMcpChipEntry,
-    isMemoryChipEntry,
     isModelEntry,
-    isSkillChipEntry,
     isVariableEntry,
-    MCP_CHIP,
-    MEMORY_CHIP,
     MODEL_D,
     nodeHeight,
     nodeWidth,
-    SKILL_CHIP,
     unpairedInputs,
 } from "./geometry";
 import type { GraphAction } from "./graphReducer";
@@ -639,18 +636,16 @@ export default memo(function Node({
         );
     }
 
-    // mcp/skill/memory grant chips render as a rounded square (60px mcp
-    // / 48px skill+memory = MCP_CHIP/SKILL_CHIP/MEMORY_CHIP,
-    // h-6 label strip = CHIP_LABEL_H) with the server favicon / skill+memory
-    // emoji centered and a single value output on the
+    // mcp/skill/memory/chat grant chips render as a rounded square (60px mcp,
+    // 48px the rest — chipSize, h-6 label strip = CHIP_LABEL_H) with the server
+    // favicon / emoji centered and a single value output on the
     // right-edge midpoint per geometry.ts, mirroring the model circle branch.
     // Border is the category color via entryStyles — purple mcp / green skill /
-    // fuchsia memory.
-    if (isMcpChipEntry(entry) || isSkillChipEntry(entry) || isMemoryChipEntry(entry)) {
+    // fuchsia memory / indigo chat.
+    if (isChipEntry(entry)) {
         const output = entry.outputs[0];
         const mcp = isMcpChipEntry(entry);
-        const memory = isMemoryChipEntry(entry);
-        const size = mcp ? MCP_CHIP : memory ? MEMORY_CHIP : SKILL_CHIP;
+        const size = chipSize(entry);
 
         // a press that stayed under the drag threshold is a click: an mcp
         // server chip opens the tool-picker popover, a skill/memory chip opens

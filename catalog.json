@@ -428,6 +428,12 @@
         "label": "memory",
         "kind": "value",
         "accepts": "memory"
+      },
+      {
+        "id": "session",
+        "label": "session",
+        "kind": "value",
+        "accepts": "session"
       }
     ],
     "outputs": [
@@ -470,6 +476,49 @@
         "label": "system",
         "input": "textarea",
         "overriddenBy": "system"
+      }
+    ]
+  },
+  {
+    "key": "saturn-agent",
+    "category": "saturn",
+    "label": "saturn agent",
+    "inputs": [
+      {
+        "id": "in",
+        "label": "in",
+        "kind": "flow"
+      },
+      {
+        "id": "prompt",
+        "label": "prompt",
+        "kind": "value"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "out",
+        "label": "out",
+        "kind": "flow"
+      },
+      {
+        "id": "result",
+        "label": "result",
+        "kind": "value"
+      }
+    ],
+    "config": [
+      {
+        "id": "session",
+        "label": "session",
+        "input": "text",
+        "placeholder": "chat name"
+      },
+      {
+        "id": "model",
+        "label": "model",
+        "input": "text",
+        "placeholder": "openrouter model id"
       }
     ]
   },
@@ -539,6 +588,9 @@
         "input": "text",
         "overriddenBy": "message"
       }
+    ],
+    "requiredConfig": [
+      "webhookUrl"
     ]
   },
   {
@@ -598,6 +650,10 @@
         "input": "text",
         "overriddenBy": "message"
       }
+    ],
+    "requiredConfig": [
+      "botToken",
+      "channelId"
     ]
   },
   {
@@ -663,6 +719,10 @@
         "default": "20",
         "overriddenBy": "count"
       }
+    ],
+    "requiredConfig": [
+      "botToken",
+      "channelId"
     ]
   },
   {
@@ -727,6 +787,10 @@
         "placeholder": "channel to type in",
         "overriddenBy": "channelId"
       }
+    ],
+    "requiredConfig": [
+      "botToken",
+      "channelId"
     ]
   },
   {
@@ -786,6 +850,10 @@
         "input": "text",
         "overriddenBy": "message"
       }
+    ],
+    "requiredConfig": [
+      "botToken",
+      "chatId"
     ]
   },
   {
@@ -850,6 +918,10 @@
         "placeholder": "chat to type in",
         "overriddenBy": "chatId"
       }
+    ],
+    "requiredConfig": [
+      "botToken",
+      "chatId"
     ]
   },
   {
@@ -934,6 +1006,9 @@
         "placeholder": "request body (ignored for GET)",
         "overriddenBy": "body"
       }
+    ],
+    "requiredConfig": [
+      "url"
     ]
   },
   {
@@ -994,6 +1069,9 @@
         "placeholder": "filter to one channel",
         "overriddenBy": "channelId"
       }
+    ],
+    "requiredConfig": [
+      "botToken"
     ]
   },
   {
@@ -1042,6 +1120,9 @@
         "placeholder": "filter to one chat",
         "overriddenBy": "chatId"
       }
+    ],
+    "requiredConfig": [
+      "botToken"
     ]
   },
   {
@@ -1090,6 +1171,9 @@
         "placeholder": "filter to one branch",
         "overriddenBy": "branch"
       }
+    ],
+    "requiredConfig": [
+      "repo"
     ]
   },
   {
@@ -1126,6 +1210,9 @@
         "placeholder": "owner/repo",
         "overriddenBy": "repo"
       }
+    ],
+    "requiredConfig": [
+      "repo"
     ]
   },
   {
@@ -1162,6 +1249,9 @@
         "placeholder": "owner/repo",
         "overriddenBy": "repo"
       }
+    ],
+    "requiredConfig": [
+      "repo"
     ]
   },
   {
@@ -1198,6 +1288,9 @@
         "placeholder": "owner/repo",
         "overriddenBy": "repo"
       }
+    ],
+    "requiredConfig": [
+      "repo"
     ]
   },
   {
@@ -1234,6 +1327,9 @@
         "placeholder": "owner/repo",
         "overriddenBy": "repo"
       }
+    ],
+    "requiredConfig": [
+      "repo"
     ]
   },
   {
@@ -1256,6 +1352,7 @@
         "kind": "value"
       }
     ],
-    "config": []
+    "config": [],
+    "requiredConfig": []
   }
 ]

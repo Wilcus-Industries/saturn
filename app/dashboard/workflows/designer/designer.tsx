@@ -22,10 +22,11 @@ import {
     entryStyles,
     missingEntry,
     type ValidationIssue,
-    validateGraphStrict,
     type WorkflowGraph,
 } from "@/lib/workflow";
 import { call, callVoid, type ConsoleLine, onEvent } from "@/lib/ipc";
+import { takeHandoff } from "@/app/dashboard/(shell)/agentChatStore";
+import AgentPanel from "./agentPanel";
 import Canvas, { type CanvasHandle, type PendingDrag } from "./canvas";
 import ConsolePanel from "./console";
 import type { PendingEdge } from "./edges";
@@ -161,20 +162,32 @@ export default function Designer({
 
     // live validation surfaced in the topbar (issues panel) and as per-node
     // dots. The deferred graph IS the debounce — present settles between edits,
-    // and validateGraphStrict is linear over a graph capped at MAX_NODES, so
-    // re-running it per settled edit is cheap. Suppressed on an empty graph so a
-    // fresh workflow doesn't nag ("no event node") before anything is placed.
+    // and the walk is linear over a graph capped at MAX_NODES, so re-running it
+    // per settled edit is cheap. Suppressed on an empty graph so a fresh
+    // workflow doesn't nag ("no event node") before anything is placed.
+    //
+    // Rust owns the rules (src-tauri/src/workflow.rs validate_graph_strict) and
+    // rebuilds byKey from the database itself — catalog + registry — so the
+    // designer and the run pipeline cannot disagree about the same graph. That
+    // is also why githubLinked isn't sent: the command reads the Keychain.
     const deferredGraph = useDeferredValue(present);
-    // githubLinked matters for exactly one node: github-star is not polled at
-    // all without a PAT (github.rs Resource::pollable). Push/issue/pr/release
-    // fire either way, so nothing else warns.
-    const validation = useMemo(
-        () => validateGraphStrict(deferredGraph, byKey, { githubLinked }),
-        [deferredGraph, byKey, githubLinked],
-    );
+    const [validated, setValidated] = useState<ValidationIssue[]>([]);
+    useEffect(() => {
+        if (deferredGraph.nodes.length === 0) return;
+        let alive = true;
+        call<{ issues: ValidationIssue[] }>("validate_graph", { graph: deferredGraph })
+            // a failed validation is not a clean graph — but it is also not a
+            // set of findings we can name, so the panel goes quiet rather than
+            // showing a stale verdict for an edited graph
+            .then((v) => alive && setValidated(v.issues))
+            .catch(() => alive && setValidated([]));
+        return () => {
+            alive = false;
+        };
+    }, [deferredGraph]);
     const issues = useMemo<ValidationIssue[]>(
-        () => (deferredGraph.nodes.length === 0 ? [] : validation.issues),
-        [deferredGraph, validation],
+        () => (deferredGraph.nodes.length === 0 ? [] : validated),
+        [deferredGraph, validated],
     );
     // node id → the worst level an issue pins to it (error wins over warning);
     // a node absent from the map has no issue. Feeds the canvas's per-node dot.
@@ -240,10 +253,42 @@ export default function Designer({
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     }, []);
 
-    // the embedded Saturn Agent panel is deferred to Phase G — it needs Saturn's
-    // own tool dispatch, which hasn't been ported. agentPanel.tsx is deleted
-    // (recover with `git show`); only the reducer's replaceGraph action survives
-    // it, dispatcher-less, because that is what the panel will need back.
+    // the embedded Saturn Agent panel. Open state and width are never persisted
+    // — they die with the page, like the console.
+    const [agentOpen, setAgentOpen] = useState(false);
+    // arriving from the dashboard chat's "open in designer" chip: the
+    // conversation itself lives in module state (agentChatStore), still
+    // streaming if the turn hadn't finished — all that crosses is the intent to
+    // show it here. An effect, not a lazy useState initializer: reading an
+    // external store during render would desync hydration.
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot read of an external store; a lazy initializer would desync hydration
+        if (takeHandoff(workflow.id)) setAgentOpen(true);
+    }, [workflow.id]);
+
+    // the agent saved a graph for THIS workflow: adopt it as one undo step and
+    // mark it saved (Rust already persisted it, so the autosave must not
+    // immediately write it back). Unsaved canvas edits are clobbered — Cmd+Z
+    // recovers them, because replaceGraph pushes the current present onto the
+    // undo stack. Stable: the memoized Node never sees it, but AgentChat's
+    // graph subscription depends on it.
+    const handleAgentGraph = useCallback(
+        (graph: unknown) => {
+            // shape-checked in Rust before the frame is emitted — save_graph runs
+            // validate_graph_strict and store::set_graph's check_graph (the port
+            // of the old isWorkflowGraph), which is why there is no second
+            // validator here. This only proves something arrived.
+            const g = graph as WorkflowGraph | null;
+            if (!g || !Array.isArray(g.nodes) || !Array.isArray(g.edges)) return;
+            dispatch({ type: "replaceGraph", graph: g });
+            setSavedGraph(g);
+            // the swapped-in graph may reuse node ids for different nodes — the
+            // cheap membership check below can't see that, so drop the selection
+            selectNodes(new Set());
+            notify("agent updated the graph");
+        },
+        [notify, selectNodes],
+    );
 
     // arrow-key nudge coalescing: a burst of arrow presses moves the selection
     // one grid cell each via TRANSIENT moveNodes (same action a live drag uses
@@ -421,8 +466,8 @@ export default function Designer({
         setPrevPresent(present);
         // only a MEMBERSHIP change can strand a selection — a drag/nudge frame
         // rewrites positions, so skip the id scan (and the possible re-render)
-        // then. replaceGraph is the one action that can swap ids at equal count,
-        // and it currently has no dispatcher (the agent panel is deferred).
+        // then. replaceGraph is the one action that can swap ids at equal count;
+        // handleAgentGraph, its only dispatcher, clears the selection itself.
         if (selection.size && present.nodes.length !== prevPresent.nodes.length) {
             const alive = new Set(present.nodes.map((n) => n.id));
             const kept = [...selection].filter((id) => alive.has(id));
@@ -955,6 +1000,8 @@ export default function Designer({
                 return;
             }
             if (e.key === "Backspace" || e.key === "Delete") {
+                // no preventDefault: Backspace's history-back default is killed
+                // globally in app/layout.tsx, before hydration. Don't add one back
                 // a selected edge deletes first — before the node fall-through
                 if (selectedEdgeId) dispatch({ type: "deleteEdge", id: selectedEdgeId });
                 else if (selection.size) dispatch({ type: "deleteNodes", ids: [...selection] });
@@ -1061,7 +1108,17 @@ export default function Designer({
                     onOpenVariable={openVariable}
                     onOpenSystem={openSystem}
                     onVarDrag={handleVarBoxDrag}
+                    agentOpen={agentOpen}
+                    onToggleAgent={() => setAgentOpen((o) => !o)}
                 />
+                {agentOpen && (
+                    <AgentPanel
+                        workflowId={workflow.id}
+                        models={openrouterModels}
+                        onGraph={handleAgentGraph}
+                        onClose={() => setAgentOpen(false)}
+                    />
+                )}
             </div>
 
             {consoleLines !== null && (

@@ -4,12 +4,14 @@
 
 ## Routes
 
-Six pages, all statically exported. `trailingSlash: true`, so every route emits
+Eight pages, all statically exported. `trailingSlash: true`, so every route emits
 as `<dir>/index.html` and every internal href must carry the slash — Tauri's
 asset protocol does no extensionless fallback.
 
 | route | file | shell | id |
 |---|---|---|---|
+| `/dashboard/agent/` | `(shell)/agent/page.tsx` | yes | — |
+| `/dashboard/sessions/` | `(shell)/sessions/page.tsx` | yes | — |
 | `/dashboard/workflows/` | `(shell)/workflows/page.tsx` | yes | — |
 | `/dashboard/workflows/runs/?id=` | `(shell)/workflows/runs/page.tsx` | yes | query |
 | `/dashboard/workflows/designer/?id=` | `workflows/designer/page.tsx` | **no** | query |
@@ -17,9 +19,11 @@ asset protocol does no extensionless fallback.
 | `/dashboard/memory/store/?id=` | `(shell)/memory/store/page.tsx` | yes | query |
 | `/dashboard/settings/` | `(shell)/settings/page.tsx` | yes | — |
 
-There is **no `/` and no `/dashboard/` index.** The dashboard home was the agent
-chat, deleted with it (`docs/open-decisions.md` §3.9). The window opens directly
-at `/dashboard/workflows/` (`tauri.conf.json` `app.windows[0].url`).
+There is **no `/` and no `/dashboard/` index.** Saturn Agent — the app's front
+door, and what the window opens at (`tauri.conf.json` `app.windows[0].url`) —
+lives at `/dashboard/agent/`, not `/dashboard/`: `nav.ts:isActive` matches on a
+segment boundary, so a base of `/dashboard` would light the Agent tab on every
+page in the shell.
 
 Ids ride the **query string**, not a route segment: `output: "export"` prerenders
 every route at build time and a segment whose values are user-created uuids
@@ -37,7 +41,7 @@ screen with no sidebar. Its ~20 colocated components moved with it when
 `(shell)/layout.tsx` is `Sidebar` + a `max-w-5xl` content column. There is no
 responsive branch: the window has a `minWidth` of 768 (`tauri.conf.json`), so
 the sidebar is unconditional and the mobile top bar the hosted product carried
-is gone. `nav.ts` holds the three destinations and `isActive`, and
+is gone. `nav.ts` holds the five destinations and `isActive`, and
 normalizes trailing slashes on both sides — `usePathname()` reports what is
 actually in the address bar, which is slash-terminated on a hard load but
 whatever href was pushed after a client navigation.
@@ -66,8 +70,8 @@ here. Two shapes, because the backend speaks in exactly two:
   normalizes once. `callVoid` is the fire-and-forget variant for paths that
   genuinely cannot await (unmount flushes).
 - **`onEvent(name, fn)`** — Rust pushing without being asked. Carries `run-log`,
-  `run-value` and `run-finished` during a run, and `data-changed` after
-  background mutations.
+  `run-value` and `run-finished` during a run, `saturn-delta` / `saturn-done`
+  during an agent turn, and `data-changed` after background mutations.
 
 **`useAsync(load, opts)`** replaces a server component's `await db.query(...)`.
 Pass a stable `load` (it is the dependency). Four behaviours worth knowing:
@@ -85,6 +89,61 @@ Pass a stable `load` (it is the dependency). Four behaviours worth knowing:
 `Loading` and `ErrorNote` are the shared placeholders — deliberately plain text,
 because every page here is monospace rows on a dark ground and a skeleton that
 doesn't match its content reads worse than one line admitting what it's doing.
+
+## Saturn Agent
+
+Two surfaces, one conversation: `/dashboard/agent/` — the window's opening url —
+and the `<aside>` docked beside the designer canvas
+(`workflows/designer/agentPanel.tsx`, toggled from the canvas control cluster,
+width local and never persisted). Both render the same `agentChat.tsx` and share
+`agent/sessionPicker.tsx` (list, new chat, inline rename, delete), the panel
+passing `compact`. Either surface can be the first one a session is needed on, so
+both run the same ensure-a-session effect.
+
+`/dashboard/sessions/` is the third surface onto the same rows: the four session
+commands again, plus the message count `list_sessions` now returns and a jump
+that sets the store's session before navigating. It exists because a chat is no
+longer only something you talk in — an `agent` node with a `session` chip wired
+writes into one every run (`docs/nodes.md`), and those need somewhere to be read,
+renamed and deleted.
+
+**Rust owns the stream.** `saturn_send` returns the moment the turn is spawned
+and pushes frames:
+
+| event | payload |
+|---|---|
+| `saturn-delta` | `{ sessionId, t: "r" \| "c" \| "e" \| "ts" \| "te" \| "g", d }` |
+| `saturn-done` | `{ sessionId }` |
+
+`d` is text for `r` (reasoning), `c` (content) and `e` (error), and a JSON string
+for the rest: `ts` `{id,name,args}`, `te` `{id,ok,result}`, `g` `{id,graph}`. It
+is the hosted NDJSON stream's vocabulary unchanged, which is why the client's
+decoder is the same code it was. `saturn-done` is emitted on every path including
+failure — nothing else clears `streaming`.
+
+**The conversation lives in module state (`agentChatStore.ts`), not React.** The
+original reason is gone (a component-owned `fetch` used to die with its mount);
+four remain:
+
+- it is the only sink a module-scope Tauri listener can write to — the two
+  listeners are registered once for the life of the process and deliberately
+  never unlistened, so a turn keeps landing while the chat is unmounted by the
+  dashboard ⇄ designer navigation;
+- it holds the handoff one-shot (`requestHandoff` / `takeHandoff`) that carries
+  "open in designer →" across that navigation;
+- it fans the `g` frame out to whichever canvas is open, which is how a
+  `save_graph` repaints the designer live (one undo step — `docs/designer.md`);
+- it caches the visible session's transcript, so moving between the two surfaces
+  doesn't refetch mid-stream.
+
+It is a cache of one session's window, not the record: the record is
+`saturn_message` in SQLite and Rust appends to it (`docs/workflows.md`). Every
+frame is filtered on `sessionId`, which is what stops a `saturn-agent` node run
+writing into whichever chat happens to be open.
+
+Prefs (`agentModel`, `agentEffort`, `saturnSession`) are `localStorage` read in a
+mount effect rather than the `<head>`-script pattern — none of them shifts
+layout, and the composer already enters on a delay.
 
 ## There is no invalidation bus
 

@@ -12,7 +12,7 @@ new event type is one descriptor in `lib/integrations.ts` plus its transport, an
 neither the interpreter nor the designer changes.
 
 **A workflow holds at most one event node.** The designer disables the event chip
-once one exists and `validateGraphStrict` errors on two or more. The interpreter
+once one exists and `validate_graph` errors on two or more. The interpreter
 still walks every event-category node, so a legacy multi-event graph stays
 correct.
 
@@ -35,6 +35,19 @@ a pool would only buy contention on the same lock one level down.
 | `registry_entry` | the user's own node types — see `docs/registry.md` |
 | `memory_item` | a `vec0` virtual table, 1536-dim cosine, partitioned by `entry_id` |
 | `github_cursor` | per-resource poll cursor + ETag — see `docs/integrations.md` |
+| `saturn_session` | Saturn Agent's chat sessions: id, **unique** name, timestamps |
+| `saturn_message` | one row per message: `session_id`, `role`, `content` (plain text), `parts` (json, display only), `created_at`. Cascades from `saturn_session` |
+
+The two `saturn_*` tables are created by `saturn::init`, not `store.rs`'s
+`SCHEMA` — `github_cursor` set that precedent, and a new *table* is free on an
+existing `saturn.db` where a new column would not be.
+
+**One row per message rather than a JSON blob per session**, because there are
+two writers: the chat and a `saturn-agent` node run, both appending to the same
+session. A read-modify-write of one blob loses whichever landed first. Appends
+are serialized by SQLite's single-writer mutex and there is no per-session lock;
+`content` is stored alongside `parts` so the re-sent transcript reads one column
+with no per-message JSON parse.
 
 No `user_id` anywhere: there is one user. The five sparse kind-specific columns
 the Postgres `registry_entry` had collapsed into one `config` JSON blob, and
@@ -78,7 +91,8 @@ crate would silently disagree on exactly that rule.
 `cronBuilder.tsx` is a callback component (`onChange(cron)`) hosted by the
 designer's cron popover; it emits minutes / hourly / daily / weekly / monthly
 shapes. `describeCron` humanizes them under the schedule node and in the topbar's
-event label; `isValidCron` backs the validator's "will never fire" warning.
+event label; `runner::is_valid_cron` backs the validator's "will never fire"
+warning — the TypeScript copy went with `validateGraphStrict`.
 
 ## The scheduler
 
@@ -212,10 +226,11 @@ deserialization ignores unknown fields, tolerates duplicate ids and never reads
 decides what is allowed to get *in* — so it is strict about exactly the things a
 designer bug or a hand-written graph could break.
 
-Deep per-node validation (`validateGraphStrict`) still lives in TypeScript and is
-surfaced live by the designer. Porting it is the real cost of the deferred MCP
-tool layer (`docs/open-decisions.md` §3.9), because the port would have to agree
-with the TypeScript exactly or the two disagree about the same graph.
+Deep per-node validation is `validate_graph_strict` in the same module, reached
+over IPC as `validate_graph`. It rebuilds `byKey` from the database itself
+(`CATALOG` + `registry::get_user_registry`), so the designer's issues panel and
+the run pipeline cannot disagree about the same graph. `fixtures/validation.json`
+— 30 cases captured from the deleted TypeScript — is its frozen specification.
 
 ## Run history
 

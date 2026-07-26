@@ -79,7 +79,7 @@ Three layers, deliberately, because each catches a case the others cannot:
    `Chip`'s `enabled: boolean` became `disabled?: string` (undefined = enabled,
    a string = the tooltip) so the two reasons can say which applies — net fewer
    props, since the always-enabled call sites dropped theirs.
-3. **`validateGraphStrict` warns** on a placed star node when no PAT is set,
+3. **`validate_graph` warns** on a placed star node when no PAT is set,
    surfacing in the issues panel and as a per-node dot. This branch already
    existed but was dead and stale — it warned on *every* `event:github-*` node
    about "no linked GitHub App installation", infrastructure decommissioned in
@@ -87,8 +87,9 @@ Three layers, deliberately, because each catches a case the others cannot:
    Repointed at star, reworded, and wired up. It catches the one case the chip
    cannot: a node placed before the PAT was removed.
 
-`STAR_EVENT_KEY` in `lib/workflow.ts` is shared by layers 2 and 3 — two spellings
-of that string would drift into a chip you can place but that never polls.
+`STAR_EVENT_KEY` is spelled once per process — `lib/workflow.ts` for layer 2,
+`src-tauri/src/workflow.rs` for layer 3, since the validator moved to Rust. A
+third spelling drifts into a chip you can place but that never polls.
 
 **Why star and nothing else:** page 1 of `/stargazers` is fetched *without*
 `if-none-match` on purpose (it holds the oldest stars and would 304 forever), so
@@ -353,13 +354,28 @@ surface; the CSP itself moves to `tauri.conf.json` `app.security.csp`, the only
 layer that still sees a request. `img-src` still allows the Google favicon hosts
 (MCP and model logos are fetched live) and `connect-src` adds `ipc:`.
 
+### 2.9 `validate_graph_strict` skips a dangling edge where the TypeScript threw
+
+`lib/workflow.ts:477-478` did `nodeById.get(edge.from.nodeId)!` and then read
+`.type` off it, so an edge naming a node id that does not exist threw a
+TypeError out of the validator. A throw has no `expected` shape, so **no case in
+`fixtures/validation.json` covers it** — the oracle cannot arbitrate this one and
+never could. The Rust skips the edge instead: every command returns
+`Result<T, String>` and a panic is not an option, and `check_graph`'s dangling-edge
+rejection means no graph in the database can reach the branch anyway.
+
+The related comments at `lib/workflow.ts:682` (`toNode?.` optional chain) and
+`:685` (`if (!src) continue; // dangling-endpoint error already covers it`) were
+**false**: there was no dangling-endpoint check, and the earlier edge loop threw
+before either line could run. They were dead defensive code and were not ported.
+
 ---
 
 ## 3. Deferred work
 
 ### 3.1 Cold code, and what warms it
 
-`cargo build` is warning-free and 27 `#[allow(dead_code)]` remain. Every one is
+`cargo build` is warning-free and 20 `#[allow(dead_code)]` remain. Every one is
 a claim that something is legitimately unreachable; they are worth re-auditing
 at the end, because **the Phase C bug (a whole module built and never called)
 would have been caught by a dead-code warning, and one Phase D bug could not
@@ -368,7 +384,7 @@ be — a function called only from a branch that can never be true.**
 | where | count | warms with |
 |---|---|---|
 | `mcp.rs` — the OAuth/PKCE flow, ~270 LOC | 18 | a redirect target (loopback listener), Phase G/H |
-| `openrouter.rs` — `stream_chat` + SSE decoder, ~200 LOC | 6 | the agent chat page, blocked on 3.3 |
+| ~~`openrouter.rs` — `stream_chat` + SSE decoder~~ | ~~6~~ **0** | **warm.** `saturn::run_turn` drives it; the six markers were deleted, which is the proof |
 | `store.rs` — `latest_run` | 1 | stays cold: `list_runs` and `list_workflow_cards` cover the UI, and tests are its only reader |
 | `registry.rs` — `variable_id_from_sentinel` | 1 | stays cold; its consumer is TypeScript |
 
@@ -383,12 +399,15 @@ A 401 surfaces as an ordinary connect error.
 
 Unblocks with a loopback redirect listener (Phase G/H).
 
-### 3.3 `lib/agentChat.server.ts` is not ported
+### 3.3 `lib/agentChat.server.ts` is not ported — DONE
 
-Listed under Phase D in the plan, but it imports `TOOL_DEFS` and `dispatchTool`
-from `app/mcp/tools.ts` — which is **Phase G**, deferred past v1. So it is
-blocked, not forgotten, and the plan put it in the wrong phase.
-`openrouter::stream_chat` is built and tested and waiting for it.
+**Closed 2026-07-25.** It is `saturn::run_turn`, and the tool layer it was blocked
+on (`TOOL_DEFS` / `dispatchTool`) is `saturn::tool_specs` / `saturn::dispatch` —
+12 tools, not 35 (§3.9). `openrouter::stream_chat` is its only caller and is no
+longer cold.
+
+The record of the block stands: it was listed under Phase D, it depended on Phase
+G, and the plan put it in the wrong phase.
 
 ### 3.4 No whole-run timeout
 
@@ -418,13 +437,15 @@ Keychain write) and `registry::delete_entry`. Deliberately NOT
 `store::update_workflow_meta` — a name or emoji cannot change a subscription,
 and it fires on every close of the metadata modal.
 
-### 3.7 `catalog.json` carries neither `platform` nor `requiredConfig`
+### 3.7 `catalog.json` carries no `platform` — `requiredConfig` is now emitted
 
-`scripts/gen-catalog.mjs` drops both, so `events.rs` holds a small local table
-for those two facts. Config *field ids* still come from `CATALOG` and
-`events_match_the_catalog` fails if the two disagree, so the drift surface is
-small — but it is a second source of truth, which is the exact thing
-`catalog.json` exists to prevent.
+**Half closed.** `gen-catalog.mjs` now emits `requiredConfig` on both derived
+maps, which is how `workflow::validate_graph_strict` learns it without a
+hand-written table. `events.rs`'s `EventDescriptor.required` **stays** — it is
+read at `events.rs:316` on the live delivery path, and rewiring that is a
+separate change. `platform` is still local to `events.rs`. Config *field ids*
+still come from `CATALOG` and `events_match_the_catalog` fails if the two
+disagree, so the remaining drift surface is the `required` lists alone.
 
 ### 3.8 `docs/` and `CLAUDE.md` described the hosted product — DONE
 
@@ -453,9 +474,10 @@ Two things the rewrite surfaced, both recorded rather than fixed:
   per workflow; nothing does here. Every row is individually bounded (the 300 ×
   2 000 log cap, images persisted as placeholders), so it is a disk-usage
   question, not a correctness one. Noted in `docs/workflows.md`.
-- **`geometry.ts`'s `layoutGraph` has no callers.** Its consumer was the hosted
-  MCP server's `save_graph`, which is Phase G. It is ~50 lines of live code
-  nothing reaches; it comes back with Phase G or it goes.
+- ~~**`geometry.ts`'s `layoutGraph` has no callers.**~~ **It went.** Its only
+  consumer was `save_graph`, which comes back as a Rust tool using
+  `workflow::fill_coords` — a geometry-free column grid — rather than a second
+  source of node metrics.
 
 ### 3.10 Duplication the parallel build left behind
 
@@ -507,7 +529,24 @@ local filesystem, against three new build deps and ~150 lines of hand-rolled
 router, font and pending-state code. Revisit only if real dynamic route segments
 are wanted.
 
-### 3.9 The Saturn Agent chat ships with Phase G, not v1
+### 3.9 The Saturn Agent chat ships with Phase G, not v1 — DONE
+
+**Closed 2026-07-25 — it shipped**, and with more than was deferred: persistent
+sessions (the hosted chat was in-memory and died with the tab), a `saturn-agent`
+canvas node, and one undeletable Saturn memory store. The tool layer is
+`src-tauri/src/saturn.rs` — **12 tools, not 35**. The other 16 wrapped things
+that no longer exist (tiers, credits, the hosted webhook URL) or that Saturn
+does not need one of (memory-store CRUD, when Saturn has exactly one store); they
+are listed as deliberately-not-built in the change's own plan, and the trigger
+for each is a user asking Saturn and being told no.
+
+Two files did not come back: `agentPrefs.ts` (cookies are structurally impossible
+under static export — model and effort are `localStorage` now) and
+`app/api/agent/chat/route.ts` (there is no server). Everything else was recovered
+from `b6d0f71` exactly as this section promised.
+
+The rest of this section is the record of why it was deferred. It was the right
+call at the time; what changed is that Phases D–F built the operations underneath.
 
 **The one feature Phase F removes rather than rewires**, so it is worth stating
 plainly rather than leaving it to be noticed.
@@ -531,8 +570,12 @@ tool layer is Rust. Leaving a tree of files importing deleted modules would have
 broken the build and rotted; git history is the archive. (`app/mcp/` — the hosted
 server holding `TOOL_DEFS` itself — is deleted on the same terms.)
 
-Consequence for §3.1: `openrouter::stream_chat` and its SSE decoder stay cold. The
-plan expected Phase F to warm them; it cannot.
+That bet paid: the recovery was `git show b6d0f71:<path>` per file, and the
+`fetch`-to-`invoke`/`listen` swap was ~60 lines deleted from `agentChatStore.ts`.
+
+~~Consequence for §3.1: `openrouter::stream_chat` and its SSE decoder stay cold. The
+plan expected Phase F to warm them; it cannot.~~ **They are warm** — the six
+`#[allow(dead_code)]` markers are gone, which is what proves it.
 
 **The cost estimate this was deferred on is stale.** The plan sized Phase G at
 "1,288 LOC / 35 tools, mechanical but not an afternoon". Phases D–F have since
@@ -541,18 +584,20 @@ built nearly every operation those tools wrap — `list_workflows`, `get_workflo
 `list_memory_items`, `execute_run` — so the tool layer itself is now mostly JSON
 schemas and a dispatch match over commands that already exist.
 
-The one piece genuinely unported is **deep graph validation**. `validateGraphStrict`
-in `lib/workflow.ts` produces the per-node error and warning messages;
-`src-tauri/src/workflow.rs` is only the save-time shape-and-caps gate and says so
-in its own header. The agent's system prompt leans on `validate_graph` hard
-("prefer validate_graph before save_graph"), and it is the same code the
-designer's issues panel renders — so the port has to agree with the TypeScript
-exactly, or the two disagree about the same graph. That, not the 35 wrappers, is
-what Phase G actually costs. It is also the largest remaining consumer of
-`lib/workflow.ts`, so it bears on §1.5.
+~~The one piece genuinely unported is **deep graph validation**.~~ **Ported.**
+`workflow::validate_graph_strict` is now the only implementation; the TypeScript
+`validateGraphStrict` is deleted and `fixtures/validation.json` holds the 30
+golden cases captured from it before it went. The agent's system prompt leans on
+`validate_graph` hard ("prefer validate_graph before save_graph"), and it is the
+same code the designer's issues panel renders — so the port had to agree with the
+TypeScript exactly, or the two would disagree about the same graph. That, not the
+35 wrappers, was what Phase G actually cost, and it is why the oracle was captured
+*before* a line of TypeScript was deleted. Deleting it took ~309 lines out of
+`lib/workflow.ts` (with `layoutGraph` and `isValidCron`), which bears on §1.5.
 
-`agentPrefs` (the composer's last model + effort, in cookies) goes with it — no
-cookies under static export, and nothing left to remember until the chat returns.
+~~`agentPrefs` (the composer's last model + effort, in cookies) goes with it~~ —
+it came back as `localStorage`, read in a mount effect. Cookies remain impossible;
+the preference did not.
 
 ### 3.11 Signing, notarization and auto-update are cut from v1
 

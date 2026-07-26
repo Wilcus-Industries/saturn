@@ -61,7 +61,8 @@ idle Escape still reaches the ladder.
 
 Two-finger touch pinch is deferred. The space pan-modifier handler skips form
 controls and `preventDefault`s so it never scrolls the page. Zoom-to-fit runs on
-load, and a bottom-right control cluster holds the ⛶ fit button.
+load, and a bottom-right control cluster holds the ⛶ fit button and the 🤖 toggle
+for the docked agent panel.
 
 **Per-node derivation lives in one `nodeProps` memo** keyed on
 `[graph, byKey, modelModalities, modelReasoning]`. Nothing view-dependent belongs
@@ -102,7 +103,10 @@ step. Instant-delete-on-click is gone.
 ## Toolbox
 
 Four tabbed groups — `blocks` / `apps` / `agents` / `models` — over a pinned
-bottom **variables** split. Per-group entry lists are built in `useMemo`s, not
+bottom **variables** split. The `agents` group is the grant chips in category
+order: the two agent nodes, then `tools` / `skills` / `memory` / `chats`
+(`AGENTS_CATEGORIES`). Chats come from `saturn_list_sessions`, not the registry,
+so their empty state points at Saturn Agent rather than settings (`EMPTY_HINT`). Per-group entry lists are built in `useMemo`s, not
 inline JSX.
 
 Search matches a node's label, `key`, app/group name, description, config-field
@@ -155,7 +159,8 @@ its `overriddenBy` port when declared, else the node's first value input
 
 ## Validation surfacing
 
-`useDeferredValue(present)` + `useMemo(validateGraphStrict(deferred, byKey, { githubLinked }))`.
+`useDeferredValue(present)` + an effect calling `call("validate_graph", { graph })`
+(Rust rebuilds `byKey` and reads the PAT itself, so neither is an argument).
 The deferral **is** the debounce: `present` settles between edits and the
 validator is linear over a graph capped at `MAX_NODES`, so re-running it per
 settled edit is cheap. It is suppressed on an empty graph so a fresh workflow
@@ -173,8 +178,8 @@ effect: the badge that anchored it is gone, and a stale anchor must not linger.
 it never collides with the top-left entry badge, and a dot rather than an outline,
 because an outline means selection.
 
-`githubLinked` matters for exactly one node. Push/issue/pr/release fire either
-way, so nothing else warns.
+The PAT matters for exactly one node — `github-star`, which cannot be polled
+without one. Push/issue/pr/release fire either way, so nothing else warns.
 
 ## Test runs
 
@@ -209,6 +214,23 @@ tests `>=` the cap, not `>`, to know a sample was cut and will not parse.
 The run button becomes ■ stop, wired to `stop_run`. Stopping is cooperative: an
 in-flight HTTP request or model call finishes first.
 
+## The agent panel
+
+`agentPanel.tsx` docks Saturn Agent beside the canvas — the same chat as
+`/dashboard/agent/`, sharing its conversation through module state
+(`docs/ui.md`). Open state and width live in `designer.tsx` and are never
+persisted, the same call the console panel makes. Arriving from the dashboard
+chat's "open in designer →", `takeHandoff(workflow.id)` opens it in an effect,
+not a lazy `useState` initializer — reading an external store during render
+desyncs hydration.
+
+A `save_graph` targeting **this** workflow arrives as a `g` frame and is adopted
+by `handleAgentGraph`: `replaceGraph` (one undo step, so Cmd+Z restores whatever
+the canvas had), `setSavedGraph` so the autosave doesn't write it straight back,
+and a cleared selection because the new graph may reuse node ids for different
+nodes. It is not re-validated here — Rust ran `validate_graph_strict` and
+`check_graph` before emitting the frame.
+
 ## Geometry
 
 `geometry.ts` is the **single source of truth** for node metrics; `node.tsx` and
@@ -237,7 +259,3 @@ popover).
 Selection outlines paint on each shape's outer positioned wrapper, label strips
 included. One accepted quirk: an event circle's label strip is wider than its
 48px wrapper and overflows the outline.
-
-`layoutGraph` (auto-placement for coordinate-less graphs) is exported but
-currently **has no callers** — its consumer was the hosted MCP server's
-`save_graph`. It comes back with Phase G, or it should go.

@@ -1,7 +1,6 @@
 import {
     type CatalogEntry,
     type ConfigField,
-    missingEntry,
     type PortSpec,
     type WorkflowGraph,
     type WorkflowNode,
@@ -133,8 +132,16 @@ export const isSkillChipEntry = (entry: CatalogEntry): boolean =>
 export const isMemoryChipEntry = (entry: CatalogEntry): boolean =>
     entry.category === "memory" && !entry.missing;
 
+// chat chips (key "session:<uuid>") — a Saturn Agent conversation granted to an
+// agent node. Same 48px square as skill/memory; the emoji is fixed (sessionEntry)
+export const isSessionChipEntry = (entry: CatalogEntry): boolean =>
+    entry.category === "session" && !entry.missing;
+
 export const isChipEntry = (entry: CatalogEntry): boolean =>
-    isMcpChipEntry(entry) || isSkillChipEntry(entry) || isMemoryChipEntry(entry);
+    isMcpChipEntry(entry) ||
+    isSkillChipEntry(entry) ||
+    isMemoryChipEntry(entry) ||
+    isSessionChipEntry(entry);
 
 export const chipSize = (entry: CatalogEntry): number =>
     isMcpChipEntry(entry) ? MCP_CHIP : isMemoryChipEntry(entry) ? MEMORY_CHIP : SKILL_CHIP;
@@ -267,60 +274,6 @@ export function nodeHeight(entry: CatalogEntry, node?: WorkflowNode): number {
         (entry.config ?? []).reduce((h, f) => h + configRowHeight(f), 0) +
         4 // bottom pad
     );
-}
-
-// Layered left→right placement for graphs authored without the canvas — the
-// hosted MCP server's save_graph. An external agent can't know a node's
-// rendered size (the agent node widens with its port count, string boxes size
-// from their text, chips/circles carry label strips), so hand-written
-// coordinates overlap; it omits them instead and gets this. Column = longest
-// path over all edges, so every node sits right of everything feeding it.
-const LAYOUT_COL_GAP = 80;
-const LAYOUT_ROW_GAP = 40;
-
-export function layoutGraph(
-    graph: WorkflowGraph,
-    byKey: Record<string, CatalogEntry>,
-): WorkflowGraph {
-    const preds = new Map<string, string[]>();
-    for (const e of graph.edges) {
-        preds.set(e.to.nodeId, [...(preds.get(e.to.nodeId) ?? []), e.from.nodeId]);
-    }
-
-    const depths = new Map<string, number>();
-    const walking = new Set<string>();
-    const depthOf = (id: string): number => {
-        const memo = depths.get(id);
-        if (memo !== undefined) return memo;
-        if (walking.has(id)) return 0; // flow cycle — the interpreter reports it; layout just breaks even
-        walking.add(id);
-        const d = (preds.get(id) ?? []).reduce((m, p) => Math.max(m, depthOf(p) + 1), 0);
-        walking.delete(id);
-        depths.set(id, d);
-        return d;
-    };
-
-    const columns = new Map<number, WorkflowNode[]>();
-    for (const n of graph.nodes) {
-        const d = depthOf(n.id);
-        columns.set(d, [...(columns.get(d) ?? []), n]);
-    }
-
-    const placed = new Map<string, { x: number; y: number }>();
-    let x = 0;
-    for (const d of [...columns.keys()].sort((a, b) => a - b)) {
-        let y = 0;
-        let widest = 0;
-        for (const n of columns.get(d) ?? []) {
-            const entry = byKey[n.type] ?? missingEntry(n.type);
-            placed.set(n.id, { x, y });
-            y += nodeHeight(entry, n) + LAYOUT_ROW_GAP;
-            widest = Math.max(widest, nodeWidth(entry, n));
-        }
-        x += widest + LAYOUT_COL_GAP;
-    }
-
-    return { ...graph, nodes: graph.nodes.map((n) => ({ ...n, ...placed.get(n.id) })) };
 }
 
 // vertical offset from node.y to the point that should sit under the pointer

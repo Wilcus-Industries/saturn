@@ -78,7 +78,7 @@ fn minute_step(field: &str) -> Option<u32> {
 
 const FIELD_RANGES: [(u32, u32); 5] = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 6)];
 
-fn is_valid_cron(fields: &[&str]) -> bool {
+pub(crate) fn is_valid_cron(fields: &[&str]) -> bool {
     fields.len() == 5
         && fields.iter().enumerate().all(|(i, f)| {
             *f == "*"
@@ -145,7 +145,7 @@ pub fn openrouter_key(vault: &dyn Vault) -> Option<String> {
 /// `MODEL_ID` from lib/agent.ts (`/^[\w.:/-]{1,128}$/`). The slug is graph-
 /// authored and goes straight into the request body, so it is shape-checked
 /// before it can carry anything else.
-fn valid_model_id(s: &str) -> bool {
+pub(crate) fn valid_model_id(s: &str) -> bool {
     (1..=128).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_.:/-".contains(&b))
@@ -427,7 +427,10 @@ pub fn execute_run(
     // resolution. A read failure is not fatal: the walk still runs, chips just
     // resolve as missing, which is the safe direction.
     let rows = registry::get_user_registry(store, vault).unwrap_or_default();
-    let catalog = registry::build_user_catalog(&rows);
+    let mut catalog = registry::build_user_catalog(&rows);
+    // chat chips come from `saturn_session`, not the registry — a fourth source
+    // of catalog entries, merged everywhere `by_key` is built
+    catalog.extend(crate::saturn::session_catalog(store));
     // Plaintext variable resolution happens ONLY here, at the point of
     // consumption. Without this lookup every `{{var:<uuid>}}` reaches the sender
     // literally and each sender's own validator rejects it.
@@ -439,7 +442,46 @@ pub fn execute_run(
     let tool = |is_memory, entry_id: &str, tool_name: &str, input: &str| {
         execute_tool(store, vault, is_memory, entry_id, tool_name, input)
     };
-    let effects = Effects { send: &send, model: &model, tool: &tool };
+    // The `saturn-agent` node: one whole Saturn Agent turn, bound to a session
+    // by NAME (get-or-create, so placing the node costs no UI). `nested: true`
+    // drops `run_workflow` from the tool surface — that is the recursion guard:
+    // a workflow run cannot start another workflow run.
+    //
+    // ponytail: the turn's deltas go nowhere — the run console gets the final
+    // text (interpreter::exec_saturn) and the session transcript gets all of it.
+    // Upgrade to streaming into the console if a long turn looks frozen.
+    let saturn = |session: &str, model: &str, prompt: &str| {
+        let session_id = crate::saturn::session_by_name(store, session)?;
+        crate::saturn::run_turn(
+            store,
+            vault,
+            &crate::saturn::TurnRequest {
+                session_id: &session_id,
+                model,
+                reasoning: None,
+                text: prompt,
+                workflow_id: Some(&wf.id),
+                nested: true,
+            },
+            &mut |_, _| {},
+            cancel,
+        )
+    };
+    // the `agent` node's session port: a chat chip's prior turns in, this run's
+    // exchange back out. Same store the chat window reads, so a persisted agent
+    // conversation is readable — and answerable — in the app.
+    let history = |session_id: &str| crate::saturn::history(store, session_id);
+    let record = |session_id: &str, prompt: &str, reply: &str| {
+        crate::saturn::record_exchange(store, session_id, prompt, reply)
+    };
+    let effects = Effects {
+        send: &send,
+        model: &model,
+        tool: &tool,
+        saturn: &saturn,
+        history: &history,
+        record: &record,
+    };
 
     let (tx, rx) = channel::<ConsoleLine>();
 

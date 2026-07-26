@@ -146,6 +146,13 @@ pub fn memory_id_from_node_type(node_type: &str) -> Option<String> {
         .then(|| node_type[7..].to_string())
 }
 
+/// `session:` is 8 chars, so 44 total. A chat chip — the only grant whose
+/// subject is a `saturn_session` row rather than a registry entry.
+pub fn session_id_from_node_type(node_type: &str) -> Option<String> {
+    (node_type.starts_with("session:") && node_type.encode_utf16().count() == 44)
+        .then(|| node_type[8..].to_string())
+}
+
 /// A secret variable box evaluates to this opaque sentinel; the plaintext
 /// substitutes only in `integrations::execute`, so it never enters a log.
 pub fn variable_id_from_node_type(node_type: &str) -> Option<&str> {

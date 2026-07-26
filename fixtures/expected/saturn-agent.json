@@ -1,0 +1,68 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "info",
+      "text": "saturn agent: calling stub/model (nightly)…"
+    },
+    {
+      "kind": "info",
+      "text": "saturn agent → saturn[nightly/stub/model](20#3fe3d159)"
+    },
+    {
+      "kind": "print",
+      "text": "saturn[nightly/stub/model](20#3fe3d159)"
+    },
+    {
+      "kind": "info",
+      "text": "saturn agent: calling anthropic/claude-sonnet-4.5 (workflow)…"
+    },
+    {
+      "kind": "info",
+      "text": "saturn agent → saturn[workflow/anthropic/claude-sonnet-4.5](39#2bc20784)"
+    },
+    {
+      "kind": "print",
+      "text": "saturn[workflow/anthropic/claude-sonnet-4.5](39#2bc20784)"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (4 steps)"
+    }
+  ],
+  "values": [
+    [
+      "prompt",
+      "out",
+      "what ran last night?"
+    ],
+    [
+      "s1",
+      "result",
+      "saturn[nightly/stub/model](20#3fe3d159)"
+    ],
+    [
+      "s1",
+      "result",
+      "saturn[nightly/stub/model](20#3fe3d159)"
+    ],
+    [
+      "s1",
+      "result",
+      "saturn[nightly/stub/model](20#3fe3d159)"
+    ],
+    [
+      "s2",
+      "result",
+      "saturn[workflow/anthropic/claude-sonnet-4.5](39#2bc20784)"
+    ],
+    [
+      "s2",
+      "result",
+      "saturn[workflow/anthropic/claude-sonnet-4.5](39#2bc20784)"
+    ]
+  ]
+}

@@ -26,30 +26,6 @@ function minuteStep(field: string): number | null {
     return num(field.slice(2), 2, 30);
 }
 
-const FIELD_RANGES: [min: number, max: number][] = [
-    [0, 59], // minute
-    [0, 23], // hour
-    [1, 31], // day of month
-    [1, 12], // month
-    [0, 6], // day of week
-];
-
-// accepts the grammar the visual builder can emit: exactly 5 fields, each
-// "*" or a plain in-range integer (no ranges/steps/lists), plus "*/n" in the
-// minute field only. The scheduler has its own copy of this grammar in
-// src-tauri/src/runner.rs (`is_valid_cron`) — an invalid cron never matches
-// there, so a bad one is inert rather than a crash.
-export function isValidCron(cron: string): boolean {
-    const fields = cron.trim().split(/\s+/);
-    if (fields.length !== 5) return false;
-    return fields.every(
-        (f, i) =>
-            f === "*" ||
-            num(f, FIELD_RANGES[i][0], FIELD_RANGES[i][1]) !== null ||
-            (i === 0 && minuteStep(f) !== null),
-    );
-}
-
 export function describeCron(cron: string): string {
     const fields = cron.trim().split(/\s+/);
     if (fields.length !== 5) return cron;

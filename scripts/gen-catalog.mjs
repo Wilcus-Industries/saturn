@@ -56,6 +56,7 @@ const derived = [
         inputs: [flow("in"), ...p.config.map((f) => v(f.id, f.label))],
         outputs: p.output ? [flow("out"), v(p.output.id, p.output.label)] : [flow("out")],
         config: p.config.map((f) => ({ ...f, overriddenBy: f.id })),
+        requiredConfig: p.requiredConfig,
     })),
     ...EXTENSION_EVENTS.map((e) => ({
         key: eventNodeKey(e.id), category: "events", label: e.label,
@@ -63,6 +64,7 @@ const derived = [
         inputs: e.config.map((f) => v(f.id, f.label)),
         outputs: [flow("out"), v("payload")],
         config: e.config.map((f) => ({ ...f, overriddenBy: f.id })),
+        requiredConfig: e.requiredConfig,
     })),
 ];
 

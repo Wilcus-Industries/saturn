@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 // Intensity grids (hex 0-b per cell) sampled from public/art/saturn_with_tilted_rings.svg
 // with its blur+dither filter applied. Rings and planet are separate layers so the
@@ -101,13 +101,22 @@ function downsample(grid: number[][], f: number): number[][] {
     );
 }
 
-// The sidebar renders one fixed size, so the grids are downsampled once here
-// instead of behind a `scale` prop.
-const ringGrid = downsample(rings, 4);
-const planetGrid = downsample(planet, 4);
+// Two call sites at two sizes (sidebar mark at 4, chat hero at 2), so the
+// downsample is cached per scale rather than run per render — the cached arrays
+// are also stable identities, which is what keeps the useMemo below from
+// rebuilding the t=0 strings and stomping the animated textContent.
+const gridCache = new Map<number, [number[][], number[][]]>();
+function gridsAt(scale: number): [number[][], number[][]] {
+    let entry = gridCache.get(scale);
+    if (!entry) {
+        entry = scale === 1 ? [rings, planet] : [downsample(rings, scale), downsample(planet, scale)];
+        gridCache.set(scale, entry);
+    }
+    return entry;
+}
 
 // returns [ringLines, planetLines] — separate layers so each can be colored independently
-function frame(t: number): [string, string] {
+function frame(t: number, ringGrid: number[][], planetGrid: number[][]): [string, string] {
     const ringLines: string[] = [];
     const planetLines: string[] = [];
     for (let y = 0; y < ringGrid.length; y++) {
@@ -140,17 +149,19 @@ function frame(t: number): [string, string] {
     return [ringLines.join("\n"), planetLines.join("\n")];
 }
 
-// only the t=0 frame is rendered by React (static export + hydration); every
-// later frame is written to the DOM by the effect below. Module constants, so
-// React keeps diffing the same string and never stomps the animated textContent.
-const [ringText0, planetText0] = frame(0);
-
-const PRE_CLASSES = "font-mono text-[3px] leading-none select-none";
-
-export default function AsciiSaturn() {
+export default function AsciiSaturn({
+    scale,
+    sizeClass = "text-[3px]",
+}: {
+    // downsample factor: 1 = full art, 2/3/… = coarser grid with fewer, denser characters
+    scale: number;
+    sizeClass?: string;
+}) {
     const artRef = useRef<HTMLDivElement>(null);
     const ringRef = useRef<HTMLPreElement>(null);
     const planetRef = useRef<HTMLPreElement>(null);
+
+    const [ringGrid, planetGrid] = gridsAt(scale);
 
     // animation runs outside React: the frames are written straight into the
     // <pre> nodes, so a tick costs one string build
@@ -170,7 +181,7 @@ export default function AsciiSaturn() {
             if (now - last < 90) return; // same ~11 Hz cadence as before
             last = now;
             t += 1;
-            const [ringText, planetText] = frame(t);
+            const [ringText, planetText] = frame(t, ringGrid, planetGrid);
             if (ringRef.current) ringRef.current.textContent = ringText;
             if (planetRef.current) planetRef.current.textContent = planetText;
         };
@@ -187,15 +198,25 @@ export default function AsciiSaturn() {
             io.disconnect();
             cancelAnimationFrame(raf);
         };
-    }, []);
+    }, [ringGrid, planetGrid]);
+
+    // only the t=0 frame is rendered by React (static export + hydration); every
+    // later frame is written to the DOM by the effect above. Memoized on the
+    // cached grids, so React keeps diffing the same string and never stomps the
+    // animated textContent.
+    const [ringText, planetText] = useMemo(
+        () => frame(0, ringGrid, planetGrid),
+        [ringGrid, planetGrid],
+    );
+    const preClasses = `font-mono ${sizeClass} leading-none select-none`;
 
     return (
         <div ref={artRef} className={"relative"} role={"img"} aria-label={"Saturn"}>
-            <pre ref={planetRef} aria-hidden className={`${PRE_CLASSES} text-[#6E7780] dark:text-[#8E979F]`}>
-                {planetText0}
+            <pre ref={planetRef} aria-hidden className={`${preClasses} text-[#6E7780] dark:text-[#8E979F]`}>
+                {planetText}
             </pre>
-            <pre ref={ringRef} aria-hidden className={`${PRE_CLASSES} absolute inset-0 text-[#26221D] dark:text-[#F5F1E8]`}>
-                {ringText0}
+            <pre ref={ringRef} aria-hidden className={`${preClasses} absolute inset-0 text-[#26221D] dark:text-[#F5F1E8]`}>
+                {ringText}
             </pre>
         </div>
     );

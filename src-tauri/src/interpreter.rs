@@ -48,29 +48,56 @@ const MAX_RESULT_CHARS: usize = 2000;
 
 // --- catalog ---------------------------------------------------------------
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Port {
     pub id: String,
     pub kind: String,
+    /// value input that accepts many incoming edges (await "values", agent
+    /// "tools"/"skills"); every other value input is single-edge.
+    #[serde(default)]
+    pub multi: bool,
+    /// value input that takes grant-chip outputs only ("tool" / "skill" /
+    /// "memory"); ordinary value edges are rejected.
+    #[serde(default)]
+    pub accepts: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct ConfigField {
     pub id: String,
+}
+
+/// One tool an mcp server chip can grant — the validator's "did you exclude a
+/// tool that exists?" check is the only reader, so the description is dropped.
+#[derive(Deserialize, Clone)]
+pub struct CatalogTool {
+    pub name: String,
 }
 
 /// Mirrors CatalogEntry from lib/workflow.ts, minus the fields that exist only
 /// for rendering (emoji, logoDomain, group, section, …). Unknown JSON fields are
 /// ignored by serde, so the whole file deserializes; Phase C adds fields as the
 /// node types that need them land.
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct CatalogEntry {
     pub key: String,
     pub category: String,
     pub label: String,
+    /// validator-only: the interpreter resolves inputs by walking edges, never
+    /// by listing ports.
+    #[serde(default)]
+    pub inputs: Vec<Port>,
     pub outputs: Vec<Port>,
     #[serde(default)]
     pub config: Vec<ConfigField>,
+    /// validator-only: config field ids that must be non-blank (or port-fed)
+    /// for the node to work at run time. Generated into catalog.json from the
+    /// `requiredConfig` on lib/integrations.ts's descriptors.
+    #[serde(rename = "requiredConfig", default)]
+    pub required_config: Vec<String>,
+    /// registry-only, mcp chips: the tools this chip actually expands to.
+    #[serde(default)]
+    pub tools: Vec<CatalogTool>,
     /// registry-only: the entry the chip points at was deleted. It still renders
     /// (as "(deleted)") and still parses, but it grants nothing.
     #[serde(default)]
@@ -110,6 +137,11 @@ pub struct EdgeEnd {
 
 #[derive(Deserialize)]
 pub struct Edge {
+    /// quoted by every validator message; the interpreter never reads it.
+    /// Defaulted, not required — a graph already in the database must keep
+    /// running even if some pre-designer writer omitted it.
+    #[serde(default)]
+    pub id: String,
     pub from: EdgeEnd,
     pub to: EdgeEnd,
     pub kind: String,
@@ -188,6 +220,20 @@ pub(crate) type ModelFn<'a> = &'a (dyn Fn(&agent::Request) -> agent::Turn + Sync
 /// The first argument routes an agent's granted-tool call to the local memory
 /// store instead of an MCP server.
 pub(crate) type ToolFn<'a> = &'a (dyn Fn(bool, &str, &str, &str) -> Result<String, String> + Sync);
+/// (session name, model, prompt) → the assistant's final text. One whole Saturn
+/// Agent turn — session lookup, tool loop and transcript — behind one call, so
+/// `agent::Request` (whose exact key list six frozen `agent-*` expected files
+/// digest) stays untouched. No `cancel` parameter: the production closure
+/// captures it, exactly as `send`/`tool` capture the store and the vault.
+pub(crate) type SaturnFn<'a> = &'a (dyn Fn(&str, &str, &str) -> Result<String, String> + Sync);
+/// The `agent` node's `session` port, both directions: (session id) → that
+/// chat's window oldest first, and (session id, prompt, reply) → the exchange
+/// appended to it. Two calls rather than one wrapper like `SaturnFn`, because
+/// the agent's own loop — caps, grants, tool routing — happens BETWEEN them and
+/// is graph semantics this file must keep owning.
+pub(crate) type HistoryFn<'a> =
+    &'a (dyn Fn(&str) -> Result<Vec<crate::openrouter::AgentMessage>, String> + Sync);
+pub(crate) type RecordFn<'a> = &'a (dyn Fn(&str, &str, &str) -> Result<(), String> + Sync);
 
 /// The injected effects: the golden fixtures stub all three exactly as
 /// the fixture stubs do, production wires the real clients in `runner.rs`.
@@ -201,6 +247,9 @@ pub(crate) struct Effects<'a> {
     pub send: SendFn<'a>,
     pub model: ModelFn<'a>,
     pub tool: ToolFn<'a>,
+    pub saturn: SaturnFn<'a>,
+    pub history: HistoryFn<'a>,
+    pub record: RecordFn<'a>,
 }
 
 struct Run<'a> {
@@ -412,7 +461,9 @@ impl<'a> Run<'a> {
                 })
             }
             "model" => return Ok(Value::S(js::trim(&self.cfg(node, "model")).to_string())),
-            "agent" | "await" => return Ok(Value::S(self.stashed(node, port_id, key))),
+            "agent" | "saturn-agent" | "await" => {
+                return Ok(Value::S(self.stashed(node, port_id, key)))
+            }
             _ => {}
         }
         // secret variable boxes emit their opaque sentinel — the real value
@@ -634,6 +685,10 @@ impl<'a> Run<'a> {
                     self.exec_agent(node, &mut ctx)?;
                     Some("out")
                 }
+                "saturn-agent" => {
+                    self.exec_saturn(node, &mut ctx)?;
+                    Some("out")
+                }
                 _ => match self.entry(&node.node_type).map(|e| e.category.as_str()) {
                     // event nodes are entry points; the normal path runs their
                     // "out" via exec_from, so this only fires when a flow cycle
@@ -645,7 +700,7 @@ impl<'a> Run<'a> {
                     }
                     // grant chips run only as an agent's grants, never standalone.
                     // A legacy flow edge out of one still continues the chain.
-                    Some("mcp" | "skill") => {
+                    Some("mcp" | "skill" | "session") => {
                         self.warn(format!("\"{}\" is not executable — skipped", self.label(node)));
                         Some("out")
                     }
@@ -742,6 +797,32 @@ impl<'a> Run<'a> {
     /// node's TYPE, never by evaluating it as a value, and there is NO config
     /// fallback — a legacy `config.tools`/`config.skills` grants nothing. The
     /// loop itself is `agent::run_loop`; everything here is edge resolution.
+    /// A single-edge grant port (`memory`, `session`): the chip's uuid, taken
+    /// from the first edge that resolves to a LIVE chip of that category. The
+    /// designer replaces the old edge on connect, but a hand-authored graph may
+    /// wire several, and the port id doubles as the category — a chip node's
+    /// category IS its port name for both of these.
+    fn single_grant(
+        &mut self,
+        node: &'a Node,
+        port: &'static str,
+        parse: fn(&str) -> Option<String>,
+        what: &str,
+    ) -> Option<String> {
+        for edge in self.incoming_value_edges(&node.id, port) {
+            let src = self.nodes.get(edge.from.node_id.as_str()).copied();
+            let live = src
+                .and_then(|s| self.entry(&s.node_type))
+                .is_some_and(|e| !e.missing && e.category == port);
+            if let Some(id) = src.filter(|_| live).and_then(|s| parse(&s.node_type)) {
+                return Some(id);
+            }
+            let who = src.map_or_else(|| edge.from.node_id.clone(), |s| self.label(s));
+            self.warn(format!("agent: {port} edge from \"{who}\" — {what} unavailable, skipping"));
+        }
+        None
+    }
+
     fn exec_agent(&mut self, node: &'a Node, ctx: &mut EvalCtx) -> Result<(), Abort> {
         // anything other than "image" (incl. legacy "plan") runs as text
         let output_image = self.cfg(node, "output") == "image";
@@ -816,26 +897,11 @@ impl<'a> Run<'a> {
             skill_ids.truncate(agent::MAX_GRANTED_SKILLS);
         }
 
-        // memory is a single-edge port designer-side, but a hand-authored graph
-        // may wire several — take the first that resolves to a live memory chip
-        let mut memory_id = None;
-        for edge in self.incoming_value_edges(&node.id, "memory") {
-            let src = self.nodes.get(edge.from.node_id.as_str()).copied();
-            let live = src
-                .and_then(|s| self.entry(&s.node_type))
-                .is_some_and(|e| !e.missing && e.category == "memory");
-            let id = src
-                .filter(|_| live)
-                .and_then(|s| agent::memory_id_from_node_type(&s.node_type));
-            if id.is_some() {
-                memory_id = id;
-                break;
-            }
-            let who = src.map_or_else(|| edge.from.node_id.clone(), |s| self.label(s));
-            self.warn(format!(
-                "agent: memory edge from \"{who}\" — memory store unavailable, skipping"
-            ));
-        }
+        // both single-edge chip ports: memory (one store) and session (one chat)
+        let memory_id =
+            self.single_grant(node, "memory", agent::memory_id_from_node_type, "memory store");
+        let session_id =
+            self.single_grant(node, "session", agent::session_id_from_node_type, "chat");
 
         if output_image && (!tools.is_empty() || memory_id.is_some()) {
             self.warn("agent: image output doesn't support tools — grants ignored for this run".into());
@@ -857,6 +923,20 @@ impl<'a> Run<'a> {
         } else {
             js::trim(&self.cfg(node, "model")).to_string()
         };
+        // a session chip makes this agent's conversation outlive the run: the
+        // chat's window seeds the transcript, and `run_loop` appends this turn's
+        // user message onto it. Deliberately NOT a field on `agent::Request` —
+        // the six frozen `agent-*` expected files digest that struct's key list.
+        let mut messages = Vec::new();
+        if let Some(id) = &session_id {
+            match (self.effects.history)(id) {
+                Ok(prior) => {
+                    self.emit(Kind::Info, format!("agent: chat has {} prior message(s)", prior.len()));
+                    messages = prior;
+                }
+                Err(err) => self.warn(format!("agent: chat unreadable ({err}) — starting fresh")),
+            }
+        }
         let mut req = agent::Request {
             model,
             system,
@@ -864,7 +944,7 @@ impl<'a> Run<'a> {
             tools: if output_image { Vec::new() } else { tools },
             // image runs are single-turn — memory tools can't fire
             memory_id: if output_image { None } else { memory_id },
-            messages: Vec::new(),
+            messages,
             output_image,
             reasoning: node.config.get("reasoning").cloned(),
         };
@@ -888,8 +968,52 @@ impl<'a> Run<'a> {
             Ok(text) => text,
             Err(message) => return Err(self.fail(message)),
         };
+        // the other half of the session port. A failed append is a warning, not
+        // an abort: the turn happened and its result is still the node's output.
+        // An image result is stored as its description — a data URL in a chat
+        // transcript is megabytes the next run would re-send.
+        if let Some(id) = &session_id {
+            let stored = if result.starts_with("data:image/") {
+                agent::describe_image(&result)
+            } else {
+                result.clone()
+            };
+            if let Err(err) = (self.effects.record)(id, &user_text, &stored) {
+                self.warn(format!("agent: chat not updated ({err})"));
+            }
+        }
         self.results.insert(format!("{}:result", node.id), result.clone());
         self.values.push((node.id.clone(), "result".into(), result));
+        Ok(())
+    }
+
+    /// Saturn Agent as a node: no system prompt, no grants, no ports but
+    /// `prompt` — it *is* the chat, with Saturn's own prompt, tools and memory.
+    /// Both defaults live here rather than in the effect so the golden fixtures
+    /// pin them (`saturn-agent`'s second node leaves both config fields blank).
+    ///
+    // ponytail: bound by session NAME — renaming in the chat dropdown orphans the
+    // node onto a fresh session of the old name. Upgrade: an id picker popover,
+    // same shape as systemPopover.tsx.
+    fn exec_saturn(&mut self, node: &'a Node, ctx: &mut EvalCtx) -> Result<(), Abort> {
+        let label = self.label(node);
+        let session = js::trim(&self.cfg(node, "session")).to_string();
+        let session = if session.is_empty() { "workflow".into() } else { session };
+        let model = js::trim(&self.cfg(node, "model")).to_string();
+        let model = if model.is_empty() { crate::saturn::DEFAULT_MODEL.into() } else { model };
+        let prompt = self.eval_input(node, "prompt", ctx)?.text();
+
+        self.emit(Kind::Info, format!("{label}: calling {model} ({session})…"));
+        let turn = (self.effects.saturn)(&session, &model, &prompt);
+        // the turn is the branch's suspension point — see `suspended`
+        self.suspended = true;
+        let text = match turn {
+            Ok(text) => text,
+            Err(err) => return Err(self.fail(format!("{label}: {err}"))),
+        };
+        self.emit(Kind::Info, truncate(&format!("{label} → {text}")));
+        self.results.insert(format!("{}:result", node.id), text.clone());
+        self.values.push((node.id.clone(), "result".into(), text));
         Ok(())
     }
 
@@ -1048,6 +1172,7 @@ pub(crate) const PORTED: &[&str] = &[
     "loop",
     "await",
     "agent",
+    "saturn-agent",
     "model",
     "string",
     "number",
@@ -1087,13 +1212,23 @@ mod tests {
         };
         let model = |_: &agent::Request| agent::Turn::Failed("no model in these cases".into());
         let tool = |_, _: &str, _: &str, _: &str| Err("no tool call in these cases".to_string());
+        let saturn = |_: &str, _: &str, _: &str| Err("no saturn node in these cases".to_string());
+        let history = |_: &str| Err("no chat chip in these cases".to_string());
+        let record = |_: &str, _: &str, _: &str| Err("no chat chip in these cases".to_string());
         run_workflow(
             &graph,
             None,
             None,
             None,
             &tx,
-            Effects { send: &send, model: &model, tool: &tool },
+            Effects {
+                send: &send,
+                model: &model,
+                tool: &tool,
+                saturn: &saturn,
+                history: &history,
+                record: &record,
+            },
             None,
         );
         drop(tx);
@@ -1126,7 +1261,17 @@ mod tests {
         let send = |_: &str, _: &HashMap<String, String>, _: &str| Ok(String::new());
         let model = |_: &agent::Request| agent::Turn::Failed("unused".into());
         let tool = |_, _: &str, _: &str, _: &str| Err("unused".to_string());
-        let effects = Effects { send: &send, model: &model, tool: &tool };
+        let saturn = |_: &str, _: &str, _: &str| Err("unused".to_string());
+        let history = |_: &str| Err("unused".to_string());
+        let record = |_: &str, _: &str, _: &str| Err("unused".to_string());
+        let effects = Effects {
+            send: &send,
+            model: &model,
+            tool: &tool,
+            saturn: &saturn,
+            history: &history,
+            record: &record,
+        };
 
         let stop = AtomicBool::new(true);
         let (tx, rx) = std::sync::mpsc::channel();

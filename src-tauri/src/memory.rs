@@ -73,7 +73,7 @@ const MEMORY_SAVE: &str = MEMORY_TOOL_NAMES[1];
 
 // --- tool specs -------------------------------------------------------------
 
-fn param(
+pub(crate) fn param(
     name: &str,
     param_type: McpToolParamType,
     required: bool,
@@ -91,7 +91,7 @@ fn param(
 /// granted MCP tool resolves to, with the ref flattened: `entry_id` is the
 /// memory store id, mirroring an MCP tool ref, and it is what makes
 /// `agent::run_loop`'s `is_memory` test (`req.memory_id == call.entry_id`) fire.
-fn spec(memory_id: &str, tool_name: &str, description: &str, params: Vec<McpToolParam>) -> ToolSpec {
+pub(crate) fn spec(memory_id: &str, tool_name: &str, description: &str, params: Vec<McpToolParam>) -> ToolSpec {
     ToolSpec {
         tool_ref: ToolRef {
             entry_id: memory_id.to_string(),

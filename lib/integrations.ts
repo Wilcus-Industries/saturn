@@ -27,7 +27,8 @@ type IntegrationAction = {
     label: string;
     section: IntegrationSection; // the Blocks category this node's color comes from
     config: ConfigField[];
-    // blank config fields validateGraphStrict warns about
+    // blank config fields validate_graph warns about (workflow.rs); emitted
+    // into catalog.json by scripts/gen-catalog.mjs, which is how Rust reads them
     requiredConfig: string[];
     // single value output port for read-style actions (e.g. fetched messages
     // as a JSON string); the interpreter stashes the sender's result under it
@@ -46,7 +47,8 @@ type ExtensionEvent = {
     label: string;
     emoji?: string; // fallback node icon when logoDomain has no favicon
     config: ConfigField[];
-    // blank config fields validateGraphStrict warns about
+    // blank config fields validate_graph warns about (workflow.rs); emitted
+    // into catalog.json by scripts/gen-catalog.mjs, which is how Rust reads them
     requiredConfig: string[];
 };
 

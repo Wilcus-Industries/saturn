@@ -114,7 +114,7 @@ event as a JSON string, and the same per-config value inputs action nodes have.
 value edge into a config port replaces the literal, but only three source kinds
 resolve: a variable node (substituted per the sentinel rules), or a
 `string`/`number`/`literal` node (`config.value`). Anything dynamic resolves to
-blank, and `validateGraphStrict` warns on such an edge. An unresolved sentinel in
+blank, and `validate_graph` warns on such an edge. An unresolved sentinel in
 a *required* field drops the subscription; in an optional filter it stays literal
 and matches nothing.
 
@@ -260,7 +260,7 @@ release too — and since events arriving during a park are discarded, it was no
 noisy, it was lossy for everything else. Three layers enforce it:
 `Resource::pollable` (the one that matters — a star node already in a saved graph
 would otherwise keep polling), the greyed-out toolbox chip, and a
-`validateGraphStrict` warning for a node placed before the PAT was removed
+`validate_graph` warning for a node placed before the PAT was removed
 (§1.2). The other four resources poll public repos fine unauthenticated.
 
 Push is the one event needing a second call: the refs endpoint carries only a

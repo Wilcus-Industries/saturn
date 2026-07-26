@@ -4,7 +4,7 @@ import Link from "next/link";
 import ConfirmButton from "@/app/dashboard/confirmButton";
 import EntryModal from "@/app/dashboard/entryModal";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
-import type { RegistryEntryRow } from "@/lib/registry";
+import { type RegistryEntryRow, SATURN_MEMORY_ID } from "@/lib/registry";
 
 // module-level so it is stable for useAsync — nothing here depends on props
 const load = () =>
@@ -77,17 +77,22 @@ export default function Memory() {
                                 </Link>
                                 <div className={"ml-auto flex shrink-0 items-center gap-3"}>
                                     <EntryModal kind={"memory"} entry={entry} onSaved={reload} />
-                                    <ConfirmButton
-                                        // only throws on a malformed id; a row that
-                                        // is already gone resolves false, and either
-                                        // way the refetch shows the truth
-                                        onConfirm={async () => {
-                                            await call("delete_registry_entry", {
-                                                id: entry.id,
-                                            }).catch(() => {});
-                                            reload();
-                                        }}
-                                    />
+                                    {/* Saturn's own store is undeletable — the
+                                        Rust guard refuses it, so showing the
+                                        button would only offer a rejection */}
+                                    {entry.id !== SATURN_MEMORY_ID && (
+                                        <ConfirmButton
+                                            // only throws on a malformed id; a row that
+                                            // is already gone resolves false, and either
+                                            // way the refetch shows the truth
+                                            onConfirm={async () => {
+                                                await call("delete_registry_entry", {
+                                                    id: entry.id,
+                                                }).catch(() => {});
+                                                reload();
+                                            }}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         </div>

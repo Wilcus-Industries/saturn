@@ -17,9 +17,9 @@ Subsystem detail lives in `docs/` — read the one your task touches, not all of
 
 | file | covers |
 |---|---|
-| `docs/ui.md` | routes, the dashboard shell, the IPC seam (`lib/ipc.tsx`), static-export constraints |
-| `docs/designer.md` | designer canvas: gestures, toolbox, popovers, validation surfacing, `geometry.ts` |
-| `docs/nodes.md` | node catalog (`catalog.json` / `lib/workflow.ts`) + the Saturn (`agent`) node, grants, memory tools |
+| `docs/ui.md` | routes, the dashboard shell, the Saturn Agent chat, the IPC seam (`lib/ipc.tsx`), static-export constraints |
+| `docs/designer.md` | designer canvas: gestures, toolbox, popovers, validation surfacing, the docked agent panel, `geometry.ts` |
+| `docs/nodes.md` | node catalog (`catalog.json` / `lib/workflow.ts`) + the `agent` and `saturn-agent` nodes, grants, memory tools |
 | `docs/workflows.md` | SQLite schema, the run pipeline, the cron scheduler, the interpreter and its golden fixtures |
 | `docs/registry.md` | `registry_entry` — MCP servers, skills, memory stores, variables; secrets and the Keychain |
 | `docs/integrations.md` | outbound senders (Discord/Telegram/HTTP) + inbound event transports (Gateway, Telegram poller, GitHub poller) |
@@ -31,7 +31,7 @@ Subsystem detail lives in `docs/` — read the one your task touches, not all of
 - `npm run build` — `next build`, static-exported to `out/` (what Tauri embeds). Not a full app build
 - `npm run lint` — regenerates-and-compares `catalog.json`, then ESLint. **`catalog.json` is generated** from `lib/integrations.ts`; edit a descriptor there and run `node scripts/gen-catalog.mjs` or the check fails
 - `npx tauri build` — the real build: `Saturn.app` + a `.dmg` under `src-tauri/target/release/bundle/`. Unsigned and un-notarized (`docs/open-decisions.md` §3.11)
-- `cd src-tauri && cargo test` — 131 tests, including the 47 golden interpreter fixtures. **The only test suite** — there is none for TypeScript
+- `cd src-tauri && cargo test` — 139 tests, including the 48 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
 - `npx tsc --noEmit` — the frontend's only check beyond ESLint
 
 **No environment variables.** Nothing in `app/`, `lib/` or `src-tauri/` reads
@@ -77,7 +77,15 @@ runs it inline.
 **What nodes exist** comes from `catalog.json` — read by TypeScript with
 `import` and by Rust with `include_str!`, so the two runtimes cannot drift —
 merged with the user's own registry entries (`lib/registry.ts` `buildUserCatalog`)
-into one `byKey` map threaded through designer and interpreter alike.
+and one chip per Saturn Agent chat (`saturn::session_catalog`) into one `byKey`
+map threaded through designer and interpreter alike.
+
+**Saturn Agent is the front door.** The window opens at `/dashboard/agent/`, and
+the same chat docks beside the designer canvas. `src-tauri/src/saturn.rs` owns
+all of it — the persisted sessions, the 12-tool surface it drives Saturn's own
+data with, and the turn loop that streams over `saturn-delta` / `saturn-done`.
+Every tool wraps a `store`/`registry`/`workflow`/`runner` entry point that
+already exists; the same loop runs behind the `saturn-agent` canvas node.
 
 **The frontend is a client.** Every page is `"use client"`, fetches through
 `call()` in `lib/ipc.tsx` (Tauri IPC), and refetches on the app-wide
@@ -119,6 +127,10 @@ or in the named module's header comment.
 - `lib/integrations.ts` may only `import type` from `lib/workflow.ts` — a value import back cycles at runtime.
 - `catalog.json` is generated, not authored. `npm run lint` fails on drift.
 - `lib/agent.ts` and `lib/registry.ts` are client-safe mirrors of caps enforced in Rust (`agent.rs`, `registry.rs`). Change one, change both.
+
+**Graph validation**
+
+- **`validate_graph` has exactly one implementation** — `workflow::validate_graph_strict`, in Rust — and it builds `by_key` from the database itself (`CATALOG` + `registry::get_user_registry` + `saturn::session_catalog`) instead of taking it as an argument. That is what makes the designer's issues panel, the `save_graph` tool and the run pipeline *unable* to disagree about one graph. A second copy in TypeScript is what this deleted; `fixtures/validation.json` is the frozen oracle it was checked against (`docs/open-decisions.md` §3.9).
 
 **Event payloads**
 

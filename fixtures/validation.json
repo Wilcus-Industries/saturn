@@ -1,0 +1,3152 @@
+[
+  {
+    "name": "valid-graph-no-issues",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "s1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "value": "hi"
+          }
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "r1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "s1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [],
+      "issues": []
+    }
+  },
+  {
+    "name": "unknown-node-type",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "u1",
+          "type": "ghost-node",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "r1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "u1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "u1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "r1",
+            "portId": "nope"
+          },
+          "kind": "flow"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "node \"u1\" has unknown type \"ghost-node\" — it renders as an inert (deleted) placeholder"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "node \"u1\" has unknown type \"ghost-node\" — it renders as an inert (deleted) placeholder",
+          "nodeId": "u1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "no-event-node",
+    "graph": {
+      "nodes": [
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "message": "hi"
+          }
+        }
+      ],
+      "edges": []
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "no event node — add a 'scheduled to run' block so the workflow can trigger"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "no event node — add a 'scheduled to run' block so the workflow can trigger"
+        }
+      ]
+    }
+  },
+  {
+    "name": "two-event-nodes",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "s1",
+          "type": "schedule",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "cron": "0 9 * * *"
+          }
+        }
+      ],
+      "edges": []
+    },
+    "expected": {
+      "errors": [
+        "a workflow may have only one event node, but this graph has 2"
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "a workflow may have only one event node, but this graph has 2"
+        }
+      ]
+    }
+  },
+  {
+    "name": "schedule-blank-cron",
+    "graph": {
+      "nodes": [
+        {
+          "id": "s1",
+          "type": "schedule",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": []
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "schedule node \"s1\" has no cron — it will never fire"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "schedule node \"s1\" has no cron — it will never fire",
+          "nodeId": "s1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "schedule-invalid-cron",
+    "graph": {
+      "nodes": [
+        {
+          "id": "s1",
+          "type": "schedule",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "cron": "  99 * * * *  "
+          }
+        }
+      ],
+      "edges": []
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "schedule node \"s1\" has an invalid cron \"99 * * * *\" — it will never fire"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "schedule node \"s1\" has an invalid cron \"99 * * * *\" — it will never fire",
+          "nodeId": "s1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "self-edge",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "p1",
+            "portId": "nope"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [
+        "edge \"e1\" (p1.nope → p1.in): a node cannot connect to itself"
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "edge \"e1\" (p1.nope → p1.in): a node cannot connect to itself",
+          "edgeId": "e1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "duplicate-edge",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "r1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "r1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "nodeId": "r1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [
+        "edge \"e2\" (r1.out → p1.in): duplicate edge",
+        "edge \"e3\" (r1.out → p1.in): duplicate edge"
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "edge \"e2\" (r1.out → p1.in): duplicate edge",
+          "edgeId": "e2"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e3\" (r1.out → p1.in): duplicate edge",
+          "edgeId": "e3"
+        }
+      ]
+    }
+  },
+  {
+    "name": "nonexistent-output-port",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "r1",
+            "portId": "nope"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [
+        "edge \"e1\" (r1.nope → p1.in): \"run\" has no output port \"nope\""
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "edge \"e1\" (r1.nope → p1.in): \"run\" has no output port \"nope\"",
+          "edgeId": "e1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "nonexistent-input-port",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "r1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "nope"
+          },
+          "kind": "flow"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [
+        "edge \"e1\" (r1.out → p1.nope): \"print\" has no input port \"nope\""
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "edge \"e1\" (r1.out → p1.nope): \"print\" has no input port \"nope\"",
+          "edgeId": "e1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "port-kind-mismatch",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "s1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p2",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "r1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "flow"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "s1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p2",
+            "portId": "message"
+          },
+          "kind": "flow"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [
+        "edge \"e1\" (r1.out → p1.message): port kinds don't match (flow output → value input, edge kind \"flow\")",
+        "edge \"e2\" (s1.out → p2.message): port kinds don't match (value output → value input, edge kind \"flow\")"
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "edge \"e1\" (r1.out → p1.message): port kinds don't match (flow output → value input, edge kind \"flow\")",
+          "edgeId": "e1"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e2\" (s1.out → p2.message): port kinds don't match (value output → value input, edge kind \"flow\")",
+          "edgeId": "e2"
+        }
+      ]
+    }
+  },
+  {
+    "name": "chip-into-mismatched-accepts",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "a1",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "model": "openai/gpt-4o-mini"
+          }
+        },
+        {
+          "id": "sk1",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "mc1",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "me1",
+          "type": "memory:33333333-3333-4333-8333-333333333333",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "st1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "sk1",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "mc1",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "nodeId": "me1",
+            "portId": "memory"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e4",
+          "from": {
+            "nodeId": "st1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e5",
+          "from": {
+            "nodeId": "st1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "memory"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "key": "skill:22222222-2222-4222-8222-222222222222",
+        "category": "skill",
+        "label": "summarize",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "skill",
+            "label": "skill",
+            "kind": "value"
+          }
+        ],
+        "emoji": "📝",
+        "description": "condense a document"
+      },
+      {
+        "key": "mcp:11111111-1111-4111-8111-111111111111:*",
+        "category": "mcp",
+        "label": "notion",
+        "logoDomain": "notion.so",
+        "toolName": "*",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "tool",
+            "label": "tool",
+            "kind": "value"
+          }
+        ],
+        "config": [
+          {
+            "id": "exclude",
+            "label": "exclude",
+            "input": "text"
+          }
+        ],
+        "tools": [
+          {
+            "name": "search"
+          },
+          {
+            "name": "create_page",
+            "description": "make a page"
+          }
+        ]
+      },
+      {
+        "key": "memory:33333333-3333-4333-8333-333333333333",
+        "category": "memory",
+        "label": "notes",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "memory",
+            "label": "memory",
+            "kind": "value"
+          }
+        ],
+        "emoji": "🧠",
+        "description": "what the agent remembers"
+      }
+    ],
+    "expected": {
+      "errors": [
+        "edge \"e1\" (sk1.skill → a1.tools): input \"tools\" accepts only tool grant-chip nodes",
+        "edge \"e2\" (mc1.tool → a1.skills): input \"skills\" accepts only skill grant-chip nodes",
+        "edge \"e3\" (me1.memory → a1.tools): input \"tools\" accepts only tool grant-chip nodes",
+        "edge \"e4\" (st1.out → a1.tools): input \"tools\" accepts only tool grant-chip nodes",
+        "edge \"e5\" (st1.out → a1.memory): input \"memory\" accepts only memory grant-chip nodes"
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "edge \"e1\" (sk1.skill → a1.tools): input \"tools\" accepts only tool grant-chip nodes",
+          "edgeId": "e1"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e2\" (mc1.tool → a1.skills): input \"skills\" accepts only skill grant-chip nodes",
+          "edgeId": "e2"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e3\" (me1.memory → a1.tools): input \"tools\" accepts only tool grant-chip nodes",
+          "edgeId": "e3"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e4\" (st1.out → a1.tools): input \"tools\" accepts only tool grant-chip nodes",
+          "edgeId": "e4"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e5\" (st1.out → a1.memory): input \"memory\" accepts only memory grant-chip nodes",
+          "edgeId": "e5"
+        }
+      ]
+    }
+  },
+  {
+    "name": "chip-into-ordinary-value-input",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "mc1",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "sk1",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "me1",
+          "type": "memory:33333333-3333-4333-8333-333333333333",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p2",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p3",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "mc1",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "sk1",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "p2",
+            "portId": "message"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "nodeId": "me1",
+            "portId": "memory"
+          },
+          "to": {
+            "nodeId": "p3",
+            "portId": "message"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "key": "mcp:11111111-1111-4111-8111-111111111111:*",
+        "category": "mcp",
+        "label": "notion",
+        "logoDomain": "notion.so",
+        "toolName": "*",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "tool",
+            "label": "tool",
+            "kind": "value"
+          }
+        ],
+        "config": [
+          {
+            "id": "exclude",
+            "label": "exclude",
+            "input": "text"
+          }
+        ],
+        "tools": [
+          {
+            "name": "search"
+          },
+          {
+            "name": "create_page",
+            "description": "make a page"
+          }
+        ]
+      },
+      {
+        "key": "skill:22222222-2222-4222-8222-222222222222",
+        "category": "skill",
+        "label": "summarize",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "skill",
+            "label": "skill",
+            "kind": "value"
+          }
+        ],
+        "emoji": "📝",
+        "description": "condense a document"
+      },
+      {
+        "key": "memory:33333333-3333-4333-8333-333333333333",
+        "category": "memory",
+        "label": "notes",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "memory",
+            "label": "memory",
+            "kind": "value"
+          }
+        ],
+        "emoji": "🧠",
+        "description": "what the agent remembers"
+      }
+    ],
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "edge \"e1\" (mc1.tool → p1.message): tool nodes only grant agents — this edge into an ordinary value input is ignored",
+        "edge \"e2\" (sk1.skill → p2.message): skill nodes only grant agents — this edge into an ordinary value input is ignored",
+        "edge \"e3\" (me1.memory → p3.message): memory nodes only grant agents — this edge into an ordinary value input is ignored"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "edge \"e1\" (mc1.tool → p1.message): tool nodes only grant agents — this edge into an ordinary value input is ignored",
+          "edgeId": "e1"
+        },
+        {
+          "level": "warning",
+          "message": "edge \"e2\" (sk1.skill → p2.message): skill nodes only grant agents — this edge into an ordinary value input is ignored",
+          "edgeId": "e2"
+        },
+        {
+          "level": "warning",
+          "message": "edge \"e3\" (me1.memory → p3.message): memory nodes only grant agents — this edge into an ordinary value input is ignored",
+          "edgeId": "e3"
+        }
+      ]
+    }
+  },
+  {
+    "name": "value-input-fan-in",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "s1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "s2",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "s3",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "w1",
+          "type": "await",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "s1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "s2",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "nodeId": "s3",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e4",
+          "from": {
+            "nodeId": "s1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "w1",
+            "portId": "values"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e5",
+          "from": {
+            "nodeId": "s2",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "w1",
+            "portId": "values"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e6",
+          "from": {
+            "nodeId": "s3",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "w1",
+            "portId": "values"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [
+        "input p1.message has multiple incoming value edges — this value input accepts one edge"
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "input p1.message has multiple incoming value edges — this value input accepts one edge",
+          "nodeId": "p1",
+          "edgeId": "e2"
+        }
+      ]
+    }
+  },
+  {
+    "name": "agent-no-model",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "a1",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "a2",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "model": "   "
+          }
+        },
+        {
+          "id": "a3",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "m1",
+          "type": "model",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "model": "openai/gpt-4o-mini"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "m1",
+            "portId": "model"
+          },
+          "to": {
+            "nodeId": "a3",
+            "portId": "model"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "agent \"a1\" has no model — the run will fail",
+        "agent \"a2\" has no model — the run will fail"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "agent \"a1\" has no model — the run will fail",
+          "nodeId": "a1"
+        },
+        {
+          "level": "warning",
+          "message": "agent \"a2\" has no model — the run will fail",
+          "nodeId": "a2"
+        }
+      ]
+    }
+  },
+  {
+    "name": "agent-over-cap-tool-grants",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "a1",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "model": "openai/gpt-4o-mini"
+          }
+        },
+        {
+          "id": "c0",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c1",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c2",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c3",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c4",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c5",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c6",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c7",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c8",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c9",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c10",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c11",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c12",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c13",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c14",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c15",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c16",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c17",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c18",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c19",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c20",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "ge0",
+          "from": {
+            "nodeId": "c0",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge1",
+          "from": {
+            "nodeId": "c1",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge2",
+          "from": {
+            "nodeId": "c2",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge3",
+          "from": {
+            "nodeId": "c3",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge4",
+          "from": {
+            "nodeId": "c4",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge5",
+          "from": {
+            "nodeId": "c5",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge6",
+          "from": {
+            "nodeId": "c6",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge7",
+          "from": {
+            "nodeId": "c7",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge8",
+          "from": {
+            "nodeId": "c8",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge9",
+          "from": {
+            "nodeId": "c9",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge10",
+          "from": {
+            "nodeId": "c10",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge11",
+          "from": {
+            "nodeId": "c11",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge12",
+          "from": {
+            "nodeId": "c12",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge13",
+          "from": {
+            "nodeId": "c13",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge14",
+          "from": {
+            "nodeId": "c14",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge15",
+          "from": {
+            "nodeId": "c15",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge16",
+          "from": {
+            "nodeId": "c16",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge17",
+          "from": {
+            "nodeId": "c17",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge18",
+          "from": {
+            "nodeId": "c18",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge19",
+          "from": {
+            "nodeId": "c19",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge20",
+          "from": {
+            "nodeId": "c20",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "key": "mcp:11111111-1111-4111-8111-111111111111:*",
+        "category": "mcp",
+        "label": "notion",
+        "logoDomain": "notion.so",
+        "toolName": "*",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "tool",
+            "label": "tool",
+            "kind": "value"
+          }
+        ],
+        "config": [
+          {
+            "id": "exclude",
+            "label": "exclude",
+            "input": "text"
+          }
+        ],
+        "tools": [
+          {
+            "name": "search"
+          },
+          {
+            "name": "create_page",
+            "description": "make a page"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "agent \"a1\" has more than 20 tool grants — extras are dropped at run time"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "agent \"a1\" has more than 20 tool grants — extras are dropped at run time",
+          "nodeId": "a1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "agent-over-cap-skill-grants",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "a1",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "model": "openai/gpt-4o-mini"
+          }
+        },
+        {
+          "id": "c0",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c1",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c2",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c3",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c4",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c5",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c6",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c7",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c8",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c9",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "c10",
+          "type": "skill:22222222-2222-4222-8222-222222222222",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "ge0",
+          "from": {
+            "nodeId": "c0",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge1",
+          "from": {
+            "nodeId": "c1",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge2",
+          "from": {
+            "nodeId": "c2",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge3",
+          "from": {
+            "nodeId": "c3",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge4",
+          "from": {
+            "nodeId": "c4",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge5",
+          "from": {
+            "nodeId": "c5",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge6",
+          "from": {
+            "nodeId": "c6",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge7",
+          "from": {
+            "nodeId": "c7",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge8",
+          "from": {
+            "nodeId": "c8",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge9",
+          "from": {
+            "nodeId": "c9",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "ge10",
+          "from": {
+            "nodeId": "c10",
+            "portId": "skill"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "skills"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "key": "skill:22222222-2222-4222-8222-222222222222",
+        "category": "skill",
+        "label": "summarize",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "skill",
+            "label": "skill",
+            "kind": "value"
+          }
+        ],
+        "emoji": "📝",
+        "description": "condense a document"
+      }
+    ],
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "agent \"a1\" has more than 10 skill grants — extras are dropped at run time"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "agent \"a1\" has more than 10 skill grants — extras are dropped at run time",
+          "nodeId": "a1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "mcp-exclude-malformed",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "m1",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "exclude": "not json"
+          }
+        },
+        {
+          "id": "m2",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "exclude": "{\"a\":1}"
+          }
+        },
+        {
+          "id": "m3",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "exclude": "[1,2]"
+          }
+        },
+        {
+          "id": "m4",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "exclude": "[\"search\"]"
+          }
+        },
+        {
+          "id": "m5",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "exclude": "   "
+          }
+        },
+        {
+          "id": "m6",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": []
+    },
+    "entries": [
+      {
+        "key": "mcp:11111111-1111-4111-8111-111111111111:*",
+        "category": "mcp",
+        "label": "notion",
+        "logoDomain": "notion.so",
+        "toolName": "*",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "tool",
+            "label": "tool",
+            "kind": "value"
+          }
+        ],
+        "config": [
+          {
+            "id": "exclude",
+            "label": "exclude",
+            "input": "text"
+          }
+        ],
+        "tools": [
+          {
+            "name": "search"
+          },
+          {
+            "name": "create_page",
+            "description": "make a page"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "mcp node \"m1\": exclude is not a JSON array of tool names — ignored, all enabled tools granted",
+        "mcp node \"m2\": exclude is not a JSON array of tool names — ignored, all enabled tools granted",
+        "mcp node \"m3\": exclude is not a JSON array of tool names — ignored, all enabled tools granted"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "mcp node \"m1\": exclude is not a JSON array of tool names — ignored, all enabled tools granted",
+          "nodeId": "m1"
+        },
+        {
+          "level": "warning",
+          "message": "mcp node \"m2\": exclude is not a JSON array of tool names — ignored, all enabled tools granted",
+          "nodeId": "m2"
+        },
+        {
+          "level": "warning",
+          "message": "mcp node \"m3\": exclude is not a JSON array of tool names — ignored, all enabled tools granted",
+          "nodeId": "m3"
+        }
+      ]
+    }
+  },
+  {
+    "name": "mcp-excluded-tool-missing",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "m1",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "exclude": "[\"ghost\",\"search\",\"phantom\"]"
+          }
+        }
+      ],
+      "edges": []
+    },
+    "entries": [
+      {
+        "key": "mcp:11111111-1111-4111-8111-111111111111:*",
+        "category": "mcp",
+        "label": "notion",
+        "logoDomain": "notion.so",
+        "toolName": "*",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "tool",
+            "label": "tool",
+            "kind": "value"
+          }
+        ],
+        "config": [
+          {
+            "id": "exclude",
+            "label": "exclude",
+            "input": "text"
+          }
+        ],
+        "tools": [
+          {
+            "name": "search"
+          },
+          {
+            "name": "create_page",
+            "description": "make a page"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "mcp node \"m1\": excluded tool \"ghost\" doesn't exist on notion — ignored",
+        "mcp node \"m1\": excluded tool \"phantom\" doesn't exist on notion — ignored"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "mcp node \"m1\": excluded tool \"ghost\" doesn't exist on notion — ignored",
+          "nodeId": "m1"
+        },
+        {
+          "level": "warning",
+          "message": "mcp node \"m1\": excluded tool \"phantom\" doesn't exist on notion — ignored",
+          "nodeId": "m1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "integration-missing-required-config",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "i1",
+          "type": "integration:discord-send-message",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "i2",
+          "type": "integration:discord-send-message",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "botToken": "  ",
+            "channelId": "123"
+          }
+        },
+        {
+          "id": "i3",
+          "type": "integration:discord-send-message",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "botToken": "t"
+          }
+        },
+        {
+          "id": "s1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "s1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "i3",
+            "portId": "channelId"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "send message \"i1\" has no botToken — the run will fail",
+        "send message \"i1\" has no channelId — the run will fail",
+        "send message \"i2\" has no botToken — the run will fail"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "send message \"i1\" has no botToken — the run will fail",
+          "nodeId": "i1"
+        },
+        {
+          "level": "warning",
+          "message": "send message \"i1\" has no channelId — the run will fail",
+          "nodeId": "i1"
+        },
+        {
+          "level": "warning",
+          "message": "send message \"i2\" has no botToken — the run will fail",
+          "nodeId": "i2"
+        }
+      ]
+    }
+  },
+  {
+    "name": "http-request-headers-malformed",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "h1",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "{\"a\": 1}"
+          }
+        },
+        {
+          "id": "h2",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "[\"a\"]"
+          }
+        },
+        {
+          "id": "h3",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "{"
+          }
+        },
+        {
+          "id": "h4",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "null"
+          }
+        },
+        {
+          "id": "h5",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "\"str\""
+          }
+        },
+        {
+          "id": "h6",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "{\"authorization\":\"Bearer x\"}"
+          }
+        },
+        {
+          "id": "h7",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "   "
+          }
+        },
+        {
+          "id": "h8",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x"
+          }
+        },
+        {
+          "id": "h9",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "{"
+          }
+        },
+        {
+          "id": "s1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "s1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "h9",
+            "portId": "headers"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "http request \"h1\" headers is not a JSON object of strings, the run will fail",
+        "http request \"h2\" headers is not a JSON object of strings, the run will fail",
+        "http request \"h3\" headers is not a JSON object of strings, the run will fail",
+        "http request \"h4\" headers is not a JSON object of strings, the run will fail",
+        "http request \"h5\" headers is not a JSON object of strings, the run will fail"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "http request \"h1\" headers is not a JSON object of strings, the run will fail",
+          "nodeId": "h1"
+        },
+        {
+          "level": "warning",
+          "message": "http request \"h2\" headers is not a JSON object of strings, the run will fail",
+          "nodeId": "h2"
+        },
+        {
+          "level": "warning",
+          "message": "http request \"h3\" headers is not a JSON object of strings, the run will fail",
+          "nodeId": "h3"
+        },
+        {
+          "level": "warning",
+          "message": "http request \"h4\" headers is not a JSON object of strings, the run will fail",
+          "nodeId": "h4"
+        },
+        {
+          "level": "warning",
+          "message": "http request \"h5\" headers is not a JSON object of strings, the run will fail",
+          "nodeId": "h5"
+        }
+      ]
+    }
+  },
+  {
+    "name": "event-missing-required-config",
+    "graph": {
+      "nodes": [
+        {
+          "id": "ev1",
+          "type": "event:discord-mentioned",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": []
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "was mentioned \"ev1\" has no botToken — the run will fail"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "was mentioned \"ev1\" has no botToken — the run will fail",
+          "nodeId": "ev1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "github-star-not-linked",
+    "graph": {
+      "nodes": [
+        {
+          "id": "g1",
+          "type": "event:github-star",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "repo": "owner/repo"
+          }
+        }
+      ],
+      "edges": []
+    },
+    "githubLinked": false,
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "got a star \"g1\" needs a GitHub token — without one it is not polled at all; add one in settings"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "got a star \"g1\" needs a GitHub token — without one it is not polled at all; add one in settings",
+          "nodeId": "g1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "github-star-linked",
+    "graph": {
+      "nodes": [
+        {
+          "id": "g1",
+          "type": "event:github-star",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "repo": "owner/repo"
+          }
+        }
+      ],
+      "edges": []
+    },
+    "githubLinked": true,
+    "expected": {
+      "errors": [],
+      "warnings": [],
+      "issues": []
+    }
+  },
+  {
+    "name": "dynamic-source-into-event-config",
+    "graph": {
+      "nodes": [
+        {
+          "id": "ev1",
+          "type": "event:discord-mentioned",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "v1",
+          "type": "variable:44444444-4444-4444-8444-444444444444",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "st1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "a1",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "model": "openai/gpt-4o-mini"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "v1",
+            "portId": "value"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "botToken"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "st1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "guildId"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "nodeId": "a1",
+            "portId": "result"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "channelId"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "key": "variable:44444444-4444-4444-8444-444444444444",
+        "category": "variable",
+        "label": "api key",
+        "secret": true,
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "value",
+            "label": "value",
+            "kind": "value"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "event node \"ev1\": port \"channelId\" is fed by a agent node — event config resolves before any run, so only variable/string/number sources apply; this edge is ignored"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "event node \"ev1\": port \"channelId\" is fed by a agent node — event config resolves before any run, so only variable/string/number sources apply; this edge is ignored",
+          "nodeId": "ev1",
+          "edgeId": "e3"
+        }
+      ]
+    }
+  },
+  {
+    "name": "static-sources-into-event-config",
+    "graph": {
+      "nodes": [
+        {
+          "id": "ev1",
+          "type": "event:discord-mentioned",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "nu1",
+          "type": "number",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "value": "1"
+          }
+        },
+        {
+          "id": "li1",
+          "type": "literal",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "value": "x"
+          }
+        },
+        {
+          "id": "v1",
+          "type": "variable:44444444-4444-4444-8444-444444444444",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "nu1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "botToken"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "li1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "guildId"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "nodeId": "v1",
+            "portId": "value"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "channelId"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "key": "variable:44444444-4444-4444-8444-444444444444",
+        "category": "variable",
+        "label": "api key",
+        "secret": true,
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "value",
+            "label": "value",
+            "kind": "value"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "errors": [],
+      "warnings": [],
+      "issues": []
+    }
+  },
+  {
+    "name": "unresolvable-prefixed-types",
+    "graph": {
+      "nodes": [
+        {
+          "id": "i1",
+          "type": "integration:bogus",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "ev1",
+          "type": "event:bogus",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "st1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "st1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "botToken"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "node \"i1\" has unknown type \"integration:bogus\" — it renders as an inert (deleted) placeholder",
+        "node \"ev1\" has unknown type \"event:bogus\" — it renders as an inert (deleted) placeholder",
+        "no event node — add a 'scheduled to run' block so the workflow can trigger"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "node \"i1\" has unknown type \"integration:bogus\" — it renders as an inert (deleted) placeholder",
+          "nodeId": "i1"
+        },
+        {
+          "level": "warning",
+          "message": "node \"ev1\" has unknown type \"event:bogus\" — it renders as an inert (deleted) placeholder",
+          "nodeId": "ev1"
+        },
+        {
+          "level": "warning",
+          "message": "no event node — add a 'scheduled to run' block so the workflow can trigger"
+        }
+      ]
+    }
+  },
+  {
+    "name": "unknown-source-into-event-config",
+    "graph": {
+      "nodes": [
+        {
+          "id": "ev1",
+          "type": "event:discord-mentioned",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "botToken": "t"
+          }
+        },
+        {
+          "id": "u1",
+          "type": "ghost-node",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "u1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "channelId"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "expected": {
+      "errors": [],
+      "warnings": [
+        "node \"u1\" has unknown type \"ghost-node\" — it renders as an inert (deleted) placeholder"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "node \"u1\" has unknown type \"ghost-node\" — it renders as an inert (deleted) placeholder",
+          "nodeId": "u1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "mcp-entry-without-toolname",
+    "graph": {
+      "nodes": [
+        {
+          "id": "r1",
+          "type": "run",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "a1",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "model": "openai/gpt-4o-mini"
+          }
+        },
+        {
+          "id": "m1",
+          "type": "mcp:55555555-5555-4555-8555-555555555555:notool",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "exclude": "not json"
+          }
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "m1",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "a1",
+            "portId": "tools"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "m1",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "key": "mcp:55555555-5555-4555-8555-555555555555:notool",
+        "category": "mcp",
+        "label": "half-built server",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "tool",
+            "label": "tool",
+            "kind": "value"
+          }
+        ],
+        "config": [
+          {
+            "id": "exclude",
+            "label": "exclude",
+            "input": "text"
+          }
+        ],
+        "tools": [
+          {
+            "name": "search"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "errors": [
+        "edge \"e1\" (m1.tool → a1.tools): input \"tools\" accepts only tool grant-chip nodes"
+      ],
+      "warnings": [],
+      "issues": [
+        {
+          "level": "error",
+          "message": "edge \"e1\" (m1.tool → a1.tools): input \"tools\" accepts only tool grant-chip nodes",
+          "edgeId": "e1"
+        }
+      ]
+    }
+  },
+  {
+    "name": "multi-issue-push-order",
+    "graph": {
+      "nodes": [
+        {
+          "id": "u1",
+          "type": "ghost-node",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "s1",
+          "type": "schedule",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "cron": "   "
+          }
+        },
+        {
+          "id": "ev1",
+          "type": "event:discord-mentioned",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "g1",
+          "type": "event:github-star",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "repo": "owner/repo"
+          }
+        },
+        {
+          "id": "a1",
+          "type": "agent",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "m1",
+          "type": "mcp:11111111-1111-4111-8111-111111111111:*",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "exclude": "nope"
+          }
+        },
+        {
+          "id": "i1",
+          "type": "integration:discord-webhook",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "h1",
+          "type": "integration:http-request",
+          "x": 0,
+          "y": 0,
+          "config": {
+            "url": "https://x",
+            "headers": "{"
+          }
+        },
+        {
+          "id": "p1",
+          "type": "print",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        },
+        {
+          "id": "st1",
+          "type": "string",
+          "x": 0,
+          "y": 0,
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "nodeId": "p1",
+            "portId": "nope"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "nodeId": "s1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "nodeId": "s1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "flow"
+        },
+        {
+          "id": "e4",
+          "from": {
+            "nodeId": "st1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "in"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e5",
+          "from": {
+            "nodeId": "m1",
+            "portId": "tool"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e6",
+          "from": {
+            "nodeId": "st1",
+            "portId": "out"
+          },
+          "to": {
+            "nodeId": "p1",
+            "portId": "message"
+          },
+          "kind": "value"
+        },
+        {
+          "id": "e7",
+          "from": {
+            "nodeId": "a1",
+            "portId": "result"
+          },
+          "to": {
+            "nodeId": "ev1",
+            "portId": "channelId"
+          },
+          "kind": "value"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "key": "mcp:11111111-1111-4111-8111-111111111111:*",
+        "category": "mcp",
+        "label": "notion",
+        "logoDomain": "notion.so",
+        "toolName": "*",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "tool",
+            "label": "tool",
+            "kind": "value"
+          }
+        ],
+        "config": [
+          {
+            "id": "exclude",
+            "label": "exclude",
+            "input": "text"
+          }
+        ],
+        "tools": [
+          {
+            "name": "search"
+          },
+          {
+            "name": "create_page",
+            "description": "make a page"
+          }
+        ]
+      }
+    ],
+    "githubLinked": false,
+    "expected": {
+      "errors": [
+        "a workflow may have only one event node, but this graph has 3",
+        "edge \"e1\" (p1.nope → p1.in): a node cannot connect to itself",
+        "edge \"e3\" (s1.out → p1.in): duplicate edge",
+        "edge \"e4\" (st1.out → p1.in): port kinds don't match (value output → flow input, edge kind \"value\")",
+        "input p1.message has multiple incoming value edges — this value input accepts one edge"
+      ],
+      "warnings": [
+        "node \"u1\" has unknown type \"ghost-node\" — it renders as an inert (deleted) placeholder",
+        "schedule node \"s1\" has no cron — it will never fire",
+        "edge \"e5\" (m1.tool → p1.message): tool nodes only grant agents — this edge into an ordinary value input is ignored",
+        "agent \"a1\" has no model — the run will fail",
+        "mcp node \"m1\": exclude is not a JSON array of tool names — ignored, all enabled tools granted",
+        "send webhook \"i1\" has no webhookUrl — the run will fail",
+        "http request \"h1\" headers is not a JSON object of strings, the run will fail",
+        "was mentioned \"ev1\" has no botToken — the run will fail",
+        "got a star \"g1\" needs a GitHub token — without one it is not polled at all; add one in settings",
+        "event node \"ev1\": port \"channelId\" is fed by a agent node — event config resolves before any run, so only variable/string/number sources apply; this edge is ignored"
+      ],
+      "issues": [
+        {
+          "level": "warning",
+          "message": "node \"u1\" has unknown type \"ghost-node\" — it renders as an inert (deleted) placeholder",
+          "nodeId": "u1"
+        },
+        {
+          "level": "error",
+          "message": "a workflow may have only one event node, but this graph has 3"
+        },
+        {
+          "level": "warning",
+          "message": "schedule node \"s1\" has no cron — it will never fire",
+          "nodeId": "s1"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e1\" (p1.nope → p1.in): a node cannot connect to itself",
+          "edgeId": "e1"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e3\" (s1.out → p1.in): duplicate edge",
+          "edgeId": "e3"
+        },
+        {
+          "level": "error",
+          "message": "edge \"e4\" (st1.out → p1.in): port kinds don't match (value output → flow input, edge kind \"value\")",
+          "edgeId": "e4"
+        },
+        {
+          "level": "warning",
+          "message": "edge \"e5\" (m1.tool → p1.message): tool nodes only grant agents — this edge into an ordinary value input is ignored",
+          "edgeId": "e5"
+        },
+        {
+          "level": "error",
+          "message": "input p1.message has multiple incoming value edges — this value input accepts one edge",
+          "nodeId": "p1",
+          "edgeId": "e6"
+        },
+        {
+          "level": "warning",
+          "message": "agent \"a1\" has no model — the run will fail",
+          "nodeId": "a1"
+        },
+        {
+          "level": "warning",
+          "message": "mcp node \"m1\": exclude is not a JSON array of tool names — ignored, all enabled tools granted",
+          "nodeId": "m1"
+        },
+        {
+          "level": "warning",
+          "message": "send webhook \"i1\" has no webhookUrl — the run will fail",
+          "nodeId": "i1"
+        },
+        {
+          "level": "warning",
+          "message": "http request \"h1\" headers is not a JSON object of strings, the run will fail",
+          "nodeId": "h1"
+        },
+        {
+          "level": "warning",
+          "message": "was mentioned \"ev1\" has no botToken — the run will fail",
+          "nodeId": "ev1"
+        },
+        {
+          "level": "warning",
+          "message": "got a star \"g1\" needs a GitHub token — without one it is not polled at all; add one in settings",
+          "nodeId": "g1"
+        },
+        {
+          "level": "warning",
+          "message": "event node \"ev1\": port \"channelId\" is fed by a agent node — event config resolves before any run, so only variable/string/number sources apply; this edge is ignored",
+          "nodeId": "ev1",
+          "edgeId": "e7"
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,154 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "prompt",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": "what ran last night?"
+        }
+      },
+      {
+        "id": "s1",
+        "type": "saturn-agent",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "session": "nightly",
+          "model": "stub/model"
+        }
+      },
+      {
+        "id": "show",
+        "type": "print",
+        "x": 180,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "s2",
+        "type": "saturn-agent",
+        "x": 240,
+        "y": 0,
+        "config": {
+          "session": "",
+          "model": ""
+        }
+      },
+      {
+        "id": "show2",
+        "type": "print",
+        "x": 300,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "prompt",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "s1",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "s1",
+          "portId": "result"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "s1",
+          "portId": "result"
+        },
+        "to": {
+          "nodeId": "s2",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "s2",
+          "portId": "result"
+        },
+        "to": {
+          "nodeId": "show2",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "s1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e5",
+        "from": {
+          "nodeId": "s1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e6",
+        "from": {
+          "nodeId": "show",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "s2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e7",
+        "from": {
+          "nodeId": "s2",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "show2",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

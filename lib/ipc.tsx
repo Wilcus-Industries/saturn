@@ -36,8 +36,20 @@ export const callVoid = (cmd: string, args?: Record<string, unknown>) => {
     void call(cmd, args).catch(() => {});
 };
 
+/// The returned unlisten swallows its own rejection. tauri 2.11.5's
+/// `unlisten_js_script` (event/mod.rs:217) guards the per-event bucket but not
+/// the eventId inside it, and Rust eval's the *registration* script into the
+/// webview asynchronously — so unlistening the instant `listen()` resolves can
+/// beat the registration in and read `.handlerId` off undefined. Every caller
+/// here does exactly that on the torn-down-while-in-flight path. Nothing is lost
+/// by ignoring it: the throw means there was no listener to unregister.
+/// ponytail: swallows every unlisten failure, not just this one. Drop the whole
+/// wrapper when upstream adds the null check — do not grow it into a filter.
 export const onEvent = <T,>(name: string, fn: (payload: T) => void) =>
-    listen<T>(name, (e) => fn(e.payload));
+    listen<T>(name, (e) => fn(e.payload)).then(
+        // typed `() => void`, actually async — Promise.resolve adopts the real one
+        (un) => () => void Promise.resolve(un()).catch(() => {}),
+    );
 
 /// Payload of the `run-log` event Rust pushes while a run executes, and the
 /// shape stored in `workflow_run.log`. Lives here because this is the seam it
@@ -104,7 +116,7 @@ export function useAsync<T>(load: () => Promise<T>, opts?: { live?: boolean }): 
         // torn down first, unlisten as soon as it arrives
         let stop: (() => void) | undefined;
         let dead = false;
-        void listen(DATA_CHANGED, () => run()).then((un) => {
+        void onEvent(DATA_CHANGED, () => run()).then((un) => {
             if (dead) un();
             else stop = un;
         });

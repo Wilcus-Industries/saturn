@@ -8,6 +8,12 @@
 export const MAX_GRANTED_TOOLS = 20;
 export const MAX_GRANTED_SKILLS = 10;
 
+// what a Saturn Agent turn runs on when nothing picked a model: the chat's
+// initial selection, and what a saturn-agent node with a blank model field
+// resolves to. Mirrors src-tauri/src/saturn.rs's DEFAULT_MODEL, which is the
+// one the node actually uses — change one, change both.
+export const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
+
 // sentinel toolName of the MCP server grant chip (node type "mcp:<uuid>:*"
 // — the only mcp node type the catalog emits). It resolves like any tool
 // ref but expands server-side to the server's every enabled + callable tool

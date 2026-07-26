@@ -22,15 +22,15 @@ node type.
 
 ### Categories and shapes
 
-Ten categories (`events`, `logic`, `data`, `mcp`, `skill`, `memory`, `variable`,
-`saturn`, `model`, `integration`), each with a color in `CATEGORY_STYLES`. Four
-shapes are not rectangles:
+Eleven categories (`events`, `logic`, `data`, `mcp`, `skill`, `memory`,
+`session`, `variable`, `saturn`, `model`, `integration`), each with a color in
+`CATEGORY_STYLES`. Four shapes are not rectangles:
 
 | shape | who | geometry.ts |
 |---|---|---|
 | circle | input-less `events` nodes (`schedule`, legacy `start`), `model` | `isEventEntry`, `isModelEntry` |
 | bare value box | `string`, `number`, variable chips | `isLiteralEntry` |
-| rounded square | grant chips — mcp (60px, favicon), skill/memory (48px, emoji) | `isMcpChipEntry`, `isSkillChipEntry`, `chipSize` |
+| rounded square | grant chips — mcp (60px, favicon), skill/memory/chat (48px, emoji) | `isChipEntry`, `chipSize` |
 | rounded square | `if` | `isIfEntry` |
 
 Extension event nodes have config inputs, so they render as ordinary rectangles
@@ -66,17 +66,18 @@ failing.
   agent `tools`/`skills`). The canvas replaces the old edge rather than rejecting
   the drop;
 - **`accepts` ports take only grant chips of that kind** (`"tool"`, `"skill"`,
-  `"memory"`), and a chip output connects nowhere else. Gated in both directions,
+  `"memory"`, `"session"`), and a chip output connects nowhere else. Gated in both directions,
   so a chip cannot feed an ordinary value input.
 
 `chipKind(entry)` is the shared derivation, exported so the designer's
 invalid-drop toast can name the mismatch without re-deriving the rules.
 
-## `validateGraphStrict`
+## `validate_graph`
 
-Deep validation for graphs authored without the designer's guardrails. It assumes
-the graph already passed the Rust shape gate (`src-tauri/src/workflow.rs`) and
-adds the semantic layer.
+Deep validation for graphs authored without the designer's guardrails
+(`workflow::validate_graph_strict`, reached over IPC). It assumes the graph
+already passed the shape gate `check_graph` in the same module and adds the
+semantic layer. `fixtures/validation.json` pins all 30 branches.
 
 **Errors** are states the canvas cannot produce: bad port ids, kind mismatches,
 duplicate edges, fan-in on a single-edge value input, a chip wired into a
@@ -92,12 +93,14 @@ and two that are worth spelling out:
 - **A `github-star` node with no PAT.** Star cannot be polled unauthenticated at
   all (`docs/open-decisions.md` §1.2), so this is the case the greyed-out toolbox
   chip cannot catch: a node placed *before* the PAT was removed. `STAR_EVENT_KEY`
-  is shared by the validator and the toolbox — two spellings would drift into a
-  chip you can place but that never polls.
+  is spelled twice on purpose — `workflow.rs` for the validator, `lib/workflow.ts`
+  for the toolbox — because the two run in different processes. A third spelling
+  drifts into a chip you can place but that never polls.
 - **A dynamic source feeding an event node's config port.** Event config is
   resolved statically by `events.rs` before any run, so only variable / string /
-  number sources apply; anything else silently resolves to blank. The
-  `STATIC_VALUE_TYPES` set is duplicated in `events.rs` and must stay in lockstep.
+  number sources apply; anything else silently resolves to blank. The validator
+  imports `events.rs`'s own `STATIC_VALUE_TYPES`, so the warning and the resolver
+  cannot disagree.
 
 Findings are collected as structured `issues` carrying the node or edge they
 concern; the flat `errors`/`warnings` arrays are derived from them in push order.
@@ -114,6 +117,7 @@ Cyan, toolbox section "agents". An LLM loop, fully **port-driven**:
 | `tools` | value in, multi, accepts `tool` | mcp chip outputs |
 | `skills` | value in, multi, accepts `skill` | skill chip outputs |
 | `memory` | value in, **single**, accepts `memory` | one store per agent; a second edge replaces the first |
+| `session` | value in, **single**, accepts `session` | one chat per agent; makes the conversation persist across runs |
 | `result` | value out | final text, or a `data:image/…` URL when `output=image` |
 
 Grants resolve **statically from the source node's type** — chips are never
@@ -189,6 +193,79 @@ index either: `vec0` brute force over tens of thousands of vectors is single-dig
 milliseconds, invisible next to the ~200 ms embedding round trip, and costs
 nothing on write. Adding one later is one line in `store.rs`'s `create virtual
 table` — do it when a search is measurably slow.
+
+One store is always present: Saturn Agent's own, seeded by `store.rs`'s `SCHEMA`
+and undeletable (`docs/registry.md`). It is an ordinary `memory:<uuid>` chip in
+the toolbox like any other, so an `agent` node can be granted exactly what Saturn
+remembers.
+
+### Chats (the `session` port)
+
+A chat chip is a `saturn_session` row — the same conversations the sessions page
+lists and Saturn Agent talks in — and the **only catalog entry whose subject is
+not a `registry_entry`**. `saturn::session_catalog` builds them Rust-side and
+`lib/registry.ts`'s `sessionEntry` mirrors it; both have to be merged wherever
+`by_key` is assembled (`main.rs` `validate_graph`, `runner::execute_run`,
+`saturn.rs`'s `by_key`, and the designer page's fan-out).
+
+Wiring one into an agent's `session` port is what makes the agent's conversation
+outlive the run:
+
+- the chat's window (`MAX_AGENT_MESSAGES` turns, oldest first) seeds
+  `req.messages` before `run_loop` pushes this run's prompt onto it;
+- the prompt and the final text are appended back to the same chat, so the next
+  run — and the user, in the app — sees them.
+
+Both directions are **injected effects** (`Effects.history` / `Effects.record`),
+not store calls in the interpreter: the golden fixtures stub them like every
+other side effect. Deliberately NOT a field on `agent::Request` — six frozen
+`agent-*` expected files digest that struct's key list, and a new key would
+invalidate all of them for nothing.
+
+Failures degrade rather than abort: an unreadable chat warns and starts fresh, a
+failed append warns and the run keeps its result. An `output=image` result is
+recorded as its `describe_image` line — a data URL in a transcript is megabytes
+the next run would re-send.
+
+### The `saturn-agent` node
+
+The `agent` node's shape, but it **is** Saturn Agent: Saturn's own system prompt,
+its twelve tools and its one memory store. No `system` port and no grant ports —
+that is the point. A custom prompt would make it an `agent` node with extra steps.
+
+| port / field | notes |
+|---|---|
+| `in` / `out` | flow, left and right edge |
+| `prompt` | value in, bottom |
+| `result` | value out — the assistant's final text |
+| `config.session` | session **name**; blank → `"workflow"` |
+| `config.model` | OpenRouter slug; blank → `saturn::DEFAULT_MODEL` |
+
+Both defaults live in `interpreter::exec_saturn` rather than in the injected
+effect, so the golden fixture pins them — `fixtures/cases/saturn-agent.json`'s
+second node leaves both fields blank, which is a thing a port can silently get
+wrong.
+
+**Sessions bind by name, not id.** `saturn::session_by_name` get-or-creates
+against the unique index, so placing the node costs no UI at all. The ceiling
+that buys: renaming that session in the chat's dropdown orphans the node onto a
+fresh session of the old name. Cron runs then append to a chat the user reads —
+chosen deliberately.
+
+The node's turn runs with `nested: true`, which **drops `run_workflow` from the
+tool surface**. That is the recursion guard: a workflow run cannot start another
+workflow run. Everything else, memory included, is the chat's surface exactly.
+
+It renders with **zero designer code**: `geometry.ts`'s `isAgentEntry` keys on
+`category === "saturn"`, so the horizontal layout, the left-edge flow in, the
+stacked right-edge outputs, the bottom `prompt` port and the two `ConfigControl`
+text rows all fall out of the catalog entry.
+
+Execution is a fourth `Effects` field (`SaturnFn`), wired in `runner.rs` — the
+whole turn behind one closure, which is why `agent::Request` and the six frozen
+`agent-*` expected files are untouched. The turn's deltas go nowhere: the run
+console gets the final text, the session transcript gets all of it
+(`docs/ui.md`).
 
 ### Caps
 
