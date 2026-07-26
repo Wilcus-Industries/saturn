@@ -32,8 +32,8 @@
 //! interpreter is synchronous and each run owns a plain std thread.
 
 use std::collections::{BTreeMap, HashSet};
-use std::io::Read;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -80,10 +80,9 @@ const PARAM_TYPES: [&str; 5] = ["string", "number", "boolean", "array", "object"
 /// TypeScript.)
 #[derive(Debug)]
 pub enum McpError {
-    /// carries the raw `WWW-Authenticate` header (possibly empty) — the PRM
-    /// lookup reads `resource_metadata="…"` out of it, and that lookup is the
-    /// cold OAuth flow below, so nothing reads it today
-    AuthRequired(#[allow(dead_code)] String),
+    /// carries the raw `WWW-Authenticate` header (possibly empty) — `authorize`
+    /// hands it to the PRM lookup, which reads `resource_metadata="…"` out of it
+    AuthRequired(String),
     Failed(String),
 }
 
@@ -720,20 +719,18 @@ pub fn call_tool(
 // --- OAuth ------------------------------------------------------------------
 //
 // Everything from here to `refresh_tokens` is the interactive authorization
-// code + PKCE flow, and it has NO caller yet — deliberately, not by oversight.
-// Starting the flow means sending the user to the authorization server with a
-// `redirect_uri` the app can receive on, and a desktop app has neither an HTTP
-// origin (the local server is Phase G) nor a registered URL scheme (Phase H).
-// Wiring it to a made-up redirect target would be worse than leaving it cold.
-// `discover_mcp_tools` therefore surfaces a 401 as a connect error, and a manual
-// bearer token is the way through today. `refresh_tokens` at the bottom IS live
-// — it is reached from `registry::fresh_mcp_token`, which every MCP tool call
-// goes through. Each item below carries its own allow, so a dead item that is
-// NOT part of this flow still shows up as a warning.
+// code + PKCE flow. `authorize` at the bottom is its one entry point, reached
+// from `discover_mcp_tools` when the server answers 401; the redirect target it
+// was cold for is a loopback listener (RFC 8252 §7.3), bound on an ephemeral
+// port and handed to the authorization server at registration time.
+//
+// A server with no `registration_endpoint` still cannot be connected this way —
+// there is no client id to use and a manual bearer token remains the way
+// through. `refresh_tokens` is reached separately from
+// `registry::fresh_mcp_token`, which every MCP tool call goes through.
 
 /// Metadata fetch. A blocked URL yields None with no egress — same as the
 /// TypeScript's catch-all, which swallowed the guard's throw.
-#[allow(dead_code)] // OAuth flow — see the block comment above
 fn fetch_json(url: &str) -> Option<js::J> {
     let mut headers = BTreeMap::new();
     headers.insert("accept".to_string(), "application/json".to_string());
@@ -745,7 +742,6 @@ fn fetch_json(url: &str) -> Option<js::J> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub struct AuthServerMeta {
     pub authorization_endpoint: String,
     pub token_endpoint: String,
@@ -754,7 +750,6 @@ pub struct AuthServerMeta {
     pub scope: Option<String>,
 }
 
-#[allow(dead_code)] // OAuth flow — see the block comment above
 fn join_scopes(value: Option<&js::J>) -> Option<String> {
     let items = as_arr(value);
     if items.is_empty() {
@@ -773,7 +768,6 @@ fn join_scopes(value: Option<&js::J>) -> Option<String> {
 /// `/resource_metadata="([^"]+)"/` — hand-rolled, no regex crate. Deliberately
 /// unanchored, exactly like the original: the header is a challenge list and the
 /// parameter can sit anywhere in it.
-#[allow(dead_code)] // OAuth flow — see the block comment above
 fn resource_metadata_param(www_authenticate: &str) -> Option<&str> {
     let start = www_authenticate.find("resource_metadata=\"")? + "resource_metadata=\"".len();
     let rest = &www_authenticate[start..];
@@ -786,7 +780,6 @@ fn resource_metadata_param(www_authenticate: &str) -> Option<&str> {
 
 /// RFC 9728 protected-resource metadata lookup. The 401's WWW-Authenticate may
 /// name the metadata URL directly; otherwise fall back to the well-known paths.
-#[allow(dead_code)] // OAuth flow — see the block comment above
 fn resolve_via_prm(url: &Url, www_authenticate: &str) -> Option<(String, Option<String>)> {
     let origin = url.origin().ascii_serialization();
     let path = match url.path() {
@@ -812,7 +805,6 @@ fn resolve_via_prm(url: &Url, www_authenticate: &str) -> Option<(String, Option<
 }
 
 /// RFC 8414 / OIDC discovery against one authorization-server issuer.
-#[allow(dead_code)] // OAuth flow — see the block comment above
 fn fetch_as_meta(auth_server: &str, prm_scope: Option<String>) -> Option<AuthServerMeta> {
     let as_url = Url::parse(auth_server).ok()?;
     let origin = as_url.origin().ascii_serialization();
@@ -849,7 +841,6 @@ fn fetch_as_meta(auth_server: &str, prm_scope: Option<String>) -> Option<AuthSer
 
 /// RFC 9728 protected-resource metadata → RFC 8414 authorization-server
 /// metadata, for servers that answered 401.
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub fn get_auth_server_meta(
     server_url: &str,
     www_authenticate: &str,
@@ -869,7 +860,12 @@ pub fn get_auth_server_meta(
 /// tools/call (e.g. Google's Gmail MCP). No PRM → None (genuinely public
 /// server); deliberately no origin-as-AS fallback so public servers that merely
 /// expose OIDC metadata don't false-positive.
-#[allow(dead_code)] // OAuth flow — see the block comment above
+///
+/// Still cold, and not for want of a redirect target: the 401 it exists for
+/// arrives *during a run*, where opening a browser and blocking the interpreter
+/// for five minutes is the wrong answer. Warms when connect learns to authorize
+/// ahead of a call rather than in reaction to one.
+#[allow(dead_code)]
 pub fn probe_auth_server_meta(server_url: &str) -> Result<Option<AuthServerMeta>, String> {
     let url = Url::parse(server_url).map_err(|_| "Invalid server URL".to_string())?;
     let Some((auth_server, prm_scope)) = resolve_via_prm(&url, "") else {
@@ -885,14 +881,12 @@ pub fn probe_auth_server_meta(server_url: &str) -> Result<Option<AuthServerMeta>
     }
 }
 
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub struct RegisteredClient {
     pub client_id: String,
     pub client_secret: Option<String>,
 }
 
 /// RFC 7591 dynamic client registration (public client, PKCE only).
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub fn register_client(
     registration_endpoint: &str,
     redirect_uri: &str,
@@ -932,7 +926,6 @@ pub fn register_client(
 
 /// A PKCE verifier and its S256 challenge. No Debug: the verifier is a secret
 /// for the length of one authorization.
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub struct PkcePair {
     pub verifier: String,
     pub challenge: String,
@@ -941,18 +934,22 @@ pub struct PkcePair {
 /// base64url of SHA-256(verifier) — **unpadded**, which is what node's
 /// `digest("base64url")` produces and what RFC 7636 requires. A padded or
 /// standard-alphabet variant is accepted by nothing and fails at the far end.
-#[allow(dead_code)] // OAuth flow — see the block comment above
 fn code_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
-#[allow(dead_code)] // OAuth flow — see the block comment above
-pub fn pkce_pair() -> PkcePair {
+/// 32 random bytes, base64url. The PKCE verifier and the `state` nonce are the
+/// same shape and the same requirement.
+fn random_token() -> String {
     let mut bytes = [0u8; 32];
     // a failing system RNG is not a recoverable condition for an OAuth flow —
     // node's randomBytes threw here too
     getrandom::fill(&mut bytes).expect("system RNG unavailable");
-    let verifier = URL_SAFE_NO_PAD.encode(bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+pub fn pkce_pair() -> PkcePair {
+    let verifier = random_token();
     let challenge = code_challenge(&verifier);
     PkcePair {
         verifier,
@@ -960,7 +957,6 @@ pub fn pkce_pair() -> PkcePair {
     }
 }
 
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub struct AuthorizeArgs<'a> {
     pub auth_url: &'a str,
     pub client_id: &'a str,
@@ -971,7 +967,6 @@ pub struct AuthorizeArgs<'a> {
     pub scope: Option<&'a str>,
 }
 
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub fn build_authorize_url(args: &AuthorizeArgs) -> Result<String, String> {
     let mut url = Url::parse(args.auth_url).map_err(|_| "Invalid authorize URL".to_string())?;
     let mut pairs: Vec<(String, String)> = vec![
@@ -1071,7 +1066,6 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub struct ExchangeArgs<'a> {
     pub token_url: &'a str,
     pub client_id: &'a str,
@@ -1082,7 +1076,6 @@ pub struct ExchangeArgs<'a> {
     pub resource: &'a str,
 }
 
-#[allow(dead_code)] // OAuth flow — see the block comment above
 pub fn exchange_code(args: &ExchangeArgs) -> Result<TokenSet, String> {
     token_request(
         args.token_url,
@@ -1096,6 +1089,154 @@ pub fn exchange_code(args: &ExchangeArgs) -> Result<TokenSet, String> {
         ],
         args.client_secret,
     )
+}
+
+/// How long the loopback listener waits for the browser to come back. Long
+/// enough to log in and pass 2FA at the far end; the caller's spinner runs for
+/// the whole of it.
+const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Everything the caller must persist after one successful authorization. The
+/// mapping onto the stored `McpOauth` set is registry knowledge, not this
+/// module's — see `registry::store_mcp_oauth`.
+pub struct Authorized {
+    pub meta: AuthServerMeta,
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub tokens: TokenSet,
+}
+
+/// The whole interactive flow, start to token set: metadata discovery →
+/// dynamic client registration → browser → loopback callback → code exchange.
+/// Blocking for up to `CALLBACK_TIMEOUT`, so it belongs on a std thread of its
+/// own like every other blocking-reqwest path in this app.
+///
+/// `www_authenticate` is the header from the 401 that sent us here; empty is
+/// fine, the PRM well-known paths are tried regardless.
+pub fn authorize(server_url: &str, www_authenticate: &str) -> Result<Authorized, String> {
+    let meta = get_auth_server_meta(server_url, www_authenticate)?;
+    let registration = meta.registration_endpoint.clone().ok_or_else(|| {
+        "MCP server needs a pre-registered OAuth client — edit the server and set an auth token"
+            .to_string()
+    })?;
+
+    // Bound BEFORE registering: the port is part of the redirect_uri the
+    // authorization server records, so it has to exist first. RFC 8252 §7.3 —
+    // a native app's redirect target is loopback on an ephemeral port, and the
+    // server must accept the port it was given at registration time.
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+
+    let client = register_client(&registration, &redirect_uri, meta.scope.as_deref())?;
+    let pkce = pkce_pair();
+    let state = random_token();
+    let authorize_url = build_authorize_url(&AuthorizeArgs {
+        auth_url: &meta.authorization_endpoint,
+        client_id: &client.client_id,
+        redirect_uri: &redirect_uri,
+        state: &state,
+        challenge: &pkce.challenge,
+        resource: server_url,
+        scope: meta.scope.as_deref(),
+    })?;
+    open_browser(&authorize_url)?;
+
+    let code = wait_for_code(&listener, &state)?;
+    let tokens = exchange_code(&ExchangeArgs {
+        token_url: &meta.token_endpoint,
+        client_id: &client.client_id,
+        client_secret: client.client_secret.as_deref(),
+        code: &code,
+        redirect_uri: &redirect_uri,
+        code_verifier: &pkce.verifier,
+        resource: server_url,
+    })?;
+    Ok(Authorized {
+        meta,
+        client_id: client.client_id,
+        client_secret: client.client_secret,
+        tokens,
+    })
+}
+
+/// `open(1)`, not a shell — the URL is an argv entry, never a command string.
+/// It is one this module built from a parsed `Url`, so it always leads with a
+/// scheme and can't be read as a flag.
+fn open_browser(url: &str) -> Result<(), String> {
+    match std::process::Command::new("open").arg(url).status() {
+        Ok(status) if status.success() => Ok(()),
+        _ => Err("Could not open a browser for authorization".into()),
+    }
+}
+
+/// Serves the loopback redirect until the browser arrives with a code. Anything
+/// else that hits the port (a favicon probe, a stray tab) is answered and
+/// ignored rather than ending the wait.
+///
+/// Nothing here is a trust boundary on its own: a local process that guessed the
+/// port still has to produce our `state`, and the code it delivered is useless
+/// without the PKCE verifier that never left this thread.
+fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String, String> {
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + CALLBACK_TIMEOUT;
+    while Instant::now() < deadline {
+        let mut sock = match listener.accept() {
+            Ok((sock, _)) => sock,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            Err(e) => return Err(e.to_string()),
+        };
+        sock.set_nonblocking(false).map_err(|e| e.to_string())?;
+        sock.set_read_timeout(Some(Duration::from_secs(5)))
+            .map_err(|e| e.to_string())?;
+
+        // the request line is all we need: "GET /callback?code=…&state=… HTTP/1.1"
+        let mut buf = [0u8; 8192];
+        let read = sock.read(&mut buf).unwrap_or(0);
+        let request = String::from_utf8_lossy(&buf[..read]);
+        let target = request.split(' ').nth(1).unwrap_or("");
+        let (mut code, mut state_back, mut error) = (None, None, None);
+        if let Ok(url) = Url::parse(&format!("http://127.0.0.1{target}")) {
+            for (key, value) in url.query_pairs() {
+                match key.as_ref() {
+                    "code" => code = Some(value.into_owned()),
+                    "state" => state_back = Some(value.into_owned()),
+                    "error" => error = Some(value.into_owned()),
+                    _ => {}
+                }
+            }
+        }
+
+        let done = code.is_some() || error.is_some();
+        let body = match done {
+            true => "Saturn is connected. You can close this tab.",
+            false => "Waiting for the authorization redirect.",
+        };
+        let _ = sock.write_all(
+            format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        );
+
+        if let Some(error) = error {
+            // the authorization server wrote this; cap it so it cannot shape the
+            // connect card, exactly as the UI caps a connect error
+            let reason: String = error.chars().take(80).collect();
+            return Err(format!("Authorization was refused ({reason})"));
+        }
+        if let Some(code) = code {
+            if state_back.as_deref() != Some(state) {
+                return Err("Authorization state did not match".into());
+            }
+            return Ok(code);
+        }
+    }
+    Err("Timed out waiting for authorization".into())
 }
 
 pub struct RefreshArgs<'a> {
@@ -1410,6 +1551,43 @@ mod tests {
         assert_eq!(read_only(r#"{"annotations":{"readOnlyHint":true}}"#), Some(true));
         // per spec only a literal `true` counts
         assert_eq!(read_only(r#"{"annotations":{"readOnlyHint":"true"}}"#), Some(false));
+    }
+
+    /// Drives the loopback listener the way a browser does. Loopback only, so
+    /// this touches no network the guard would have opinions about.
+    fn callback(requests: &[&str], state: &str) -> Result<String, String> {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let lines: Vec<String> = requests.iter().map(|t| format!("GET {t} HTTP/1.1\r\n\r\n")).collect();
+        std::thread::spawn(move || {
+            for line in lines {
+                let mut sock = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+                sock.write_all(line.as_bytes()).unwrap();
+                // the server answers every request; drain so it never blocks
+                let _ = sock.read(&mut [0u8; 512]);
+            }
+        });
+        wait_for_code(&listener, state)
+    }
+
+    /// The requests that are not the redirect — a favicon probe, a stray tab —
+    /// must be answered and ignored, not mistaken for the end of the wait.
+    #[test]
+    fn the_loopback_callback_waits_past_everything_that_is_not_the_redirect() {
+        let got = callback(
+            &["/favicon.ico", "/", "/callback?code=the-code&state=st8"],
+            "st8",
+        );
+        assert_eq!(got.as_deref(), Ok("the-code"));
+    }
+
+    /// A code arriving under someone else's `state` is the CSRF this parameter
+    /// exists for; it must not be exchanged.
+    #[test]
+    fn a_mismatched_state_is_refused() {
+        assert!(callback(&["/callback?code=the-code&state=wrong"], "st8").is_err());
+        // ...and so is an authorization the user declined
+        assert!(callback(&["/callback?error=access_denied"], "st8").is_err());
     }
 
     /// `if (msg.error)` is a truthiness test, not a presence test.

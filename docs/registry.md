@@ -128,17 +128,26 @@ URL (`https://good.example.com@10.0.0.1/`); not exploitable, since the guard
 reads the real host, but a phishing-shaped URL survives save and is shown back
 (`docs/open-decisions.md` §2.5).
 
-### OAuth cannot complete yet
+### OAuth
 
-The PKCE flow is fully ported — protected-resource metadata → authorization-server
-metadata → dynamic client registration → authorization code — but nothing
-persists an *initial* token set, because the exchange needs a redirect target a
-desktop app does not have. `refreshable` can therefore never be true in
-production and `connected` is permanently `false`. A 401 surfaces as an ordinary
-connect error.
+Connect is one button for both kinds of server. `discover_mcp_tools` tries
+`tools/list` with whatever credential is stored; a 401 with *none* stored calls
+`mcp::authorize`, which runs the whole PKCE flow — protected-resource metadata →
+authorization-server metadata → dynamic client registration → browser →
+authorization code → token set — and discovery is retried with the token
+`registry::store_mcp_oauth` just persisted. A 401 *with* a credential is the
+server rejecting it, not an invitation to authorize again, so it surfaces as the
+connect error it always was.
 
-That is ~270 lines behind 18 `#[allow(dead_code)]` markers. It unblocks with a
-loopback redirect listener (`docs/open-decisions.md` §3.2).
+The redirect target is a loopback listener (RFC 8252 §7.3): `127.0.0.1` on an
+ephemeral port, bound *before* registration because the port is part of the
+`redirect_uri` the authorization server records. It answers and ignores anything
+that is not the redirect, checks `state`, and gives up after five minutes. The
+authorization code it receives is useless on its own — the PKCE verifier never
+leaves the thread that built it.
+
+A server with no `registration_endpoint` still cannot be connected this way:
+there is no client id to use, and a manual auth token remains the way through.
 
 The session cache the TypeScript had was dropped: `mcp::call_tool` re-handshakes
 unconditionally. Correctness is unaffected (the handshake is idempotent) and it

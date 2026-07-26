@@ -5,9 +5,10 @@ import Spinner from "@/app/dashboard/spinner";
 import { call } from "@/lib/ipc";
 
 // pulls tools/list for one MCP server and merges the result into its stored
-// allowlist. The OAuth hand-off is gone: starting a PKCE flow needs a redirect
-// target a desktop app doesn't have yet, so a 401 comes back as an ordinary
-// connect error and the way through is a manual auth token.
+// allowlist. A server that answers 401 sends the user through OAuth first — the
+// browser opens, Rust waits on a loopback redirect, and the spinner runs for the
+// whole of it. Only a server that reaches 401 *with* a stored credential comes
+// back needing a manual token.
 const NEEDS_TOKEN = "MCP server requires authorization";
 
 export default function ConnectButton({

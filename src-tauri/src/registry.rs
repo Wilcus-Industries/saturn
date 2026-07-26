@@ -936,6 +936,35 @@ pub fn set_mcp_tools(store: &Store, id: &str, tools: Vec<McpTool>) -> Result<(),
     update_entry(store, id, Kind::Mcp, &name, None, None, Some(&config))
 }
 
+/// Persists the result of one interactive authorization and hands back the
+/// access token it just stored. Which field of the flow's result feeds which
+/// stored field is registry knowledge, so the mapping lives here beside
+/// `refresh_via_mcp` rather than in the MCP client.
+///
+/// `state` and `code_verifier` stay unset: they only ever mattered for the
+/// length of the flow, which completed inside one call.
+pub fn store_mcp_oauth(
+    store: &Store,
+    vault: &dyn Vault,
+    id: &str,
+    auth: &crate::mcp::Authorized,
+) -> Result<String, String> {
+    let oauth = McpOauth {
+        client_id: Some(auth.client_id.clone()),
+        client_secret: auth.client_secret.clone(),
+        auth_url: Some(auth.meta.authorization_endpoint.clone()),
+        token_url: Some(auth.meta.token_endpoint.clone()),
+        scope: auth.meta.scope.clone(),
+        access_token: Some(auth.tokens.access_token.clone()),
+        refresh_token: auth.tokens.refresh_token.clone(),
+        expires_at: auth.tokens.expires_at,
+        state: None,
+        code_verifier: None,
+    };
+    write_mcp_oauth(store, vault, id, &oauth)?;
+    Ok(auth.tokens.access_token.clone())
+}
+
 /// Persists an MCP entry's OAuth set (the pending set before the redirect, the
 /// exchanged set in the callback, the rotated set after a refresh). The whole
 /// blob is one Keychain item: it carries the client secret, the access token,

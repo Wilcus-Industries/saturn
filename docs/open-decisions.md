@@ -375,7 +375,7 @@ before either line could run. They were dead defensive code and were not ported.
 
 ### 3.1 Cold code, and what warms it
 
-`cargo build` is warning-free and 20 `#[allow(dead_code)]` remain. Every one is
+`cargo build` is warning-free and 3 `#[allow(dead_code)]` remain. Every one is
 a claim that something is legitimately unreachable; they are worth re-auditing
 at the end, because **the Phase C bug (a whole module built and never called)
 would have been caught by a dead-code warning, and one Phase D bug could not
@@ -383,21 +383,32 @@ be — a function called only from a branch that can never be true.**
 
 | where | count | warms with |
 |---|---|---|
-| `mcp.rs` — the OAuth/PKCE flow, ~270 LOC | 18 | a redirect target (loopback listener), Phase G/H |
+| ~~`mcp.rs` — the OAuth/PKCE flow, ~270 LOC~~ | ~~18~~ **1** | **warm.** `mcp::authorize` drives it from `discover_mcp_tools`; the redirect target it waited for is a loopback listener (§3.2). `probe_auth_server_meta` is the one holdout |
 | ~~`openrouter.rs` — `stream_chat` + SSE decoder~~ | ~~6~~ **0** | **warm.** `saturn::run_turn` drives it; the six markers were deleted, which is the proof |
 | `store.rs` — `latest_run` | 1 | stays cold: `list_runs` and `list_workflow_cards` cover the UI, and tests are its only reader |
 | `registry.rs` — `variable_id_from_sentinel` | 1 | stays cold; its consumer is TypeScript |
 
-### 3.2 MCP OAuth cannot complete
+### 3.2 MCP OAuth cannot complete — DONE
 
-`registry::write_mcp_oauth` is the only non-test writer of `Secret::McpOauth`
-and it is called only from inside `fresh_mcp_token`'s own refresh branch.
-Nothing ever persists an *initial* token set, because the exchange needs a
-redirect target a desktop app does not have yet. So `refreshable` can never be
-true in production and `connected` is permanently `false` for every entry.
-A 401 surfaces as an ordinary connect error.
+**Closed 2026-07-26.** The redirect target is a loopback listener, which is what
+RFC 8252 §7.3 says a native app should have used all along — no local HTTP
+origin and no registered URL scheme required. `mcp::authorize` binds
+`127.0.0.1:0`, puts the resulting `http://127.0.0.1:<port>/callback` into the
+dynamic client registration, opens the browser, and serves the one redirect;
+`registry::store_mcp_oauth` persists the set. `discover_mcp_tools` calls it on a
+401 with no stored credential, so Connect is one button for both kinds of server.
 
-Unblocks with a loopback redirect listener (Phase G/H).
+The record of the block stands, and so does its shape: the flow itself was
+correct and complete, and only the *target* was missing. Phase G/H were named as
+the unblock because the plan assumed the answer was a local HTTP server or a URL
+scheme. It was neither.
+
+What is still deferred: a server with no `registration_endpoint` (no dynamic
+client registration) cannot be connected — there is nowhere to get a client id,
+and a manual auth token is the way through. And a 401 that arrives at *tool-call*
+time still fails the call rather than authorizing, which is why
+`probe_auth_server_meta` stays cold: a run is the wrong place to open a browser
+and block for five minutes.
 
 ### 3.3 `lib/agentChat.server.ts` is not ported — DONE
 

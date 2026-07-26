@@ -31,7 +31,7 @@ Subsystem detail lives in `docs/` — read the one your task touches, not all of
 - `npm run build` — `next build`, static-exported to `out/` (what Tauri embeds). Not a full app build
 - `npm run lint` — regenerates-and-compares `catalog.json`, then ESLint. **`catalog.json` is generated** from `lib/integrations.ts`; edit a descriptor there and run `node scripts/gen-catalog.mjs` or the check fails
 - `npx tauri build` — the real build: `Saturn.app` + a `.dmg` under `src-tauri/target/release/bundle/`. Unsigned and un-notarized (`docs/open-decisions.md` §3.11)
-- `cd src-tauri && cargo test` — 139 tests, including the 48 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
+- `cd src-tauri && cargo test` — 142 tests, including the 48 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
 - `npx tsc --noEmit` — the frontend's only check beyond ESLint
 
 **No environment variables.** Nothing in `app/`, `lib/` or `src-tauri/` reads
