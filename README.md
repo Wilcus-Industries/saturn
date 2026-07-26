@@ -8,29 +8,6 @@
 
 ## Saturn | By Wilcus Industries
 
-No-code workflows for everything.
-
-Create:
-
-- Agentic automations
-- Discord/Telegram bots
-- Content creation workflows
-- So much more
-
-With:
-
-- Persistent vector-search agent memory
-- No-code node based workflows
-- And more
-
-## Status
-
-Saturn is a single-user native macOS desktop app: a Tauri shell over a Rust
-backend, one SQLite file and the login Keychain. No server, no account, no
-tenant — there is nothing to sign up for. The hosted deployment is gone.
-
-Build it with `npx tauri build`; see [`CLAUDE.md`](CLAUDE.md) for the state of
-the codebase.
 
 ## License
 
