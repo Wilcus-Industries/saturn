@@ -1,19 +1,137 @@
-# Route groups + SEO
+# Routes, shell and the IPC seam
 
 > Part of the Saturn docs set indexed in `CLAUDE.md`. Update both in the same change.
 
-## Route groups
+## Routes
 
-- `app/(saturn)/` — landing/onboard/activate, plus static legal pages `/terms` and `/privacy` (shared shell `legalPage.tsx` — solid `bg-background` section pulled up over scene viewport via `-mt-[100dvh]`; onboard connect page carries "By continuing you agree…" line, landing footer links both pages). Its `layout.tsx` mounts animated ASCII Saturn scene (`scene.tsx`, `asciiSaturn.tsx`, `moon.tsx`) **once**; pages swap beneath via view transitions (each page wraps itself in `pageTransition.tsx`). Pages render as absolute-positioned overlays on first screen, may append sections below — landing page (`page.tsx`) appends single full-viewport monochrome marketing section styled in designer node language (9-card feature-node grid `featureNode.tsx` — last `models` card `wide: true` spans both columns — beside demo screenshot `demoWindow.tsx`, scroll reveal via `reveal.tsx`, then `:: self_host` block — curl `install.sh` one-liner in plain `<pre>` + hosted-vs-self-host line + PolyForm Noncommercial note — then get-started CTA + footer). `scene.tsx` derives moon count from pathname; `asciiSaturn.tsx` also reused as dashboard logo mark.
-- `app/dashboard/(shell)/` — sidebar shell (desktop `sidebar.tsx` + `mobileNav.tsx`, links in `nav.ts`). Layout shell-only: **session checks live in each page**, not layout (layouts don't re-run on client-side navigation). Sidebar collapse state persists in `sidebar` cookie read server-side for width-correct first paint. `/dashboard` (Agent) deliberately gated on session only, not activation — Stripe Checkout redirects there before webhook writes subscription row; **streaming chat "Saturn Agent" page** (nav entry "Agent", `FaWandMagicSparkles`) — a real back-and-forth conversation, **tool-free + non-persistent** for now (no MCP, no history saved). Client shell `agentChat.tsx` (full-height flex column claiming viewport from inside shell padding — `min-h-[calc(100dvh-7.5rem)]` mobile / `-4rem` desktop, mobile two-row top bar ≈ 87px + p-4, desktop p-8) owns the transcript: a **hero overlay** (`AsciiSaturn scale={2}` + greeting, `agent-enter`) centered over an absolute-inset message list, dismissed on the **first** message — plays `agent-exit`, unmounts via `HERO_EXIT_MS` timer (not `animationend`) so reduced-motion still tears it down; ChatGPT-style: user message rises to a top-right bubble, hero lifts away, composer stays pinned bottom throughout. Messages: user = right-aligned bordered bubble; assistant = **reasoning in faint grey (`text-gray-400/80 text-xs`) above response in white (`text-foreground text-sm`)**, `thinking…` until first token, faint-red line on error; each `message-enter`s. `agentComposer.tsx` (client) is **callback-driven** — props `onSend(text, model, reasoning)` / `streaming` / `onStop`; autogrow textarea capped `max-h-40`, Enter submits/Shift+Enter newline; send button becomes a **stop** (`FaStop`) while streaming, aborting the fetch via `AbortController`. Model selector bottom-left (trigger name + `ModelLogo` from `workflows/[id]/modelLogo.tsx` + chevron, upward searchable listbox capped 120; models from `listOpenrouterModels()` in page, **ungated** — the endpoint enforces funding — `[]` → canned `FALLBACK_MODELS`); `supportsReasoning` models add a reasoning-effort control (upward faster/smarter dot slider, off/low/medium/high, default medium, drag-scrub). Both picks **persist in `agentModel`/`agentEffort` cookies** (1y, written by the composer on pick — the drag scrub writes only on stop change, not per frame) read back server-side by **`app/dashboard/agentPrefs.ts`** `agentPrefs()` (validates against `MODEL_ID`/`REASONING_MODES` from `lib/agent.ts`, junk → `undefined` → composer default) and threaded as one optional `prefs` prop into `useState` initializers — same first-paint reason as the `sidebar` cookie, and the reason it's cookies not `localStorage`: **both** mounts are server-rendered (dashboard `page.tsx`; designer `page.tsx` → `designer.tsx` `agentPrefs` prop → `agentPanel.tsx`), so a client-side read would flash the default. Cookie names are literals on both halves (composer writes, `agentPrefs.ts` reads) — same duplication as `sidebar`. Adding a third UI cookie means updating the **privacy page's cookie clause** (`app/(saturn)/privacy/page.tsx`), which enumerates them. **Transport:** `POST /api/agent/chat` (`app/api/agent/chat/route.ts` — session-auth via `getSessionCached` + own 401, `dynamic="force-dynamic"`) returns a `ReadableStream` of **NDJSON** deltas `{t:"r"|"c"|"e",d}` (reasoning/content/error, `\n`-delimited); the **client half lives entirely in `agentChatStore.ts`** — module state, not React: transcript, `streaming`, the `AbortController`, the NDJSON reader (`res.body.getReader()` + `TextDecoder`, appending to the trailing assistant message), a `subscribe` listener set (`AgentChat` reads it through `useSyncExternalStore`, server snapshots return a constant `[]`/`false`), a graph-listener set the designer panel registers `onGraph` with, and the one-shot `requestHandoff`/`takeHandoff` id. That's what makes "open in designer →" **continue** the conversation instead of cutting it off: the dashboard chat and the designer panel are different pages, so the navigation unmounts `AgentChat` — a component-owned fetch was aborted by its own unmount cleanup mid-answer and only a frozen `sessionStorage` snapshot crossed over. Module-owned, the turn keeps streaming across the navigation and finishes inside the panel. Still non-persistent (dies with the tab), but it now also survives dashboard ⇄ designer round trips, so there is no "new chat" reset short of a reload; `request.signal` threads client-abort to the upstream call. Server orchestrator `lib/agentChat.server.ts` `runAgentChat(userId,{model,reasoning,messages,signal})` validates the browser transcript (`MODEL_ID`, `MAX_AGENT_MESSAGES` 60, per-msg cap), picks the funding key via shared **`selectModelApiKey`** (`lib/credits.server.ts` — platform-credits-then-BYOK, **extracted from `executeAgentTurn`** so both paths share one source), streams via **`streamChat`** (`lib/agent.server.ts` — streaming sibling of `chatComplete`: `stream:true`, `usage:{include:true}`, no tools, SSE parse yielding reasoning/content deltas + final usage), and meters platform-billed turns through `recordUsage` under the existing `"manual"` source (no `model_usage_source_check` widening). Entrance keyframes `agent-enter`/`agent-enter-late`/`agent-exit`/`message-enter` in `globals.css` (reduced-motion opt-out). (Old unmounted overview components `gettingStarted`/`runsGraph`/`recentRuns`/`usagePanel` were deleted; shared `connectAgent.tsx` stays, still used by settings.) Shell also hosts **Memory tab** (`/dashboard/memory` list + `/dashboard/memory/[id]` detail — see "User registry").
-- `app/dashboard/workflows/[id]/` — full-screen workflow designer, deliberately **outside** `(shell)` so it renders without sidebar.
+Six pages, all statically exported. `trailingSlash: true`, so every route emits
+as `<dir>/index.html` and every internal href must carry the slash — Tauri's
+asset protocol does no extensionless fallback.
 
+| route | file | shell | id |
+|---|---|---|---|
+| `/dashboard/workflows/` | `(shell)/workflows/page.tsx` | yes | — |
+| `/dashboard/workflows/runs/?id=` | `(shell)/workflows/runs/page.tsx` | yes | query |
+| `/dashboard/workflows/designer/?id=` | `workflows/designer/page.tsx` | **no** | query |
+| `/dashboard/memory/` | `(shell)/memory/page.tsx` | yes | — |
+| `/dashboard/memory/store/?id=` | `(shell)/memory/store/page.tsx` | yes | query |
+| `/dashboard/settings/` | `(shell)/settings/page.tsx` | yes | — |
 
-## SEO
+There is **no `/` and no `/dashboard/` index.** The dashboard home was the agent
+chat, deleted with it (`docs/open-decisions.md` §3.9). The window opens directly
+at `/dashboard/workflows/` (`tauri.conf.json` `app.windows[0].url`).
 
-- `lib/seo.ts` = single source of site identity (`SITE_NAME`/`SITE_TAGLINE`/`SITE_TITLE`/`SITE_DESCRIPTION`/`GITHUB_URL`/`ORG_NAME`/`siteUrl`). Reads `BETTER_AUTH_URL` directly (fallback localhost) — never import `lib/subscription.ts` `baseUrl` here or in metadata routes, would drag auth/db/Stripe into their bundles. `BETTER_AUTH_URL` doubles as canonical site URL.
-- Root metadata + `viewport` (themeColor light/dark pair matching `globals.css`) in `app/layout.tsx`; title template `%s · Saturn`. `openGraph.images`/`twitter.images`/`icons`/`manifest` fields deliberately absent — file conventions (`app/opengraph-image.tsx`, `app/twitter-image.tsx` re-exporting it, `app/favicon.ico` — root-only multi-res 16/32/48 ICO, primary Google-search favicon fetched at `/favicon.ico`; `app/icon.png` 512² + `app/icon1.png` 192² — numbered-suffix multiple `<link rel=icon>`s, 192 = 48-multiple for Google size preference; `app/apple-icon.png` 180², `app/manifest.ts`) override metadata object. OG image renders with satori via `ImageResponse` from `next/og` (GeistMono-Regular.ttf from node_modules; landing divider's `≡`/`≣` glyphs missing from that font, render as tofu — keep out of OG art).
-- Indexing policy: only `/`, `/terms`, `/privacy` indexed (canonicals + only `app/sitemap.ts` entries). `/onboard` + `/activate` meta-noindexed but stay crawlable (not in robots.txt, so noindex visible). All `/dashboard/**` noindexed by metadata-only pass-through `app/dashboard/layout.tsx` **and** disallowed in `app/robots.ts` (along with `/api/`, `/mcp`; `/.well-known` stays crawlable for OAuth discovery).
-- Landing JSON-LD (`app/(saturn)/page.tsx`, `@graph` of Organization/WebSite/SoftwareApplication) carries offer prices that must stay in sync with `TIERS` in `tierCard.tsx`, plus a `license` URL (PolyForm Noncommercial in repo).
-- No em-dashes in marketing/SEO copy (meta descriptions, OG text, JSON-LD strings).
+Ids ride the **query string**, not a route segment: `output: "export"` prerenders
+every route at build time and a segment whose values are user-created uuids
+cannot be enumerated. The cost is that every page reading an id calls
+`useSearchParams`, which forces a `Suspense` boundary. `docs/open-decisions.md`
+§2.6 records the three routes that moved and why an SPA-fallback rewrite was not
+an option.
 
+The designer lives **outside** the `(shell)` group on purpose — it takes the full
+screen with no sidebar. Its ~20 colocated components moved with it when
+`workflows/[id]/` was renamed `workflows/designer/`.
+
+## Shell
+
+`(shell)/layout.tsx` is `MobileNav` + `Sidebar` + a `max-w-5xl` content column.
+`nav.ts` holds the three destinations and `isActive`, shared by both navs, and
+normalizes trailing slashes on both sides — `usePathname()` reports what is
+actually in the address bar, which is slash-terminated on a hard load but
+whatever href was pushed after a client navigation.
+
+**Sidebar collapse state lives on `<html data-sidebar>`, not in React.** A
+`<head>` script in `app/layout.tsx` stamps it from `localStorage` before the
+first paint and `globals.css` does the width — the same trick as a dark-mode
+flash guard, replacing the cookie the server used to read. `sidebar.tsx` reads
+that attribute through `useSyncExternalStore` (a `MutationObserver` on the
+attribute) for the toggle's icon and `aria-expanded` only; neither shifts layout,
+so the pre-hydration frame is harmless.
+
+Fonts come from `next/font/google`, downloaded at **build** time and emitted into
+the export. Nothing is fetched from Google at runtime, which is what lets them
+load under `default-src 'self'`.
+
+## The IPC seam — `lib/ipc.tsx`
+
+The one place the React app talks to Rust. Everything that used to be a server
+action, a server component's `db.query`, or a `fetch` to `app/api/` comes through
+here. Two shapes, because the backend speaks in exactly two:
+
+- **`call<T>(cmd, args)`** — request/response over Tauri IPC. Every Rust command
+  returns `Result<T, String>` and Tauri rejects with the raw string, which is not
+  an `Error` and loses its message through most of React's error paths, so this
+  normalizes once. `callVoid` is the fire-and-forget variant for paths that
+  genuinely cannot await (unmount flushes).
+- **`onEvent(name, fn)`** — Rust pushing without being asked. Carries `run-log`,
+  `run-value` and `run-finished` during a run, and `data-changed` after
+  background mutations.
+
+**`useAsync(load, opts)`** replaces a server component's `await db.query(...)`.
+Pass a stable `load` (it is the dependency). Four behaviours worth knowing:
+
+- `loading` is true only until the **first** load resolves — a background refetch
+  keeps stale rows on screen rather than flashing the skeleton again.
+- A sequence guard drops a slow first request that resolves after a fast second
+  one. That race is a client-fetch problem a server component could not have.
+- A failed refetch keeps the last good `data`. A transient error must not blank a
+  page that was rendering fine.
+- It subscribes to `data-changed` unless `opts.live === false`. The designer
+  passes `false`: a background cron run firing `data-changed` would hand it a
+  fresh `userCatalog` array mid-edit and break every memoized `Node` for nothing.
+
+`Loading` and `ErrorNote` are the shared placeholders — deliberately plain text,
+because every page here is monospace rows on a dark ground and a skeleton that
+doesn't match its content reads worse than one line admitting what it's doing.
+
+## There is no invalidation bus
+
+23 `revalidatePath` calls did not become 23 event channels. A mutation the user
+just made is awaited by its own caller, so **the caller refetches**. The only
+changes nobody asked for are background ones — a cron firing, a Discord message
+landing — and those emit one app-wide `data-changed` with no payload.
+
+Test runs deliberately do **not** emit it: the designer is already following that
+run over `run-log`/`run-finished`, and firing it too would make every open page
+refetch twice. Full reasoning in `docs/open-decisions.md` §2.7.
+
+## Settings
+
+One page, three groups: the two Keychain-backed secrets (OpenRouter key, GitHub
+PAT), the MCP servers / skills / memory stores / variables registry
+(`docs/registry.md`), and the login-item toggle.
+
+Both secret forms are the same shape twice — a password field, a clear checkbox
+that only exists once something is stored, and a save. **Write-only both ways:**
+the value never comes back over IPC, so blank means "keep" and there is nothing
+to prefill.
+
+The login item writes a LaunchAgent plist naming *the path of the binary that
+registered it*, so enabling it from `tauri dev` pins a `target/debug` build that
+the next `cargo clean` deletes. The copy says to move the app to `/Applications`
+first; nothing enforces it, because a debug build living there is a legitimate
+thing to run (`docs/open-decisions.md` §3.11).
+
+## Window lifetime
+
+Closing the window **hides** it (`on_window_event` → `prevent_close()` +
+`hide()`). The four background loops belong to the process, not the window;
+closing must not stop the scheduler, drop the Discord socket, or strand a poller
+mid-cursor. Every way back — the tray's Open item, a second launch, a dock click
+— routes through `show_main()`, which calls `show()` *then* `set_focus()`; either
+alone only works by accident. Tray → Quit is the only path that terminates the
+process.
+
+The tray icon is a macOS **template image** (`icons/tray.png`, black plus alpha)
+so AppKit can invert it for a dark menu bar. It is a separate drawing from the
+app icon, and its canvas is 44×32 rather than square — `tray-icon` scales to 18pt
+of *height* and preserves aspect, so a square canvas would leave Saturn's 2:1
+silhouette ~9pt tall. `docs/open-decisions.md` §3.12 has the rest, including why
+the SVG must be rasterized with Chrome and not ImageMagick.
+
+## Duplication left over from the parallel build
+
+`docs/open-decisions.md` §3.10 tracks what the four concurrent UI lanes solved
+separately — a third modal of the same shape, ten copies of a dead error
+fallback, `relativeTime` living in `workflowCard.tsx`, callerless `FormData`
+scaffolding. None of it is broken; all of it is code someone will read.

@@ -1,13 +1,208 @@
 # User registry: MCP servers, skills, memory stores, variables
 
-> Part of the Saturn docs set indexed in `CLAUDE.md`. Update both in the same change.
+> Part of the Saturn docs set indexed in `CLAUDE.md`. How each becomes a node is in `docs/nodes.md`; the canvas is `docs/designer.md`.
 
-Users register MCP servers + skills at `/dashboard/settings`, persistent agent-memory stores at `/dashboard/memory`, secret variables in designer toolbox; entries become designer nodes:
+The registry is the user's own node types. One table, four kinds, three UI
+surfaces:
 
-- `registry_entry` table in `db/setup.sql` (uuid id, `user_id` FK, `kind in ('mcp','skill','memory','variable')`, name; emoji/description for skills + memory stores; `server_url`/`auth_token`/`tools` jsonb for MCPs). `tools` = per-tool allowlist: `[{name, access: "read"|"write", enabled, readOnly?, description?, params?}]` — access = user's grant, set per tool via 3-position switch (off / read / read+write) in edit modal. `readOnly`/`description`/`params` discovery-derived, server-side only: `parseTools` strips from client submissions, `saveMcpServer` re-attaches stored ones by tool name, tool editor serializes only `{name, access, enabled}` triple. `readOnly` tri-state: `true`/`false` when server annotates tool, absent when no annotations (capability unknown — most servers). `canCallTool` in `lib/registry.ts` = call-time gate, blocks only provable mismatch: `readOnly: false` (server explicitly declares write capability) with read grant. Unknown/manual tools trust user's grant. Settings 3-position switch disables contradicted positions ("read" on declared-write tools, "read+write" on declared-read-only tools).
-- **Memory stores** (`kind='memory'`: name/emoji/description, no tools/URL) = persistent agent-memory collections. Items live in separate `memory_item` table (`db/setup.sql`, `entry_id` FK, `content`, pgvector `vector(1536)` `embedding`, capped 2000 items/store — enforced in `memory_save`). Managed on dedicated Memory tab (`/dashboard/memory` list + `/dashboard/memory/[id]` detail — item browse/search, per-item delete, wipe), **not** settings. `buildUserCatalog` expands each into fuchsia **grant chip** `memory:<uuid>` (category `memory`, emoji icon, `toMemoryEntry`): no flow ports, single value output `memory` connecting only to agent node's single-edge `memory` port — one store per agent. Server core = `lib/memory.server.ts`; agent-side mechanics in Saturn node section. Clicking **skill or memory** chip on canvas opens read-only info popover (emoji/name/description + one-line wiring hint — `[id]/chipInfoPopover.tsx`, designer-held state via memo-safe `onOpenInfo` callback; entry `description` comes from registry row); mcp chips open tool-picker popover instead — no chip is dead click. `lib/registry.ts` holds types, caps `MAX_ENTRIES_PER_KIND`/`MAX_MCP_TOOLS`, `buildUserCatalog` (rows → `CatalogEntry` nodes). Skills key as `skill:<uuid>`; MCP servers expand to **one server node per server** keyed `mcp:<uuid>:*` (`toServerEntry` — label = server name; `toolName: "*"` = `ALL_TOOLS` sentinel from `lib/agent.ts`, so `isMcpChipEntry`/`chipKind` treat it as tool chip; always emitted even with 0 enabled tools so saved nodes never flip to "(deleted)"). Both server + skill nodes = non-executable **grant chips**: no flow or param ports, single value output (`tool` / `skill`) connecting only to agent node's matching `tools`/`skills` port — MCP tools run exclusively through agents, which build arguments themselves (tool `params` live on registry rows, feed `buildToolDefs` server-side). Server node grants **all enabled + `canCallTool`-passing tools by default**, minus node's per-node prune in `config.exclude` (JSON-array-of-strings string, `""`/absent = all; edited via designer tool-picker popover — exclude-list, so tools discovered later auto-included unless pruned). Entry `tools` field lists exactly that expansion set (name + description) for picker + MCP `get_catalog`. Interpreter attaches parsed exclusions to `*` ref (`AgentToolRef.exclude`, validated by `isToolExclusionList`; malformed config warns + grants all); `executeAgentTurn` expands ref to server's enabled + callable tools minus exclusions, **silently skipping** off/write-mismatched/excluded ones (never error, unlike direct per-tool ref, which API surface still hard-checks), deduping + capping total at `MAX_GRANTED_TOOLS`. `buildUserCatalog` skips real tool literally named `*` so it can't collide with sentinel key. Old per-tool nodes (`mcp:<uuid>:<toolName>`) + legacy generic `mcp:<uuid>` entry **gone**: those node types render as inert "(deleted)" placeholders, grant nothing — interpreter gates grants on source resolving to live mcp chip entry, not type parse (legacy generic node flow-wired now ends chain at skip warning). DB query `getUserRegistry` in `lib/registry.server.ts` (its SELECT never includes `auth_token` — projects `has_token`; keep it that way) behind 60s in-process TTL cache (`lib/cache.server.ts`) — every registry mutation must call `invalidateUserRegistry(userId)` (settings actions + MCP OAuth callback do); `getMcpSecrets`/`freshMcpToken` stay uncached.
-- **Variables** (`kind='variable'`: name + `secret` bool + value in `auth_token` column — flat `MAX_ENTRIES_PER_KIND` cap, no tier gating) = named user values managed **in designer toolbox**, not settings. **Two modes, fixed at creation** (checkbox in modal picks it, disabled on edit so a write-only secret can never be flipped to viewable): `secret=true` = write-only secret (bot tokens etc. — value never revealed, `auth_token` never selected back), `secret=false` = regular value (viewable + editable plaintext). Pinned "variables" split at bottom of toolbox aside (visible on every group tab, filtered by toolbox search) lists them with per-row edit + "+ add"; clicking `variable:<uuid>` value box on canvas opens same `[id]/variableModal.tsx` (skillModal conventions — controlled inputs, inline `{error}`, two-step delete; success → `router.refresh()`) whose value field is **mode-aware**: secret = write-only (`type=password`, blank keeps, clear-checkbox erases), regular = plaintext prefilled from stored value, editable. Modal **hosted by `designer.tsx`** (lifted out of toolbox so both entry points share one instance): toolbox signals open-intent via `onEditVariable(row | "new")` prop; canvas node click routes through memo-safe `onOpenVariable(nodeId)` callback, resolving row by uuid (`variableIdFromNodeType`) against `variablesRef` live mirror. Actions `saveVariable`/`deleteVariable` in `[id]/actions.ts`, call `invalidateUserRegistry` + `subscriptionsChanged` (variable-held token edits reconnect transports in ~2s). `buildUserCatalog` expands each into a **read-only value box** `variable:<uuid>` (`toVariableEntry` — no inputs, single plain `value` output connecting to any ordinary value input; rendered literal-box-style sized from *name*, `isVariableEntry` in `geometry.ts`, key-glyph branch in `node.tsx`). Box + ⚿ glyph color splits by mode: **secret = violet, regular = sky** — `toVariableEntry` copies `row.secret` onto `CatalogEntry.secret`, and `entryStyles` returns `VARIABLE_REGULAR_STYLES` (sky) for `category==='variable' && secret===false`, else `CATEGORY_STYLES.variable` (violet); toolbox row + node + edge all read it through `entryStyles`, no hardcoded hue. **Secret plaintext never reaches client**, and the graph carries no plaintext for *either* mode: interpreter evaluates node to opaque sentinel `{{var:<uuid>}}` (`variableSentinel`/`variableIdFromNodeType` in `lib/registry.ts`) — configs, logs, prints, `onValue` samples, agent prompts only ever carry sentinel. Only a **regular** variable's value is client-visible (for the edit modal), exposed via one guarded projection in `getUserRegistry` (`case when kind='variable' and not secret then auth_token else '' end as value` — mcp tokens + secret variables always `''`); `page.tsx` forwards it as the `variables` prop's `value`. Secret values are only ever read server-side. Substitution happens only where secrets consumed: **`executeIntegration`** (`substituteVariables` in `lib/integrations.server.ts` — regex-scan config values + message, one uncached `getVariableValues(userId, ids)` batch from `lib/registry.server.ts`, userId-scoped so foreign/deleted uuids stay literal + provider validator rejects them normally; runs before per-provider SSRF regexes so substituted token validates) and **`getEventSubscriptions`** (`lib/events.server.ts` — resolves event-node config at subscription-build time, per workflow owner; see "Extension event nodes"). Cron/manual/event runs covered via same hook; everywhere else sentinel passes through literally (documented in `GRAPH_DOCS`).
-- Settings CRUD in `app/dashboard/(shell)/settings/` (`actions.ts`: `saveMcpServer`, `saveSkill`, `deleteRegistryEntry`, `discoverMcpTools`; add/edit modals + two-step delete button; mutations refresh via `revalidatePath("/dashboard/settings")`). `saveMcpServer`/`saveSkill` return `{ error: string }` for expected validation/cap failures (rendered as inline red text by modals, which keep text fields controlled so failed submit doesn't wipe input), return `undefined` on success — never throw for user errors (thrown server-action error hits Next generic error page, prod redacts message). Server URLs must be https + public (`assertHttpsUrlShape` in `lib/mcp.ts` — sync, no DNS — rejects literal private/loopback/localhost hosts at save; see SSRF guard below). Secrets follow **write-only convention** everywhere (MCP `auth_token`, `oauth` column, variable values, OpenRouter key): blank keeps, checkbox clears, client only ever sees boolean. MCP logos from URL's **apex** domain via Google s2 favicons (`app/dashboard/mcpLogo.tsx`; on s2 failure, server hosted on app's own domain falls back to same-origin `/icon.png`, then letter tile); skills use shared emoji picker (`app/dashboard/emojiGrid.tsx`). Settings page also renders a **GitHub App card** (server-rendered, shown **only** when the app env is fully configured — `GITHUB_WEBHOOK_SECRET` + `GITHUB_APP_SLUG` + `GITHUB_APP_CLIENT_ID` + `GITHUB_APP_CLIENT_SECRET`, so unconfigured instances see nothing; self-hosters may register their own app per `deploy/README.md` runbook + README note): install link (`/api/github/install`) + the user's linked installations (`account_login`) with per-row unlink server action (`requireUser()` + ownership-checked row delete, `revalidatePath`); see "Extension event nodes".
-- MCP connectivity in `lib/mcp.ts` (server-only): Streamable-HTTP `tools/list` discovery (`discoverTools`) + MCP OAuth 2.1 flow (protected-resource metadata → AS metadata → dynamic client registration → PKCE). **SSRF guard:** `server_url` + every metadata-derived endpoint (authorization_servers, registration/token URLs from server-returned JSON) attacker-influenceable, so every outbound `fetch` (`rpc`, `fetchJson`, `registerClient`, `tokenRequest`) calls `assertPublicHttpsUrl` first — https-only + DNS-resolve-and-reject any private/loopback/link-local/reserved address (blocks cloud-metadata/RFC1918/localhost; DNS rebinding blunted, not eliminated). Never add fetch here that skips it. `discoverMcpTools` action pulls tool list (manual bearer token wins, else stored OAuth token with refresh); 401 returns authorize URL, settings `connectButton.tsx` navigates there via `window.location` (never server-action `redirect()` — same-origin authorize URL, i.e. registering saturn's own MCP server, would make Next router swallow redirect chain, strand consent page on API URL); `app/api/mcp/oauth/callback/route.ts` (session + state-nonce checked) exchanges code, stores tokens in `oauth` jsonb column (server-only, like `auth_token`), re-runs discovery. Some servers (Google's Gmail MCP) answer discovery anonymously, only 401 at `tools/call` — tokenless discovery success also probes protected-resource metadata (`probeAuthServerMeta` — PRM-only, no origin-AS fallback), starts same OAuth flow when found; no PRM = public server. Flow spec-only: AS without RFC 7591 dynamic client registration can't connect via OAuth (no per-provider pre-registered clients) — use manual bearer token for such servers. Connect/discovery failures non-fatal: `discoverMcpTools` redirects back to `/dashboard/settings?entry=<id>&mcp_error=<message>`, page renders message inline on that server's card. Discovered tools replace allowlist via `mergeTools` in `lib/registry.ts` (user `enabled`/`access` choices survive, but `readOnlyHint` tools capped at `read`; new read-only tools start on, new write-capable tools start off; freshly discovered `readOnly`/`description`/`params` always overwrite stored). Discovery derives `params` from each tool's `inputSchema` via `deriveParams` in `lib/mcp.ts` — top-level properties only, required-first, capped 12.
-- Designer: `[id]/page.tsx` fetches user catalog; `designer.tsx` merges with static catalog into `byKey` map threaded through canvas/edges/node. Any node type that doesn't resolve (deleted registry entry, removed static entry) renders as dimmed "(deleted)" port-less placeholder (`missingEntry`) — graphs referencing them still save (`isWorkflowGraph` accepts any string type ≤ `MAX_NODE_TYPE_LENGTH`; unknown types inert).
+| kind | managed at | becomes |
+|---|---|---|
+| `mcp` | `/dashboard/settings/` | one purple grant chip per server, `mcp:<uuid>:*` |
+| `skill` | `/dashboard/settings/` | a green grant chip, `skill:<uuid>` |
+| `memory` | `/dashboard/memory/` | a fuchsia grant chip, `memory:<uuid>` |
+| `variable` | the **designer toolbox** | a value box, `variable:<uuid>` |
 
+`registry_entry` is `(id, kind, name, emoji, description, config, created_at,
+updated_at)`. The five sparse kind-specific columns the Postgres schema had
+(`server_url`, `tools`, `oauth`, `auth_token`, `secret`) collapsed into one
+`config` JSON blob, so a new kind needs no schema change.
+
+`lib/registry.ts` (client-safe) holds the types, `buildUserCatalog`, the uuid
+regex and the sentinel helpers. `src-tauri/src/registry.rs` holds the SQL and
+every mutation. Caps: `MAX_ENTRIES_PER_KIND = 50`, `MAX_MCP_TOOLS = 40`,
+`MAX_NAME = 60`, `MAX_DESCRIPTION = 2000`, `MAX_TOKEN = 4096` — all counted in
+UTF-16 units, matching what the browser counts.
+
+## Secrets never enter the database
+
+`auth_token`, the OAuth token set, and a secret variable's value are **Keychain
+items** (`secrets.rs`, service `com.wilcus.saturn`), which is why no such column
+exists in `store.rs`'s schema.
+
+**The read path never returns a secret.** `get_user_registry` computes
+`has_token` and `connected` from the Keychain but carries nothing out of it. The
+one deliberate exception is the same one the SQL had: a *non-secret* variable's
+value is viewable by the user's own choice, so it lives in `config` — never the
+Keychain — and comes back as `value`.
+
+Two rules the rest of the app depends on:
+
+1. **Write-only.** A blank input KEEPS the stored value, an explicit clear
+   removes it, and no read path hands a secret to the UI — only a boolean.
+   `secrets::set` is where that is enforced, because it is the one place a
+   mistake silently destroys the user's key.
+2. **Nothing outlives its owner.** `registry::delete_entry` calls
+   `delete_entry_secrets`, so deleting an MCP server takes its token, its OAuth
+   set and (for a variable) its value with it. An orphaned Keychain item is a
+   real leak — the row that gave it meaning is gone, so nothing will ever clean
+   it up.
+
+## MCP servers
+
+`config` carries `server_url` and `tools`, the per-tool allowlist:
+`[{name, access: "read"|"write", enabled, readOnly?, description?, params?}]`.
+
+`access` is the user's grant, set per tool by a three-position switch (off /
+read / read+write) in the edit modal. `readOnly`, `description` and `params` are
+**discovery-derived**: the client never submits them, and a save re-attaches the
+stored ones by tool name.
+
+`readOnly` is tri-state — `true`/`false` when the server annotates the tool,
+absent when it sends no annotations (most of them). `canCallTool` is the
+call-time gate and blocks only a **provable** mismatch: the server explicitly
+declares the tool write-capable while the user granted read-only. Unknown
+capability trusts the user's grant; blocking there adds no safety, it just forces
+a pointless flip to read+write.
+
+### One chip per server
+
+`toServerEntry` emits a single node keyed `mcp:<uuid>:*`, where `*` is the
+`ALL_TOOLS` sentinel. Wired into an agent's `tools` port it grants **every
+enabled + callable tool**, minus that node's own `config.exclude` — a JSON array
+of names edited through the designer's tool-picker popover. It is an *exclude*
+list, so tools discovered later are auto-included unless pruned.
+
+The entry's `tools` field lists exactly the expansion set, so the picker never
+shows a tool the runtime would skip. `buildUserCatalog` skips a real tool
+literally named `*` so it cannot collide with the sentinel. The chip is emitted
+**even with zero enabled tools** — disabling everything in settings must not flip
+saved server nodes to "(deleted)".
+
+Old per-tool node types (`mcp:<uuid>:<toolName>`) and the legacy generic
+`mcp:<uuid>` are gone; those types render as inert "(deleted)" placeholders and
+grant nothing, because the interpreter gates grants on the source resolving to a
+live mcp chip entry rather than on parsing the type string.
+
+### Discovery
+
+`discover_mcp_tools` connects over Streamable-HTTP, calls `tools/list`, and
+merges the result into the stored allowlist. Merge keeps the user's
+`enabled`/`access` choices, caps `readOnlyHint` tools at `read`, starts new
+read-only tools on and new write-capable tools off, and always overwrites
+`readOnly`/`description`/`params` with freshly discovered values.
+
+`params` come from each tool's `inputSchema` — top-level properties only,
+required first, capped at `MAX_TOOL_PARAMS = 12`. The `js::J` machinery in
+`mcp.rs` exists to preserve the server's declaration order through that cap
+(though `to_parameters` re-sorts on the way out to OpenRouter — a deliberate,
+presentational divergence, `docs/open-decisions.md` §2.1).
+
+### The SSRF guard
+
+`mcp.rs` is security-critical and was translated as-is, not improved. The server
+URL is the user's own, but **everything the server hands back** —
+`authorization_servers`, the authorization/token/registration endpoints, the PRM
+resource URL — is the server's, i.e. attacker-controlled. A hostile server
+answering `"token_endpoint": "https://169.254.169.254/…"` must not get a request.
+
+So the module has exactly **one fetch site**, `send_guarded`, which calls
+`assert_public_https_url` on the start URL and again on every redirect hop.
+Adding a second fetch site is how the guard gets skipped; don't.
+
+Two things are stronger here than in the TypeScript, both deliberate:
+
+- Node's `fetch` followed redirects itself, so a public host could 30x the
+  request onto a private address *past* the guard. Redirects are followed
+  manually and re-validated.
+- Node resolved the host, checked the addresses, then handed the URL to `fetch`,
+  which resolved again — a rebinding server can answer differently the second
+  time. `ClientBuilder::resolve_to_addrs` pins the address that was checked.
+
+Nothing in `mcp.rs` logs. An access token, a refresh token, an authorization code
+and a PKCE verifier all pass through it; `TokenSet` deliberately does not derive
+`Debug`.
+
+Save-time validation is `assert_https_url_shape` — sync, no DNS — rejecting
+literal private/loopback/localhost hosts. It does *not* reject credentials in the
+URL (`https://good.example.com@10.0.0.1/`); not exploitable, since the guard
+reads the real host, but a phishing-shaped URL survives save and is shown back
+(`docs/open-decisions.md` §2.5).
+
+### OAuth cannot complete yet
+
+The PKCE flow is fully ported — protected-resource metadata → authorization-server
+metadata → dynamic client registration → authorization code — but nothing
+persists an *initial* token set, because the exchange needs a redirect target a
+desktop app does not have. `refreshable` can therefore never be true in
+production and `connected` is permanently `false`. A 401 surfaces as an ordinary
+connect error.
+
+That is ~270 lines behind 18 `#[allow(dead_code)]` markers. It unblocks with a
+loopback redirect listener (`docs/open-decisions.md` §3.2).
+
+The session cache the TypeScript had was dropped: `mcp::call_tool` re-handshakes
+unconditionally. Correctness is unaffected (the handshake is idempotent) and it
+removes the cross-credential-reuse risk the TypeScript had to hash the token to
+avoid, at a cost of two extra round trips per tool call (§2.2).
+
+## Skills
+
+Name, emoji, description. The description **is** the skill: it is injected into
+the agent's system prompt server-side, by id. Client-sent instruction text is
+never trusted.
+
+## Memory stores
+
+Name, emoji, description — no tools, no URL. Items live in the `memory_item`
+`vec0` table, partitioned by `entry_id`, and are managed on their own tab:
+`/dashboard/memory/` lists the stores with item counts, `/dashboard/memory/store/?id=`
+browses one (search, per-item delete, wipe). Wipe empties without deleting the
+row, so every node wired to that store keeps resolving.
+
+The agent-side mechanics are in `docs/nodes.md`.
+
+## Variables
+
+Name + a `secret` flag. **Two modes, fixed at creation** — the checkbox is
+disabled on edit, so a write-only secret can never be flipped to viewable:
+
+- `secret = true` — the value lives in the Keychain, is never selected back, and
+  the field is write-only (blank keeps, clear erases). Violet.
+- `secret = false` — the value lives in `config` as plaintext and is prefilled,
+  viewable and editable. Sky.
+
+Both colors resolve through `entryStyles`, never a hardcoded hue.
+
+**The graph carries no plaintext for either mode.** A variable node evaluates to
+the opaque sentinel `{{var:<uuid>}}`. Configs, logs, prints, `run-value` samples
+and agent prompts only ever carry that. Substitution happens at exactly two
+points of consumption:
+
+- **`integrations::execute`** — scans config values and the message, resolves the
+  ids, and does it *before* the per-provider SSRF checks, so a substituted token
+  is validated normally. A deleted or unknown uuid stays literal and the
+  validator rejects it.
+- **`events::get_event_subscriptions`** — resolves event-node config at
+  subscription-build time, because a transport cannot dial with a sentinel. This
+  is the one place a plaintext bot token exists in memory, which is why
+  `EventSubscription` fingerprints it in `Debug` and is not `Serialize`.
+
+Variables are managed in the designer toolbox's pinned bottom split (visible on
+every group tab, filtered by toolbox search), and the same modal opens from
+clicking a `variable:<uuid>` box on the canvas. `variableModal.tsx` is hosted by
+`designer.tsx` rather than the toolbox so both entry points share one instance.
+
+Every variable mutation calls `subscriptions_changed()` after the Keychain write
+— a variable-held bot token edit must reconnect the transports within ~2s, not
+in a minute.
+
+## Cache coherence
+
+The registry read is cached in-process. **Every mutation invalidates**, and every
+workflow or variable mutation additionally calls `events::subscriptions_changed()`.
+Both live on the store/registry methods, not the commands, so no future IPC
+command or MCP tool can forget them.
+
+Lock ordering between `events::CACHE` and the `Store` mutex is unenforced. No
+deadlock today — every mutation drops the store guard before taking the cache —
+but nothing keeps it that way (`docs/open-decisions.md` §2.5).

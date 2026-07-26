@@ -1,8 +1,285 @@
-# Integration actions + extension event nodes
+# Integration actions + event transports
 
-> Part of the Saturn docs set indexed in `CLAUDE.md`. Update both in the same change.
+> Part of the Saturn docs set indexed in `CLAUDE.md`. Node shapes and the catalog are in `docs/nodes.md`; the run pipeline is in `docs/workflows.md`.
 
-## Nodes and ingress
+## One descriptor per platform
 
-- Integration (action) nodes (orange, toolbox group "Apps", keys `integration:<provider>`): outbound half of **platform extension** (client-safe `lib/integrations.ts`) — each `PlatformExtension` in `EXTENSIONS` bundles one app's `app`/`logoDomain` plus outbound `actions` (`IntegrationAction`) + inbound `events` (`ExtensionEvent`, next bullet); flat views derived at bottom — `INTEGRATIONS`/`INTEGRATIONS_BY_ID` and `EXTENSION_EVENTS`/`EXTENSION_EVENTS_BY_KEY` (keyed by full node type `event:<id>`) — keep every consumer compiling, no call-site churn. Actions = **normal rectangular nodes** (header with provider favicon + port rows + inline config rows): flow in + flow out, plus **one value input port per config field** (same id, generated in catalog build with `overriddenBy` auto-derived) overriding field's literal when connected; paired ports render **inline on config row's left edge** instead of separate port row (`pairedInputIds`/`unpairedInputs` in `geometry.ts` — port rows zip only unpaired inputs with outputs, `portGeometry` anchors paired port at config row's vertical center) — tokens/channel ids/messages all wireable from upstream nodes (interpreter merges connected port values into config record before `callIntegration`; `message` still rides own param). Action may also declare single **value output** (`IntegrationAction.output` — `{id, label}`; catalog appends after `flowOut`): interpreter stashes sender's `{text}` result in `saturnResults` under that port + reports via `onValue` (agent-`result`-style — `computeOutput` warns "read before the node ran" if read first), making read-style actions possible. Four Discord providers: `discord-webhook` (webhook URL pasted into `config.webhookUrl` — stored plaintext in graph jsonb; user's own graph, accepted), `discord-send-message` (bot-API `POST /api/v10/channels/{channelId}/messages` with `config.botToken` — same token as `discord-mentioned` event node — and `config.channelId`), `discord-read-messages` (only output-bearing action: `GET .../channels/{channelId}/messages?limit=N`, `config.count` clamped 1–100 default 20, result = compact chronological JSON array `[{id, author, bot, content, timestamp, attachments:[url]}]` on `messages` output — no Telegram counterpart, Telegram Bot API has no history endpoint, getUpdates single-consumer/push-only), `discord-typing` (no message: `config.status` on/off select; "on" fires `POST /channels/{channelId}/typing` — Discord auto-expires indicator ~10s later, "off" = no-op, Discord has no cancel call) — plus two Telegram providers: `telegram-send-message` (bot-API `sendMessage`, or `sendPhoto` multipart when message is image data URL; `config.botToken` from @BotFather — same token as `telegram-message` event node — and `config.chatId`) and `telegram-typing` (`sendChatAction` "typing"; Telegram auto-expires ~5s later, "off" = no-op) — plus one app-agnostic HTTP provider: `http-request` (`app`/`section` = generic `http`/`data` teal, no per-app sender: `config.method` GET/POST/PUT/PATCH/DELETE, `config.url` required, `config.headers` JSON-object string, `config.body` non-GET only; result on `response` value output = JSON string `{status, contentType, body, truncated?}`, body parsed-JSON-embedded when whole + JSON else raw text, **non-2xx returned as data not error** so graphs branch on `status`). `sendHttpRequest` in `lib/integrations.server.ts` is the **template for any future sender fetching an attacker-influenced URL**: `assertPublicHttpsUrl` re-validated on **every redirect hop** via a manual `redirect:"manual"` loop (max 5 hops; 301/302/303 downgrade to GET + drop body — closes the follow-to-private-IP hole `fetch`'s default `redirect:"follow"` would open), header names charset-checked + CRLF-rejected + forbidden-header-stripped (`parseHttpHeaders`), streamed response read capped at `HTTP_MAX_RESPONSE_BYTES` 1 MiB, 20s total deadline. Sends execute server-side in `lib/integrations.server.ts` `executeIntegration(userId, providerId, config, message)` — errors as values; per-provider SSRF guard = exact-host allowlist for webhook (https + `discord.com`/`discordapp.com` host + `/api/webhooks/` path prefix, never loosen to substring checks) + strict snowflake regex (`/^\d{17,20}$/`) on `channelId` for bot senders (`botChannelConfig` — fixed URL base, untrusted config never shapes fetch target); Telegram same convention with `telegramConfig` — token rides URL *path* (`api.telegram.org/bot<token>/<method>`), so strict charset regex (`/^\d{1,20}:[A-Za-z0-9_-]{25,64}$/`) plus chat-id regex (numeric or `@username`) keep untrusted config from shaping fetch target. Discord senders share `postDiscordMessage` (content truncated to Discord 2000-char cap): `message` that is `data:image/…;base64,…` data URL (e.g. agent node `output=image` result wired into `message` port) uploaded as **multipart `files[0]` attachment** instead of text (decoded to bytes, filename ext from mime subtype, `DISCORD_UPLOAD_LIMIT` 8 MiB backstop; `sendTelegramMessage` mirrors same branch via `sendPhoto`, `TELEGRAM_UPLOAD_LIMIT` 10 MiB, text truncated at Telegram 4096-char cap); `executeIntegration` length gate exempts image data URLs from 4096-char `MAX_INTEGRATION_MESSAGE` cap, allows up to `MAX_INTEGRATION_IMAGE` (4 MiB, mirrors runner's `MAX_IMAGE_DATA_URL`). Reached through interpreter's `callIntegration` hook (uniform wiring — see runner bullet). Budget `MAX_INTEGRATION_CALLS` 20. Integrations all carry `integration` category, but each descriptor carries two more required fields splitting **grouping** from **color**: `app` names app (`discord`), heads node's toolbox subsection in Apps group (grouped by first appearance in `INTEGRATIONS`; provider's `label` then bare node name — `send webhook`, not `discord webhook`); `section` names one of `INTEGRATION_SECTIONS` in `lib/integrations.ts` (`events`/`logic`/`data` — subset of `NodeCategory`, enforced by `satisfies`; `discord-webhook` is `data`), supplies only **color**, mirroring Blocks group — discord webhook paints teal like `print` node. Two ride along as `CatalogEntry.group` (MCP `get_catalog` tool reports as `app` for integrations, `server` for mcp entries) and `CatalogEntry.section`. Resolve colors through **`entryStyles(entry)`** (`lib/workflow.ts` → gray `MISSING_STYLES` when `entry.missing`, else `CATEGORY_STYLES[entry.section ?? entry.category]`), never by indexing `CATEGORY_STYLES` with `entry.category`, or integrations revert to orange. Every `CATEGORY_STYLES` entry carries full-perimeter `border` class (in its hue) alongside `borderL`. `edges.tsx` resolves stroke once when building `End` (`color`, not category) since node's category no longer determines color. Adding platform, action, or event (Slack…) = one descriptor in `lib/integrations.ts` (+ one sender in `lib/integrations.server.ts` for action, or handler in matching ingress transport — `lib/gateway.server.ts` Discord, `lib/telegram.server.ts` Telegram — for event); interpreter/designer/toolbox need no changes (provider whose color category isn't in `INTEGRATION_SECTIONS` yet also needs name added there; new `app` value just heads new subsection). `lib/integrations.ts` must only `import type` from `lib/workflow.ts` (workflow.ts value-imports it — value import back would cycle at runtime).
-- Extension event nodes (keys `event:<id>` via `eventNodeKey`, `EVENT_PREFIX` = `event:`; `event:discord-mentioned`, `event:telegram-message`, `event:github-push`/`event:github-issue`/`event:github-pr`/`event:github-release`/`event:github-star`, plus the transport-less `event:webhook`): inbound trigger nodes, catalog category `events` so entry resolution / one-event rule / spawn guard all free. Render as **normal rectangular nodes** (amber — carry **no** `section`, unlike action nodes, so `entryStyles` colors by `events` category): no flow input (events = entry points), flow `out` port **and `payload` value output** carrying event as JSON string (wire to `extract` to pick fields), plus same per-config value input ports as action nodes — tokens/filters wireable from **variable/string nodes**. `discord-mentioned` config: `botToken` (required) plus `guildId`/`channelId` optional filters; `telegram-message` config: `botToken` (required, from @BotFather) plus optional `chatId` filter (numeric id or `@channelusername`); `github-*` config: `repo` (required, `owner/repo`) plus `github-push`'s optional `branch` filter (no token field — the webhook is the only github ingress and never read one); github events require the operator's linked central GitHub App (below) — no app or no linked installation → the toolbox chip is disabled. Event config read **statically** by `getEventSubscriptions`, never by interpreter: value edge into config port replaces literal — variable node resolves via `substituteVariables` per workflow owner so transports only ever see plaintext tokens (still-unresolved sentinel in required field drops subscription, in optional filter stays literal + matches nothing), `string`/`number`/`literal` node resolves to `config.value`, any other (dynamic) source resolves to blank — `validateGraphStrict` warns on such edges. Delivery real-time, not cron. Discord + Telegram arrive via per-provider **in-process ingress transports** (see Commands; deploys drop + re-establish connections in seconds): **Discord gateway** (`lib/gateway.server.ts`, hand-rolled Gateway client on `ws` — `serverExternalPackages` in `next.config.ts`) and **Telegram long-poller** (`lib/telegram.server.ts`, plain-`fetch` `getUpdates` loops). github events arrive over the HTTP webhook instead (no background transport — see the GitHub delivery paragraph below). Both transports read subscriptions via `getEventSubscriptions()` in `lib/events.server.ts` every 60s **plus** immediately (2s debounce) when workflow mutation calls `subscriptionsChanged()` (poked by `saveWorkflow`, `setWorkflowActive`, `deleteWorkflow`, `saveVariable`/`deleteVariable`, MCP `update_workflow`/`delete_workflow`/`save_graph` tools — interval poll = reconciliation backstop; `onSubscriptionsChanged` multi-listener, Set returning per-listener unsubscribers). Subscriptions normalized `{workflowId, nodeId, provider, event, botToken, config}` for every `active` workflow's event nodes with non-blank required config — `provider` = owning `PlatformExtension.id`, `event` = descriptor id, `config` = remaining non-blank fields (transport-interpreted filters); each transport filters subscriptions to own provider. Discord: one Gateway websocket per distinct bot token (diffed by token value; failed subscription query keeps live sessions), matches plain @-mentions of bot in `MESSAGE_CREATE.mentions` (skips bot-authored messages as loop guard; role/@everyone mentions don't count), applies each subscription's guild/channel filters, dispatches each match to `ingestEvent()` (`lib/events.server.ts` — validate/claim/execute core, fire-and-forget so runs never block ws message path). Fatal Gateway closes give up on token until value changes: 4004 bad token, 4010–4013; 4014 (Message Content intent not enabled in dev portal) first retries once with `GUILD_MESSAGES` only — mention messages carry `content` even without privileged intent, so such bots still work. Telegram: one `getUpdates` long-poll loop (25s hold) per distinct bot token — Telegram allows single getUpdates consumer per token; fires on **any** received message (DMs always; group messages per bot privacy mode — doc-only, no code), applies optional `chatId` filter, advances `offset` unconditionally as ack, skips backlog older than 5 min (no replay after downtime), 401/404 kill token until value changes (mirrors 4004), 409 (webhook set or second consumer) retries slowly with hint, never auto-calls `deleteWebhook`, 429 honors `retry_after`; bots never receive own messages via getUpdates — no loop guard needed. **Events bypass tier cron floor entirely** — every delivered event runs, no per-workflow cooldown (`ingestEvent` only re-checks `active` atomically while stamping `last_run_at`). Each descriptor carries `samplePayload` (canned JSON seeding designer test runs + extract path picker via `sampleEventPayload(nodeType)` → JSON string, threaded as `runWorkflow` `eventPayloads` map) and `payloadDoc` (one-line shape for GRAPH_DOCS). Event node's `payload` output evaluates to `eventPayloads[nodeId] ?? ""` in interpreter's events-category case. **GitHub delivery — central GitHub App webhook** (the ONLY github path; instant, HMAC-verified — there is no poller): operator registers one GitHub App (webhook URL + secret in server env — see `deploy/README.md`), users install it on repos via the settings card. Entirely HTTP-driven, **no `startBackground`/transport wiring**. Ingress at `app/api/github/webhook/route.ts` (thin shell — `dynamic = "force-dynamic"`, POST only): env-gated on `GITHUB_WEBHOOK_SECRET` (**unset → 404**, indistinguishable from not-existing — github event nodes are then disabled in the designer, no polling fallback exists), rejects oversized bodies (2 MB, declared + actual), verifies `x-hub-signature-256` (`sha256=<hex>` HMAC-SHA256 over raw bytes, timing-safe) **before any `JSON.parse`** (bad/missing → 401), answers `ping` → 200, else delegates to `handleGithubDelivery` in `lib/githubApp.server.ts`. That module now owns **everything as module-locals** (nothing left to import from the deleted poller): untrusted-payload accessors (`asObj`/`asStr`/`asArr`/`numStr`/`branchFromRef`) + payload builders (`buildIssue`/`buildPr`/`buildRelease`) + `mapWebhookEvent` (webhook-body → Saturn-payload, each shape **byte-matching that descriptor's `samplePayload` in `lib/integrations.ts`**; webhook push carries full commits so **no compare-API enrichment**) + `subWantsEvent` (event equality + optional push branch filter) + `dispatchGithubEvent(sub, payloadObj)` (**2-arg now** — `MAX_EVENT_PAYLOAD` guard re-slices the body to 1000, then `ingestEvent`, fire-and-forget so GitHub's 10s delivery timeout never waits on runs). Event mapping: `push` (skip if `deleted:true`) → `github-push`, `issues` `opened` → `github-issue`, `pull_request` `opened` → `github-pr`, `release` `published` → `github-release`, `star` `created` → `github-star`; anything else ignored. Push **branch filter** matches on `branchFromRef` (`refs/heads/<branch>` → `<branch>`) — **tag pushes** carry `branch: ""` (never match a set filter); zero-commit/force pushes still deliver (`commitCount: "0"`). Payloads truncate body 4000 chars, commit `messages` 5×200. **Single dedupe layer** (the source-tagged fingerprint ledger is gone with the poller): 15-min TTL on the `x-github-delivery` GUID (`deliveryIdSeen`, written unconditionally on first sight even for skip paths — absorbs GitHub retries/manual redeliveries; at-least-once past that TTL). Github subscriptions read through this module's **own 15s single-key TTL cache** (`subsCache`, cleared by a once-registered `onSubscriptionsChanged` listener — not the every-60s `getEventSubscriptions` reconcile the Discord/Telegram transports run). **Owner-only delivery for ALL repos** (public included — no more public fan-out to arbitrary matching subs): once subs match repo + event, require `installation.id` present + a linked `github_installation` row (`getInstallation`, 60s TTL) and keep only subs whose `sub.userId === row.userId`; no id / no linked row → **dropped** with 200 (GitHub won't retry). Installation→user binding is OAuth-verified via the install flow: `app/api/github/install/route.ts` (session via `getSessionCached` — **never** `auth.api.getSession`, so the self-hosted synthetic owner can bind installations too; env gate, nonce → httpOnly cookie → redirect to `https://github.com/apps/<slug>/installations/new?state=<nonce>`) then `app/api/github/callback/route.ts` (state-nonce check mirroring `app/api/mcp/oauth/callback/route.ts`, exchanges OAuth `code`, **binding proof** = the `installation_id` must appear in the installer's `GET /user/installations` list — blocks guessing foreign ids — then upserts the `github_installation` row and discards the token, no app private key stored). **Lifecycle** (meta-events auto-delivered to App webhooks — nothing to add to the app's subscribe list): `installation` `deleted` → row delete; suspend/unsuspend → **no-op** (GitHub halts/resumes deliveries itself, row stays so unsuspend needs no re-link); `installation_target` `renamed` → `renameInstallationAccount` refreshes `account_login` so the settings card stays fresh; repo deletion + `installation_repositories` add/remove → **no DB work** (no per-repo rows) → `event ignored`. An **uninstall while the server is down** leaves a stale row — inert (GitHub sends nothing for a dead installation), manual unlink on the settings card is the escape hatch (accepted risk). github event nodes carry no token field — the webhook is the only ingress and authenticates by HMAC. **Designer gating:** `page.tsx` computes tri-state `githubLink: "linked" | "unlinked" | "unconfigured"` (from `githubAppConfigured()` + `listInstallations(userId)`), threaded page→designer→toolbox — Apps-tab github chips render disabled (opacity-40, dead drag) unless `"linked"`, with hints (`"unlinked"` → link the app in settings; `"unconfigured"` → register a GitHub App on this server, see `deploy/README.md`), plus the drop-guard toast + `validateGraphStrict` `{ githubLinked }` warn + MCP `checkGraph` lazy parity covered above. Whole path dormant when env unset — the settings card only appears with all four env vars set. **Generic inbound webhook (`event:webhook`):** zero config, amber event circle (🪝), fired by an external service POSTing a per-workflow capability URL `<baseUrl>/api/hooks/<workflowId>/<secret>` — **no transport, no `startBackground` wiring**, so `getEventSubscriptions` **excludes** it (`platform !== "webhook"`). The secret lives in the new `workflow.webhook_secret` column (not node config), provisioned/rotated via designer popover (`webhookPopover.tsx`, opened by clicking the circle — `getOrCreateWebhookSecret`/`rotateWebhookSecret` server actions). Ingress `app/api/hooks/[workflowId]/[secret]/route.ts` (no env gate, POST only): UUID + secret-charset shape gates, fixed-window rate limit 60/min per workflow, 2 MB body cap (declared + actual), single PK lookup then timing-safe secret compare with a dummy-compare on the row-miss/null-secret path — **every failure (row miss, unprovisioned, mismatch, inactive, no `event:webhook` node) collapses to a byte-identical 404** so the id alone is no capability, responds **202 fire-and-forget** handing a `{method, contentType, query, body, receivedAt}` envelope to `ingestEvent` (`body` = parsed JSON when the request body is a JSON object/array so one `extract` reaches `body.user.id`, else the raw string; oversized envelope falls back to a binary-search-truncated raw-string body + `truncated:"true"`, capped to `MAX_EVENT_PAYLOAD`). Works under `SELF_HOSTED` unchanged.
+`lib/integrations.ts` is the client-safe half. Each `PlatformExtension` in
+`EXTENSIONS` bundles one app's `app` name and `logoDomain` plus its outbound
+`actions` and inbound `events`; the flat views at the bottom
+(`INTEGRATIONS`, `INTEGRATIONS_BY_ID`, `EXTENSION_EVENTS`,
+`EXTENSION_EVENTS_BY_KEY`) are what every consumer reads.
+
+Adding a platform, action or event is **one descriptor here**, plus:
+
+- for an action — a sender in `src-tauri/src/integrations.rs`;
+- for an event — a handler in the matching transport (`gateway.rs`,
+  `telegram.rs`, `github.rs`) and a row in `events.rs`'s `EVENTS` table;
+- `node scripts/gen-catalog.mjs` to regenerate `catalog.json`.
+
+The designer, toolbox and interpreter need no changes. A provider whose color
+category is not yet in `INTEGRATION_SECTIONS` needs that name added too; a new
+`app` value just heads a new toolbox subsection.
+
+`lib/integrations.ts` may only `import type` from `lib/workflow.ts` —
+`workflow.ts` value-imports this file, so a value import back cycles at runtime.
+
+**The payload shape is not described here.** It is defined once, in Rust, by the
+builder its transport dispatches through, and a designer test run seeds event
+nodes from those same builders via `events::sample_payload`
+(`docs/open-decisions.md` §1.4).
+
+## Action nodes
+
+Orange, toolbox group "Apps", keys `integration:<provider>`. Ordinary rectangles:
+flow in, flow out, and **one value input per config field** (same id, with
+`overriddenBy` auto-derived) that overrides the field's literal when connected —
+so tokens, channel ids and messages are all wireable from upstream nodes. Paired
+ports render inline on the config row's left edge rather than as a separate port
+row (`pairedInputIds` / `unpairedInputs` in `geometry.ts`).
+
+An action may declare one **value output** (`IntegrationAction.output`); the
+interpreter stashes the sender's result under that port, which is what makes
+read-style actions possible.
+
+Each descriptor carries two fields that split **grouping** from **color**: `app`
+names the app and heads its toolbox subsection; `section` names one of
+`INTEGRATION_SECTIONS` (`events`/`logic`/`data`) and supplies only the color, so
+a Discord webhook in "data" paints teal like the `print` node. Resolve it through
+`entryStyles(entry)` or integrations revert to orange.
+
+| node | does |
+|---|---|
+| `discord-webhook` | POSTs a pasted webhook URL. The URL is stored plaintext in the graph — the user's own graph, accepted |
+| `discord-send-message` | bot API `POST /channels/{id}/messages` |
+| `discord-read-messages` | `GET /channels/{id}/messages?limit=N` (1–100, default 20) → compact chronological JSON array on the `messages` output. No Telegram counterpart: the Bot API has no history endpoint |
+| `discord-typing` | `POST /channels/{id}/typing`. "off" is a no-op — Discord auto-expires after ~10s and has no cancel call |
+| `telegram-send-message` | `sendMessage`, or `sendPhoto` multipart when the message is an image data URL |
+| `telegram-typing` | `sendChatAction`. Same auto-expiry (~5s), same no-op "off" |
+| `http-request` | any REST call. `method`/`url`/`headers` (JSON object)/`body`; result on `response` is `{status, contentType, body, truncated?}`. **Non-2xx comes back as data, not an error**, so graphs branch on `status` |
+
+Images: a `message` that is a `data:image/…;base64,…` URL (e.g. an agent node's
+`output=image` result) is uploaded as an attachment rather than sent as text —
+`files[0]` multipart on Discord (8 MiB cap), `sendPhoto` on Telegram (10 MiB).
+The 4096-char message cap exempts image data URLs and allows up to
+`MAX_INTEGRATION_IMAGE` (4 MiB), mirroring the runner's `MAX_IMAGE_DATA_URL`.
+
+### The SSRF guards
+
+`integrations.rs` is security-critical and translated as-is, not improved. Config
+arrives from the graph and is untrusted, so **every value that reaches a URL path
+is shape-checked first**. Two guards carry the weight:
+
+- **Exact-host allowlists** (`==`, never `contains`) for the Discord webhook URL
+   — the only sender whose URL is user-supplied. https + `discord.com` /
+  `discordapp.com` + an `/api/webhooks/` path prefix.
+- **Charset checks on ids and tokens**, because a Discord channel id and a
+  Telegram bot token are interpolated straight into the request path. Anything
+  admitting `/`, `?`, `#` or `%` would let config re-aim the request at another
+  endpoint of the same host. Snowflakes are `^\d{17,20}$`; Telegram tokens
+  `^\d{1,20}:[A-Za-z0-9_-]{25,64}$`; chat ids numeric or `@username`.
+
+`http.rs` `send` is the template for any future sender fetching an
+attacker-influenced URL: `assert_public_https_url` re-validated on **every**
+redirect hop through a manual loop (max 5; 301/302/303 downgrade to GET and drop
+the body), header names charset-checked and CRLF-rejected, response read capped
+at 1 MiB, whole-request deadline.
+
+**`http-request` deliberately does not use the strict guard.** `parse_request_url`
+checks the scheme and nothing else — private addresses, plain http and localhost
+all pass, because on a single-user desktop the graph is the user's own and the
+node's whole point is reaching Ollama on 11434, a NAS, or Home Assistant. The
+strict guard *is* still enforced on every MCP fetch, where the URL and all
+metadata-derived endpoints are attacker-controlled. `docs/open-decisions.md` §1.3.
+
+Budget: `MAX_INTEGRATION_CALLS = 20` per run.
+
+## Event nodes
+
+Keys `event:<id>`, catalog category `events` — so entry resolution, the one-event
+rule and the spawn guard all come free. They render as ordinary rectangles in
+amber (they carry **no** `section`, unlike action nodes), with no flow input
+(they are entry points), a flow `out`, a `payload` value output carrying the
+event as a JSON string, and the same per-config value inputs action nodes have.
+
+| node | required | optional |
+|---|---|---|
+| `event:discord-mentioned` | `botToken` | `guildId`, `channelId` filters |
+| `event:telegram-message` | `botToken` | `chatId` (numeric or `@username`) |
+| `event:github-push` | `repo` (`owner/repo`) | `branch` |
+| `event:github-issue` / `-pr` / `-release` / `-star` | `repo` | — |
+| `event:webhook` | — | no ingress; see below |
+
+**Event config is read statically by `events.rs`, never by the interpreter.** A
+value edge into a config port replaces the literal, but only three source kinds
+resolve: a variable node (substituted per the sentinel rules), or a
+`string`/`number`/`literal` node (`config.value`). Anything dynamic resolves to
+blank, and `validateGraphStrict` warns on such an edge. An unresolved sentinel in
+a *required* field drops the subscription; in an optional filter it stays literal
+and matches nothing.
+
+## The event spine — `events.rs`
+
+Every transport reads the same feed and pushes every delivery through the same
+funnel.
+
+```
+get_event_subscriptions(store, keychain) -> Vec<EventSubscription>
+ingest_event(app, store, keychain, wf_id, node_id, payload) -> IngestResult
+```
+
+Subscriptions are normalized to
+`{workflow_id, node_id, provider, event, bot_token, config}` for every `active`
+workflow's event nodes with non-blank required config. `provider` is the routing
+key each transport filters on; `bot_token` is the connection-grouping key.
+Webhook events are filtered out of the feed entirely, so their workflows stay off
+the `MAX_SUBSCRIPTIONS = 500` budget and out of every poller.
+
+**`bot_token` is plaintext.** This is one of only two places a `{{var:}}` sentinel
+becomes a real secret (the other is `integrations::execute`), because a transport
+cannot dial with a sentinel. That plaintext must never reach a log line, an error
+string or the database — `EventSubscription`'s `Debug` fingerprints it via
+`events::fp` and it is deliberately not `Serialize`.
+
+Both functions are **blocking** — SQLite, the Keychain, and for ingest the entire
+run. `spawn_blocking`, always. `ingest_event` runs the workflow inline and blocks
+for its whole duration, so it never belongs on a socket path or a runtime worker.
+
+The reconcile loop every transport runs is written out in `events.rs`'s header;
+copy it rather than reinventing it. Two things it gets right that are easy to get
+wrong: the `changed` receiver is created **once, before the first read** (a
+receiver only sees changes published after it was made), and a failed
+subscription read **keeps** the current connection set — `Ok(vec![])` means
+"disconnect everything", a transient DB error must not.
+
+**The claim guard is 0 seconds, not the cron path's 50.** Every mention runs. A
+50s window would silently drop the second of two Discord messages a minute
+apart, which is exactly what a chat bot must not do. The 0 short-circuits to "no
+predicate" rather than `last_run_at <= now`, because the latter dropped
+deliveries whenever an NTP step put the clock behind the stamp
+(`docs/open-decisions.md` §2.3).
+
+## Discord — `gateway.rs`
+
+One WebSocket per distinct bot token, keyed by the token *value*, so a rotated
+token arrives as a new key and gets a fresh socket. This is the only place in the
+app that holds a socket open; everything else polls.
+
+On `MESSAGE_CREATE` it skips bot authors (loop guard), matches plain @-mentions
+of the connected bot (role and @everyone mentions do not count), applies each
+subscription's optional guild/channel filters, and hands one `ingest_event` per
+match to the spine.
+
+**Fatal closes must stay fatal.** 4004/4010/4011/4012/4013 mean reconnecting can
+never help; retrying them forever is a hammering loop against Discord with a
+credential it has already rejected. 4014 (Message Content intent not enabled) is
+the one exception and only once — it retries with `GUILD_MESSAGES` alone, because
+mention messages carry `content` even without the privileged intent.
+
+The protocol state machine holds **no token at all**: the three frames that carry
+one are built by free functions taking it as an argument, so a `{:?}` of the
+connection state cannot leak it.
+
+## Telegram — `telegram.rs`
+
+One `getUpdates` long-poll loop per distinct bot token, holding the request open
+25s server-side. Async `reqwest` here, not the blocking client used elsewhere: a
+poll parks for up to 35s and there is one per token, so blocking calls would hold
+a `spawn_blocking` thread each for the life of the app.
+
+Three load-bearing facts:
+
+- **`getUpdates` is single-consumer.** Telegram answers a second concurrent
+  consumer of the same token with 409, and the two then steal each other's
+  updates. The poller map is keyed by token value and touched only by the single
+  reconcile task, so a token can never have two loops — which means a 409 is
+  *external* (a webhook is set, or another Saturn is running) and is retried
+  slowly rather than "healed" by deleting the webhook.
+- **The token rides in the URL path**, so a `reqwest::Error`'s `Display` would
+  print it into a log line. Nothing in the module ever formats one.
+- **The offset is the ack.** It advances past every update in a batch — including
+  ones this poller skips or filters — and stays put on any failed response, which
+  is what makes a dropped batch redeliver instead of vanish.
+
+401/404 kill the token until its value changes (mirroring Discord's 4004); 429
+honors `retry_after`; backlog older than 5 minutes is skipped, so downtime does
+not replay. Bots never receive their own messages through `getUpdates`, so no
+loop guard is needed.
+
+## GitHub — `github.rs`, a poller
+
+**This is the biggest divergence from the hosted product.** The central GitHub
+App and its HMAC-verified webhook were decommissioned; a desktop app has no
+public URL. GitHub events now arrive by polling one endpoint per watched
+resource, authenticated with a single fine-grained read-only PAT in the Keychain.
+
+| node | endpoint | cursor |
+|---|---|---|
+| `github-push` | `/git/refs/heads/{branch}` + the compare API | head SHA |
+| `github-issue` | `/issues?sort=created&direction=desc&state=all` | issue number |
+| `github-pr` | `/pulls?sort=created&direction=desc&state=all` | PR number |
+| `github-release` | `/releases` | release id |
+| `github-star` | `/stargazers` (star+json, last page) | `starred_at` |
+
+The deleted poller used `/repos/{o}/{r}/events` and was blamed for lag; its own
+comment named the real cause — that endpoint is documented as *not* real-time
+(30s–6h, 60s cache). These five read primary data and carry no such caveat, so
+latency becomes the poll interval (`POLL_S = 30`).
+
+Three things are load-bearing:
+
+1. **The baseline cursor.** The first poll of a resource records the current max
+   and dispatches nothing. Without it, saving a workflow replays the repo's
+   entire history the first time it polls.
+2. **The error taxonomy.** 401 kills the poller until the PAT changes (a bad
+   token never fixes itself); 404/451 retry at 15 min (a renamed repo, or a token
+   without access, is fixable outside Saturn); 403/429 sleep to the rate-limit
+   reset; everything else backs off exponentially.
+3. **Conditional requests.** A 304 costs no rate-limit quota, which is the only
+   reason a 30s interval is free. The ETag is stored per resource next to its
+   cursor.
+
+Cursors live in their own `github_cursor` table (created by `github.rs`, which
+owns it) rather than in memory — a memory-only cursor re-baselines on every
+launch, which is the history-replay bug with extra steps.
+
+**What a persisted cursor does not buy is catch-up.** A poll waking to a weekend
+of backlog advances past all of it and dispatches only what is younger than
+`SKIP_OLDER_THAN_S = 900`. If something happens while the laptop is closed, it
+does not fire on wake. The cursor still advances on a skip — skipping means
+"acknowledge without dispatching", never "leave for next time". This was a
+deliberate call: re-announcing week-old issues to Discord as if they just
+happened was judged worse than missing them (`docs/open-decisions.md` §1.1).
+
+**`github-star` requires a PAT.** Page 1 of `/stargazers` is fetched *without*
+`if-none-match` on purpose (it holds the oldest stars and would 304 forever), so
+it cannot 304, and at a 30s interval one watch is ~120 counted requests/hour
+against a 60/hr unauthenticated budget. The rate limit is per-token and
+`resume_at` is global, so an unauthenticated star watch parks push, issue, pr and
+release too — and since events arriving during a park are discarded, it was not
+noisy, it was lossy for everything else. Three layers enforce it:
+`Resource::pollable` (the one that matters — a star node already in a saved graph
+would otherwise keep polling), the greyed-out toolbox chip, and a
+`validateGraphStrict` warning for a node placed before the PAT was removed
+(§1.2). The other four resources poll public repos fine unauthenticated.
+
+Push is the one event needing a second call: the refs endpoint carries only a
+SHA, so `enrich_push` fetches the compare API for the pusher, commit count and
+messages. That is why the push *sample* is the unenriched shape — all keys
+present, those four empty.
+
+## `event:webhook` has no ingress
+
+It is still a live catalog key, so `ingest_event` recognises a webhook node as an
+event node, but it is filtered out of the subscription feed and nothing builds
+its payload — a desktop app has no public URL to POST. A test run hands the node
+`""` rather than a sample, because there is no honest sample to produce and
+authoring one would be exactly the payload literal §1.4 removed.
+
+## Adding a transport
+
+Copy the reconcile loop from `events.rs`'s header. Then, in order of how easy
+each is to get wrong: fingerprint the token in every log line, push
+`ingest_event` to `spawn_blocking`, keep the connection set on a failed
+subscription read, and decide explicitly which failures are fatal-until-the-
+credential-changes versus retryable.

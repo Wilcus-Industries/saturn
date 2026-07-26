@@ -2,7 +2,9 @@
 
 Things the Rust rewrite deferred, diverged on, or left cold. Written as they
 came up (Phases C–E) so the end-of-project reconciliation has a list rather than
-a memory. **Reconcile this file together with the `docs/` rewrite.**
+a memory. The `docs/` rewrite it was meant to be reconciled with landed on
+2026-07-25 (§3.8); this file outlives it as the standing record of what was
+decided and why.
 
 Line numbers drift; symbol and file names are the durable anchors.
 
@@ -424,23 +426,36 @@ for those two facts. Config *field ids* still come from `CATALOG` and
 small — but it is a second source of truth, which is the exact thing
 `catalog.json` exists to prevent.
 
-### 3.8 `docs/` — and now `CLAUDE.md` — describe the hosted product
+### 3.8 `docs/` and `CLAUDE.md` described the hosted product — DONE
 
-Every file under `docs/` predates the desktop pivot. `CLAUDE.md` carries a
-banner saying so. Rewrite at the end, with this file.
+**Closed 2026-07-25.** `CLAUDE.md` and all five surviving subsystem docs were
+rewritten against the code. `docs/auth-billing.md` and `docs/mcp-server.md` were
+**deleted** rather than rewritten — better-auth, Stripe, the tier system and the
+hosted `/mcp` server no longer exist, and a doc describing nothing is worse than
+no doc.
 
-**`CLAUDE.md` is now wrong in ways Phase F caused**, which is worse than merely
-stale, because it is the file every agent reads first and its own rule says a
-change altering anything it documents must update it in the same change. It still
-documents `npm run dev:full` and `psql "$DATABASE_URL" -f db/setup.sql` (both
-deleted), `npx @better-auth/cli migrate` (better-auth uninstalled), `.env.example`
-(deleted), the `next.config.ts` `headers()` CSP (moved to `tauri.conf.json`), "raw
-`pg` Pool against Postgres", in-process background loops, and an entire **Auth**
-invariants block naming `lib/auth.ts`, `lib/subscription.ts`, `SELF_HOSTED` and
-`proxy.ts` — every one of which is gone.
+It was done as one rewrite rather than line-by-line patches on purpose: fixing
+three commands inside a globally stale document buys a false impression of
+currency.
 
-Deliberately not patched line-by-line: fixing three commands inside a globally
-stale document buys a false impression of currency. It goes in the one rewrite.
+The shape changed as well as the content. The old files were single mega-bullets
+that duplicated what the code already said; the Rust modules now carry their
+reasoning in `//!` headers, which is the durable location, so `docs/` indexes and
+connects rather than restating. `CLAUDE.md`'s closing convention says so
+explicitly.
+
+`README.md` was deliberately left out of this pass — it is the owner's copy and
+still advertises `pgvector` memory and a hosted product.
+
+Two things the rewrite surfaced, both recorded rather than fixed:
+
+- **`workflow_run` is never pruned.** The hosted runner trimmed to the newest 50
+  per workflow; nothing does here. Every row is individually bounded (the 300 ×
+  2 000 log cap, images persisted as placeholders), so it is a disk-usage
+  question, not a correctness one. Noted in `docs/workflows.md`.
+- **`geometry.ts`'s `layoutGraph` has no callers.** Its consumer was the hosted
+  MCP server's `save_graph`, which is Phase G. It is ~50 lines of live code
+  nothing reaches; it comes back with Phase G or it goes.
 
 ### 3.10 Duplication the parallel build left behind
 
