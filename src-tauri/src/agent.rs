@@ -3,7 +3,7 @@
 //! that the interpreter's chip handling needs.
 //!
 //! GRAPH SEMANTICS ONLY. The model turn and the tool call are injected: the
-//! golden fixtures wire the deterministic stubs from `fixtures/run.mjs`,
+//! golden fixtures wire the deterministic stubs in `interpreter/fixtures.rs`,
 //! production wires `runner::execute_agent_turn` and `runner::execute_tool`.
 //! That split is the whole reason this file is checkable — the loop, the caps
 //! and the grant resolution are exercised for real against the frozen

@@ -29,8 +29,9 @@
 //!
 //! Cursors live in their own `github_cursor` table rather than in memory: a
 //! memory-only cursor re-baselines on every launch, which is the history-replay
-//! bug with extra steps. Persisting them also buys the wake-from-sleep catch-up
-//! a webhook never had — a missed delivery is gone, a missed poll is not.
+//! bug with extra steps. What a persisted cursor does NOT buy is catch-up: a
+//! poll that wakes to a weekend of backlog advances past all of it and
+//! dispatches only what is younger than `SKIP_OLDER_THAN_S`.
 //!
 //! Auth is one fine-grained read-only PAT in the Keychain, shared by every
 //! watch. It is optional (public repos poll unauthenticated at 60 req/hr, and
@@ -72,6 +73,24 @@ const RATE_LIMIT_MAX_SLEEP: Duration = Duration::from_secs(3_600);
 /// 404/451 retry cadence — the repo is fixable outside Saturn, so this is slow
 /// but never permanent.
 const NOT_FOUND_RETRY: Duration = Duration::from_secs(900);
+/// Ignore anything older than 15 minutes. The cursor persists, so a laptop that
+/// slept through the weekend wakes with a whole page of issues, PRs and stars
+/// above it, and dispatching those replays week-old work into Discord as if it
+/// had just happened. Losing the backlog of a sleep is the cheaper failure — the
+/// deleted `lib/github.server.ts` carried the same 900s and called it "the
+/// secondary guard against replay".
+///
+/// Wider than Telegram's 300s (`telegram.rs`) because this poll can legitimately
+/// be minutes behind: `X-Poll-Interval` may stretch the cadence to `MAX_POLL_S`,
+/// and a backoff or a 404 park stretches one watch further still. A tighter
+/// window would drop events that really were live.
+///
+/// The rate-limit interaction is deliberate, not an oversight: `resume_at` is
+/// global and `RATE_LIMIT_MAX_SLEEP` is an hour, so the pass after a long park
+/// skips events that were live when the park began. That is the decision —
+/// nothing replays — and the cursor advances over them regardless, so they are
+/// skipped once rather than re-examined on every poll forever.
+const SKIP_OLDER_THAN_S: i64 = 900;
 const MAX_BODY_CHARS: usize = 4_000;
 /// Final re-slice when the built JSON still exceeds `MAX_EVENT_PAYLOAD`.
 const GUARD_BODY_CHARS: usize = 1_000;
@@ -171,6 +190,51 @@ fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
+}
+
+// --- the age guard ----------------------------------------------------------
+
+/// `2026-07-18T12:34:56Z` → epoch ms, the one shape every GitHub timestamp
+/// arrives in (fractional seconds tolerated). UTC only: an offset, a missing Z
+/// or a garbage field returns `None`, which `fresh` reads as "not stale".
+fn parse_utc_ms(ts: &str) -> Option<i64> {
+    let b = ts.as_bytes();
+    if b.len() < 20 || b.last() != Some(&b'Z') {
+        return None;
+    }
+    if (b[4], b[7], b[10], b[13], b[16]) != (b'-', b'-', b'T', b':', b':') {
+        return None;
+    }
+    // `get`, not a range index: a slice landing mid-codepoint panics
+    let f = |r: std::ops::Range<usize>| -> Option<i64> { ts.get(r)?.parse().ok() };
+    let (y, mo, d) = (f(0..4)?, f(5..7)?, f(8..10)?);
+    let (h, mi, s) = (f(11..13)?, f(14..16)?, f(17..19)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || s > 60 {
+        return None;
+    }
+    // days_from_civil (Howard Hinnant), era-based and exact over the whole range
+    let ay = if mo <= 2 { y - 1 } else { y };
+    let era = if ay >= 0 { ay } else { ay - 399 } / 400;
+    let yoe = ay - era * 400;
+    let doy = (153 * (if mo > 2 { mo - 3 } else { mo + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some((days * 86_400 + h * 3_600 + mi * 60 + s) * 1_000)
+}
+
+/// Whether an event is young enough to dispatch. Fails OPEN on an unreadable
+/// timestamp — the TypeScript's `Number.isFinite(created)` did the same, and a
+/// push whose compare call failed carries no timestamp at all yet must still be
+/// delivered. A clock skewed into the future is also fresh.
+fn fresh(ts: &str, now: i64) -> bool {
+    parse_utc_ms(ts).is_none_or(|ms| now - ms <= SKIP_OLDER_THAN_S * 1_000)
+}
+
+/// Every `Built` carries the resource's own timestamp in its `timestamp` field —
+/// `created_at` for issue/pr, `published_at` for release, `starred_at` for star,
+/// the head commit's date for push.
+fn fresh_built(built: &Built, now: i64) -> bool {
+    fresh(&text(&built.fields, "timestamp"), now)
 }
 
 // --- resources --------------------------------------------------------------
@@ -557,17 +621,24 @@ fn link_last_page(res: &Res) -> Option<u32> {
 // --- cursor application -----------------------------------------------------
 
 /// Apply one fetched body to a cursor. Pure — the whole baseline/replay
-/// discipline lives here, which is why it is testable without a socket.
+/// discipline lives here, which is why it is testable without a socket. `now` is
+/// a parameter for the same reason: `SKIP_OLDER_THAN_S` is part of that
+/// discipline, and reaching for `now_ms()` in here would make it untestable.
 ///
 /// `cursor == None` is the FIRST poll of this resource: record the current max
 /// and dispatch nothing. Anything else replays the repo's history the first time
 /// a workflow polls.
+///
+/// Four of the five resources are age-guarded here. Push is not: the refs
+/// endpoint carries only a SHA, so its timestamp does not exist until
+/// `enrich_push` runs — `poll_watch` applies `fresh_built` after that.
 fn apply(
     resource: Resource,
     repo: &str,
     branch: &str,
     body: &Value,
     cursor: Option<&str>,
+    now: i64,
 ) -> Result<(String, Vec<Built>), String> {
     match resource {
         Resource::Push => {
@@ -592,19 +663,27 @@ fn apply(
             let built = build_push(repo, branch, prev, &sha);
             Ok((sha, vec![built]))
         }
+        // Every `build` below returns None for a stale item, which is the same
+        // door the PR-in-the-issues-feed filter uses: nothing is dispatched and
+        // the cursor still advances past it.
         Resource::Issue => Ok(newest_first(
             arr(body),
             |item| item["number"].as_i64(),
             // the issues endpoint lists pull requests too (they share one number
             // sequence) — a github-issue node must not fire for a PR, but the
             // cursor still advances past it
-            |item| item.get("pull_request").is_none().then(|| build_issue(repo, item)),
+            |item| {
+                item.get("pull_request")
+                    .is_none()
+                    .then(|| build_issue(repo, item))
+                    .filter(|b| fresh_built(b, now))
+            },
             cursor,
         )),
         Resource::Pr => Ok(newest_first(
             arr(body),
             |item| item["number"].as_i64(),
-            |item| Some(build_pr(repo, item)),
+            |item| Some(build_pr(repo, item)).filter(|b| fresh_built(b, now)),
             cursor,
         )),
         Resource::Release => Ok(newest_first(
@@ -615,27 +694,29 @@ fn apply(
             // acked: acking it puts its id under the cursor and the publish that
             // follows can then never be `id > cursor`, i.e. never fires at all.
             |item| (item["draft"] != Value::Bool(true)).then(|| item["id"].as_i64()).flatten(),
-            |item| Some(build_release(repo, item)),
+            |item| Some(build_release(repo, item)).filter(|b| fresh_built(b, now)),
             cursor,
         )),
         // stargazers come back oldest-first and the cursor is an RFC3339 UTC
         // timestamp, which orders lexicographically
         Resource::Star => {
             let mut max = cursor.unwrap_or("").to_string();
-            let mut fresh = Vec::new();
+            let mut dispatch = Vec::new();
             for item in arr(body) {
                 let at = s(item, "starred_at");
                 if at.is_empty() {
                     continue;
                 }
-                if cursor.is_some_and(|c| at.as_str() > c) {
-                    fresh.push(build_star(repo, item));
+                // `max` is updated below whatever this decides, so a star
+                // skipped for age is acked rather than re-seen every poll
+                if cursor.is_some_and(|c| at.as_str() > c) && fresh(&at, now) {
+                    dispatch.push(build_star(repo, item));
                 }
                 if at > max {
                     max = at;
                 }
             }
-            Ok((max, if cursor.is_none() { Vec::new() } else { fresh }))
+            Ok((max, if cursor.is_none() { Vec::new() } else { dispatch }))
         }
     }
 }
@@ -655,22 +736,22 @@ fn newest_first(
 ) -> (String, Vec<Built>) {
     let base = cursor.and_then(|c| c.parse::<i64>().ok());
     let mut max = base.unwrap_or(0);
-    let mut fresh = Vec::new();
+    let mut dispatch = Vec::new();
     for item in items {
         let Some(k) = key(item) else {
             continue; // malformed id — skipped, and never acked
         };
         if base.is_some_and(|b| k > b) {
             if let Some(built) = build(item) {
-                fresh.push(built);
+                dispatch.push(built);
             }
         }
         if k > max {
             max = k;
         }
     }
-    fresh.reverse(); // newest-first → oldest-first
-    (max.to_string(), if base.is_none() { Vec::new() } else { fresh })
+    dispatch.reverse(); // newest-first → oldest-first
+    (max.to_string(), if base.is_none() { Vec::new() } else { dispatch })
 }
 
 // --- the poller -------------------------------------------------------------
@@ -972,7 +1053,8 @@ impl Poller {
         // GETs, but a star watch's page-1 fetch is unconditional by design and
         // would eat the 60 req/hr unauthenticated budget in a minute.
         let due = self.interval;
-        match classify(&res, now_ms()) {
+        let now = now_ms();
+        match classify(&res, now) {
             // no new data, no quota spent
             Outcome::NotModified => {
                 self.clear_backoff(&key);
@@ -1013,7 +1095,7 @@ impl Poller {
             Outcome::Ok => {
                 let parsed = serde_json::from_str::<Value>(&res.body)
                     .map_err(|e| e.to_string())
-                    .and_then(|body| apply(resource, &repo, &branch, &body, cursor.as_deref()));
+                    .and_then(|body| apply(resource, &repo, &branch, &body, cursor.as_deref(), now));
                 let (next, mut built) = match parsed {
                     Ok(out) => out,
                     Err(err) => {
@@ -1038,6 +1120,11 @@ impl Poller {
                 for item in built.iter_mut().filter(|b| b.event == "github-push") {
                     enrich_push(client, token, &repo, item);
                 }
+                // The other four were age-guarded inside `apply`; a push has no
+                // timestamp until the compare call above supplies one, so its
+                // half of the guard runs here. The cursor was written before
+                // either — a skipped event is acked, never re-examined.
+                built.retain(|b| fresh_built(b, now));
                 for item in &built {
                     let payload = dispatch_payload(item);
                     for sub in self.watches[index].subs.iter().filter(|s| sub_wants_event(s, item)) {
@@ -1230,6 +1317,13 @@ mod tests {
         assert_eq!(p.dead_token.as_deref(), Some("ghp_realtoken"));
     }
 
+    /// The fixture clock: one minute after the `2026-07-18T12:34:56Z` the
+    /// payload fixtures carry, so the age guard passes everywhere and those
+    /// assertions stay about payload shape. Real time would make them expire.
+    fn now() -> i64 {
+        parse_utc_ms("2026-07-18T12:35:56Z").unwrap()
+    }
+
     fn res(status: u16, headers: &[(&str, &str)], body: &str) -> Res {
         let mut map = HeaderMap::new();
         for (k, v) in headers {
@@ -1314,7 +1408,7 @@ mod tests {
         });
         let prev = "9b1d3f7e6a5c4d3b2a1f0e9d8c7b6a5f4e3d2c1b";
         let (cursor, built) =
-            apply(Resource::Push, "octocat/hello-world", "main", &refs, Some(prev)).unwrap();
+            apply(Resource::Push, "octocat/hello-world", "main", &refs, Some(prev), now()).unwrap();
         assert_eq!(cursor, "0f7a2c9e5c8d4b1a9e3f6d2c8b7a5e4d3c2b1a09");
         assert_eq!(
             dispatch_payload(&built[0]),
@@ -1326,11 +1420,11 @@ mod tests {
             { "ref": "refs/heads/main-2", "object": { "sha": "1111111111111111111111111111111111111111" } },
             { "ref": "refs/heads/main", "object": { "sha": "2222222222222222222222222222222222222222" } },
         ]);
-        let (cursor, _) = apply(Resource::Push, "o/r", "main", &prefix_match, Some(prev)).unwrap();
+        let (cursor, _) = apply(Resource::Push, "o/r", "main", &prefix_match, Some(prev), now()).unwrap();
         assert_eq!(cursor, "2222222222222222222222222222222222222222");
         // a branch that is not in the response at all is a shape error, not a
         // silent no-op that would strand the cursor
-        assert!(apply(Resource::Push, "o/r", "nope", &prefix_match, Some(prev)).is_err());
+        assert!(apply(Resource::Push, "o/r", "nope", &prefix_match, Some(prev), now()).is_err());
 
         // --- issue: GET /issues?sort=created&direction=desc -------------------
         let issues = json!([
@@ -1346,7 +1440,7 @@ mod tests {
             },
         ]);
         let (cursor, built) =
-            apply(Resource::Issue, "octocat/hello-world", "", &issues, Some("16")).unwrap();
+            apply(Resource::Issue, "octocat/hello-world", "", &issues, Some("16"), now()).unwrap();
         assert_eq!(cursor, "17");
         assert_eq!(
             dispatch_payload(&built[0]),
@@ -1358,7 +1452,7 @@ mod tests {
             { "number": 18, "title": "a PR", "pull_request": { "url": "…" }, "user": {} },
             { "number": 17, "title": "an issue", "user": { "login": "ada" } },
         ]);
-        let (cursor, built) = apply(Resource::Issue, "o/r", "", &with_pr, Some("16")).unwrap();
+        let (cursor, built) = apply(Resource::Issue, "o/r", "", &with_pr, Some("16"), now()).unwrap();
         assert_eq!(cursor, "18", "the cursor must ack the PR it filtered out");
         assert_eq!(built.len(), 1);
         assert_eq!(text(&built[0].fields, "title"), "an issue");
@@ -1377,7 +1471,7 @@ mod tests {
                 "created_at": "2026-07-18T12:34:56Z",
             },
         ]);
-        let (_, built) = apply(Resource::Pr, "octocat/hello-world", "", &pulls, Some("41")).unwrap();
+        let (_, built) = apply(Resource::Pr, "octocat/hello-world", "", &pulls, Some("41"), now()).unwrap();
         assert_eq!(
             dispatch_payload(&built[0]),
             r#"{"repo":"octocat/hello-world","number":"42","title":"Add retry logic to the fetcher","body":"Retries transient failures up to 3 times.","author":"ada","sourceBranch":"feature/retries","targetBranch":"main","draft":"false","url":"https://github.com/octocat/hello-world/pull/42","timestamp":"2026-07-18T12:34:56Z"}"#
@@ -1399,7 +1493,7 @@ mod tests {
             },
         ]);
         let (cursor, built) =
-            apply(Resource::Release, "octocat/hello-world", "", &releases, Some("148038731")).unwrap();
+            apply(Resource::Release, "octocat/hello-world", "", &releases, Some("148038731"), now()).unwrap();
         assert_eq!(cursor, "148038732");
         assert_eq!(
             dispatch_payload(&built[0]),
@@ -1410,14 +1504,14 @@ mod tests {
         // before the publish — so acking the draft here would put its id under
         // the cursor and the publish could never satisfy `id > cursor`.
         let drafts = json!([{ "id": 148_038_733, "tag_name": "v1.3.0", "draft": true }]);
-        let (cursor, built) = apply(Resource::Release, "o/r", "", &drafts, Some("148038732")).unwrap();
+        let (cursor, built) = apply(Resource::Release, "o/r", "", &drafts, Some("148038732"), now()).unwrap();
         assert_eq!((cursor.as_str(), built.len()), ("148038732", 0), "a draft must not be acked");
         // …and publishing that same draft, id unchanged, now fires
         let published = json!([{
             "id": 148_038_733, "tag_name": "v1.3.0", "draft": false,
             "published_at": "2026-07-19T09:00:00Z",
         }]);
-        let (cursor, built) = apply(Resource::Release, "o/r", "", &published, Some(&cursor)).unwrap();
+        let (cursor, built) = apply(Resource::Release, "o/r", "", &published, Some(&cursor), now()).unwrap();
         assert_eq!(cursor, "148038733");
         assert_eq!(built.len(), 1, "publishing a draft must fire github-release");
         assert_eq!(text(&built[0].fields, "tag"), "v1.3.0");
@@ -1428,7 +1522,7 @@ mod tests {
             { "starred_at": "2026-07-18T12:34:56Z", "user": { "login": "ada" } },
         ]);
         let (cursor, built) =
-            apply(Resource::Star, "octocat/hello-world", "", &stars, Some("2026-07-18T12:00:00Z"))
+            apply(Resource::Star, "octocat/hello-world", "", &stars, Some("2026-07-18T12:00:00Z"), now())
                 .unwrap();
         assert_eq!(cursor, "2026-07-18T12:34:56Z");
         assert_eq!(built.len(), 1, "the star at the cursor must not re-deliver");
@@ -1440,7 +1534,7 @@ mod tests {
         // an oversized body is re-sliced, never dropped: the delivery has to
         // survive ingest_event's MAX_EVENT_PAYLOAD check
         let huge = json!([{ "number": 1, "body": "x".repeat(MAX_EVENT_PAYLOAD * 2) }]);
-        let (_, built) = apply(Resource::Issue, "o/r", "", &huge, Some("0")).unwrap();
+        let (_, built) = apply(Resource::Issue, "o/r", "", &huge, Some("0"), now()).unwrap();
         let out = dispatch_payload(&built[0]);
         assert!(out.encode_utf16().count() <= MAX_EVENT_PAYLOAD, "{}", out.len());
         assert!(out.contains(&"x".repeat(GUARD_BODY_CHARS)));
@@ -1461,39 +1555,84 @@ mod tests {
         };
 
         // first poll: a page of history, nothing dispatched
-        let (cursor, built) = apply(Resource::Issue, "o/r", "", &feed(&[17, 16, 15]), None).unwrap();
+        let (cursor, built) = apply(Resource::Issue, "o/r", "", &feed(&[17, 16, 15]), None, now()).unwrap();
         assert_eq!(cursor, "17");
         assert!(built.is_empty(), "the baseline poll replayed history");
 
         // nothing new
         let (cursor, built) =
-            apply(Resource::Issue, "o/r", "", &feed(&[17, 16, 15]), Some(&cursor)).unwrap();
+            apply(Resource::Issue, "o/r", "", &feed(&[17, 16, 15]), Some(&cursor), now()).unwrap();
         assert_eq!((cursor.as_str(), built.len()), ("17", 0));
 
         // two new issues, delivered oldest-first
         let (cursor, built) =
-            apply(Resource::Issue, "o/r", "", &feed(&[19, 18, 17, 16]), Some(&cursor)).unwrap();
+            apply(Resource::Issue, "o/r", "", &feed(&[19, 18, 17, 16]), Some(&cursor), now()).unwrap();
         assert_eq!(cursor, "19");
         let titles: Vec<String> = built.iter().map(|b| text(&b.fields, "title")).collect();
         assert_eq!(titles, ["issue 18", "issue 19"], "GitHub lists newest-first, we deliver oldest-first");
 
         // …and they are not delivered twice
-        let (_, built) = apply(Resource::Issue, "o/r", "", &feed(&[19, 18]), Some(&cursor)).unwrap();
+        let (_, built) = apply(Resource::Issue, "o/r", "", &feed(&[19, 18]), Some(&cursor), now()).unwrap();
         assert!(built.is_empty());
 
         // an empty first page baselines at 0 rather than replaying later
-        let (cursor, built) = apply(Resource::Pr, "o/r", "", &json!([]), None).unwrap();
+        let (cursor, built) = apply(Resource::Pr, "o/r", "", &json!([]), None, now()).unwrap();
         assert_eq!((cursor.as_str(), built.len()), ("0", 0));
 
         // push and star baseline the same way
         let refs = json!({ "ref": "refs/heads/main", "object": { "sha": "aaaaaaa" } });
-        let (cursor, built) = apply(Resource::Push, "o/r", "main", &refs, None).unwrap();
+        let (cursor, built) = apply(Resource::Push, "o/r", "main", &refs, None, now()).unwrap();
         assert_eq!((cursor.as_str(), built.len()), ("aaaaaaa", 0));
-        let (_, built) = apply(Resource::Push, "o/r", "main", &refs, Some(&cursor)).unwrap();
+        let (_, built) = apply(Resource::Push, "o/r", "main", &refs, Some(&cursor), now()).unwrap();
         assert!(built.is_empty(), "an unchanged head must not re-deliver");
         let stars = json!([{ "starred_at": "2026-01-01T00:00:00Z", "user": { "login": "ada" } }]);
-        let (cursor, built) = apply(Resource::Star, "o/r", "", &stars, None).unwrap();
+        let (cursor, built) = apply(Resource::Star, "o/r", "", &stars, None, now()).unwrap();
         assert_eq!((cursor.as_str(), built.len()), ("2026-01-01T00:00:00Z", 0));
+    }
+
+    /// The age guard. A laptop opened on Monday must advance its cursor past the
+    /// weekend WITHOUT dispatching it: skipping has to mean "acked, not
+    /// delivered", because leaving the backlog unacked would re-evaluate the
+    /// same page on every poll forever.
+    #[test]
+    fn stale_events_are_acked_but_never_dispatched() {
+        // the parser, pinned against a hand-computed epoch — everything below
+        // trusts it, and an off-by-an-hour here silently widens the window
+        assert_eq!(parse_utc_ms("2026-07-18T12:34:56Z"), Some(1_784_378_096_000));
+        assert_eq!(parse_utc_ms("2026-07-18T12:34:56.789Z"), Some(1_784_378_096_000));
+        assert_eq!(parse_utc_ms("2026-07-18T12:34:56+02:00"), None, "not UTC");
+        assert_eq!(parse_utc_ms("2026-07-18 12:34:56Z"), None);
+        assert_eq!(parse_utc_ms("2026-13-18T12:34:56Z"), None);
+        assert_eq!(parse_utc_ms(""), None);
+        // fails open: an unreadable timestamp is never a reason to drop an event
+        assert!(fresh("", now()));
+        assert!(fresh("2026-07-18T12:20:57Z", now()), "one second inside the window");
+        assert!(!fresh("2026-07-18T12:20:55Z", now()), "one second outside it");
+
+        let issue = |ts: &str| json!([{ "number": 20, "user": {}, "created_at": ts }]);
+        let (cursor, built) =
+            apply(Resource::Issue, "o/r", "", &issue("2026-07-18T12:30:00Z"), Some("19"), now())
+                .unwrap();
+        assert_eq!((cursor.as_str(), built.len()), ("20", 1), "a live issue must fire");
+        let (cursor, built) =
+            apply(Resource::Issue, "o/r", "", &issue("2026-07-17T09:00:00Z"), Some("19"), now())
+                .unwrap();
+        assert_eq!((cursor.as_str(), built.len()), ("20", 0), "a stale issue must still be acked");
+
+        // stars take the other path in `apply` — the cursor IS the timestamp
+        let star = json!([{ "starred_at": "2026-07-17T09:00:00Z", "user": { "login": "grace" } }]);
+        let (cursor, built) =
+            apply(Resource::Star, "o/r", "", &star, Some("2026-07-16T00:00:00Z"), now()).unwrap();
+        assert_eq!((cursor.as_str(), built.len()), ("2026-07-17T09:00:00Z", 0));
+
+        // push has no timestamp until enrich_push supplies one, so its half of
+        // the guard runs in poll_watch, on the Built
+        let mut push = build_push("o/r", "main", "aaaaaaa", "bbbbbbb");
+        assert!(fresh_built(&push, now()), "an unenrichable push must not be dropped");
+        if let Some(slot) = push.fields.iter_mut().find(|(k, _)| k == "timestamp") {
+            slot.1 = J::S("2026-07-17T09:00:00Z".into());
+        }
+        assert!(!fresh_built(&push, now()));
     }
 
     /// A cursor held only in memory re-baselines on every launch, which is the
@@ -1519,7 +1658,7 @@ mod tests {
             assert_eq!(etag.as_deref(), Some("W/\"def\""), "the ETag is what makes 304s free");
             // and the restart does not replay
             let feed = json!([{ "number": 19, "user": {} }]);
-            let (_, built) = apply(Resource::Issue, "o/r", "", &feed, cursor.as_deref()).unwrap();
+            let (_, built) = apply(Resource::Issue, "o/r", "", &feed, cursor.as_deref(), now()).unwrap();
             assert!(built.is_empty());
             // a blank ETag reads as absent, never as an `if-none-match: ""`
             save_cursor(&store, key, "19", "").unwrap();

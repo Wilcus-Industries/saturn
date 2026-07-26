@@ -1,10 +1,15 @@
 //! The golden-fixture oracle, from the Rust side.
 //!
 //! `fixtures/expected/*.json` is the frozen output of the TypeScript
-//! interpreter under the deterministic stubs in `fixtures/run.mjs`. This test
-//! replays every case through the Rust interpreter with stubs reimplemented to
-//! match those byte for byte, and compares the serialized transcript to the
-//! committed file. When the two disagree the Rust is wrong.
+//! interpreter under a set of deterministic stubs. This test replays every case
+//! through the Rust interpreter with those stubs reimplemented below, and
+//! compares the serialized transcript to the committed file. When the two
+//! disagree the Rust is wrong.
+//!
+//! The TypeScript that produced `expected/` — and the harness that ran it — are
+//! deleted. There is no second implementation left, so `expected/` cannot be
+//! regenerated and this test is the only thing that reads it. That is the point:
+//! see `fixtures/README.md`.
 //!
 //! A skipped case is NOT a pass: the summary names every skip and the node type
 //! that caused it, so a half-finished port cannot hide behind a green run. As of
@@ -22,10 +27,10 @@ use crate::agent::{content, role, Request, Turn};
 use crate::openrouter::ToolCall;
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures");
-// run.mjs elides long arrays so a 10k-step case is not a 400 KB expected file
+// the oracle elided long arrays so a 10k-step case is not a 400 KB expected file
 const CAP: usize = 500;
 
-// --- stubs (fixtures/run.mjs) ----------------------------------------------
+// --- stubs (ported from the deleted oracle) --------------------------------
 
 /// FNV-1a over UTF-16 code units, prefixed with the `.length` the interpreter's
 /// truncation counts. Measuring bytes or `char`s fails here loudly instead of
@@ -48,7 +53,7 @@ fn canon(config: &HashMap<String, String>) -> String {
     serde_json::to_string(&sorted).unwrap()
 }
 
-/// run.mjs `callIntegration`. The provider id and the resolved message are the
+/// The oracle's `callIntegration` stub. The provider id and the resolved message are the
 /// interpreter's own arguments, so a port that drops either — or reads the
 /// message out of the config map instead — fails here.
 fn stub_send(
@@ -68,7 +73,7 @@ fn stub_send(
     }
 }
 
-/// run.mjs `callMcp` / `callMemory`. The interpreter decides which one a granted
+/// The oracle's `callMcp` / `callMemory` stubs. The interpreter decides which one a granted
 /// tool call routes to; only the MCP side has the steering tool names.
 fn stub_tool(memory: bool, entry_id: &str, tool: &str, input: &str) -> Result<String, String> {
     if memory {
@@ -106,7 +111,7 @@ fn canon_request(req: &Request) -> String {
     format!("{{{}}}", parts.join(","))
 }
 
-/// run.mjs `callAgent`. Cases steer it through values they control: the model
+/// The oracle's `callAgent` stub. Cases steer it through values they control: the model
 /// slug "stub-error", and a prompt prefixed "TOOL "/"MANY "/"MEM "/"IMG ".
 fn stub_model(req: &Request) -> Turn {
     if req.model == "stub-error" {

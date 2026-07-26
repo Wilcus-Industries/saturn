@@ -7,7 +7,7 @@
 //! effects are plain function calls. What varies is where console lines go (the
 //! `Sender<ConsoleLine>`) and, for `run_inner` only, the three `Effects` — the
 //! golden-fixture oracle in `interpreter/fixtures.rs` stubs them exactly as
-//! `fixtures/run.mjs` does, which is what makes this port checkable at all.
+//! `fixtures/expected/` records, which is what makes this port checkable at all.
 //!
 //! The walk is SYNCHRONOUS. It recurses (fan-out, loop bodies, agent turns), and
 //! async recursion in Rust means Box::pin at every nesting point for no benefit:
@@ -190,7 +190,7 @@ pub(crate) type ModelFn<'a> = &'a (dyn Fn(&agent::Request) -> agent::Turn + Sync
 pub(crate) type ToolFn<'a> = &'a (dyn Fn(bool, &str, &str, &str) -> Result<String, String> + Sync);
 
 /// The injected effects: the golden fixtures stub all three exactly as
-/// `fixtures/run.mjs` does, production wires the real clients in `runner.rs`.
+/// the fixture stubs do, production wires the real clients in `runner.rs`.
 ///
 /// Trait objects rather than `fn` pointers because the production wirings carry
 /// state a bare function cannot reach — the SQLite store, the Keychain vault and

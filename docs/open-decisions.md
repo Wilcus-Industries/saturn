@@ -10,7 +10,9 @@ Three sections:
 
 1. **Needs a call** — a product or design question with no obviously right
    answer. Nothing below is blocking today; each one has a live default that
-   will simply persist if nobody decides otherwise.
+   will simply persist if nobody decides otherwise. **§1.1 and §1.5 were decided
+   on 2026-07-25 and are kept here, marked, rather than deleted — the reasoning
+   for a call already made is the part a future reader needs.**
 2. **Known divergences** — the Rust deliberately does something the TypeScript
    did not. Decided already; recorded so a future reader does not "fix" them.
 3. **Deferred work** — things that are just not built yet, and what unblocks
@@ -20,34 +22,42 @@ Three sections:
 
 ## 1. Needs a call
 
-### 1.1 GitHub events replay after a long sleep
+### 1.1 GitHub events replay after a long sleep — DECIDED: no replay
 
-**Current behaviour:** cursors persist in `github_cursor`, and there is no age
-check anywhere on the GitHub path. Close the laptop Friday, open it Monday, and
-one poll dispatches everything above the cursor as live events — bounded only by
-page size (up to ~50 issues, ~50 PRs, 100 stars, plus a push).
+**Decided 2026-07-25: nothing replays.** Of the three options below, the first
+was taken — the 900s guard, uniformly across all five resources, not per
+resource. If something happens while the laptop is closed, it does not fire on
+wake.
 
-**What changed:** `lib/github.server.ts` had `SKIP_OLDER_THAN_S = 900` *and* the
-cursor, and called the age check "the secondary guard against replay". The
-rewrite kept the cursor and dropped the guard. Telegram kept its equivalent
-(`telegram.rs:64`, 300s) and Discord kept its own, so GitHub is now the odd one.
+`github.rs` `SKIP_OLDER_THAN_S = 900` now gates issue/pr/release/star inside
+`apply()` and push in `poll_watch` (the refs endpoint carries only a SHA, so a
+push has no timestamp until `enrich_push`'s compare call supplies one). 900s
+rather than Telegram's 300s because `X-Poll-Interval` can stretch the cadence to
+`MAX_POLL_S` and a backoff or 404 park stretches one watch further — a tighter
+window would drop genuinely live events.
 
-**The tension is real, not an oversight.** The plan sells the persisted cursor as
-"a laptop that was asleep catches up from its cursor on wake — missed webhook
-deliveries would simply have been gone." That is a genuine gain over webhooks.
-But re-announcing week-old issues to Discord as if they just happened is
-arguably worse than missing them, and it is not obvious the answer is the same
-for every resource: catching up on a **push** you missed is useful; catching up
-on 100 **stars** is noise.
+**The cursor still advances on a skip.** Skipping means "acknowledge without
+dispatching", never "leave for next time", or the same backlog would be
+re-examined every poll forever.
 
-The thundering-herd half is already fixed — delivery is `spawn_blocking` now, so
-it no longer spawns ~200 unbounded OS threads.
+**Known edge, accepted:** `Poller::resume_at` is global (one PAT, one budget) and
+`RATE_LIMIT_MAX_SLEEP` is 3600s, so a full-length rate-limit park exceeds the
+900s window by 45 minutes and the first pass after it drops events that were live
+when the park began. Consistent with the decision; recorded in the
+`SKIP_OLDER_THAN_S` doc comment, which is where someone debugging "why did my
+issue not fire" will land.
 
-**Options:** port the 900s guard as-is · apply it per resource (push/release
-catch up, issue/pr/star do not) · cap fan-out per pass and keep full catch-up.
+**What this gives up**, stated plainly because the plan sold the opposite: the
+persisted cursor was pitched as "a laptop that was asleep catches up from its
+cursor on wake — missed webhook deliveries would simply have been gone." That
+catch-up is now deliberately off. Re-announcing week-old issues to Discord as if
+they just happened was judged worse than missing them.
 
-Cost: threading a clock into the currently-pure `apply()` and rewriting four
-payload tests whose fixtures carry fixed timestamps.
+The thundering-herd half was already fixed separately — delivery is
+`spawn_blocking`, so it no longer spawns ~200 unbounded OS threads.
+
+Covered by `github::tests::stale_events_are_acked_but_never_dispatched`, which
+asserts both sides of the boundary and an identical cursor either way.
 
 ### 1.2 `github-star` cannot work unauthenticated
 
@@ -91,36 +101,39 @@ destructures would just quietly change shape.
 **Options:** a test asserting the serialized key order of each payload builder ·
 enable `serde_json`'s `preserve_order` crate-wide (see 2.1) and stop worrying.
 
-### 1.5 Does the TypeScript interpreter stay now that nothing runs it?
+### 1.5 Does the TypeScript interpreter stay? — DECIDED: deleted
 
-Phase F deleted the designer's `import("@/lib/interpreter")`, so `lib/interpreter.ts`
-(805 lines) executes nothing. Its only remaining consumers are three compile-erased
-`import type { ConsoleLine }` lines and `fixtures/run.mjs`, the oracle that
-generated `fixtures/expected/`.
+**Decided 2026-07-25: it goes.** `fixtures/interpreter.ts` (811 lines) and
+`fixtures/run.mjs` (176) are deleted. `fixtures/cases/` and `fixtures/expected/`
+stay, and `src-tauri/src/interpreter/fixtures.rs` is now their only reader.
 
-`fixtures/README.md` — written before Phase F and already committed — says
-outright: *"Phase F deletes the TypeScript interpreter. From that moment
-`expected/` **is** the specification."* The deletion pass did not do it, and the
-question is whether it should.
+This makes true what `fixtures/README.md` always claimed: *"From that moment
+`expected/` **is** the specification."*
 
-**For deleting** (the ponytail reading): it is a second implementation of
-semantics only Rust now executes, so it can drift silently, and
-`node fixtures/run.mjs --update` still exists and will rewrite the spec the README
-forbids rewriting. It drags ~130 lines of now-dead exports with it —
-`isWorkflowGraph`, `graphShapeError`, `WorkflowRow`, `MAX_EDGES`,
-`MAX_GRAPH_JSON`, `mergeTools`, `cronMatches`, `MODEL_ID`, `toReasoningParam`,
-`MEMORY_TOOL_NAMES` — several of which read as the live cap and are not
-(`MAX_GRAPH_JSON` in TypeScript is inert; Rust's is the real one, and per §2.1 it
-measures a different serialization).
+**What it bought:** a second implementation of semantics only Rust executes could
+drift silently, and `node fixtures/run.mjs --update` existed and would rewrite the
+spec the README forbids rewriting. That mode is gone with the harness. The
+deletion also collapsed an eleven-symbol cluster in `lib/agent.ts` that only the
+oracle kept alive (`AgentToolRef` was reachable only via `toolRefFromNodeType`,
+`AgentToolCall` only via `AgentMessage`/`AgentModelResult`), taking that file
+99 → 34 lines.
 
-**For keeping:** two independent implementations agreeing on 47 fixtures is a
-stronger signal than one implementation agreeing with a file it generated. Delete
-the oracle and `expected/` can never be regenerated or cross-checked again — which
-is exactly the guarantee the fixtures exist to provide, and the thing that would
-catch a Rust interpreter change that is wrong in the same direction as its test.
+**What it gave up, knowingly:** two independent implementations agreeing on 47
+fixtures was a stronger signal than one implementation agreeing with a file it
+generated. `expected/` can no longer be regenerated or cross-checked, so a Rust
+interpreter change that is wrong *in the same direction as its test* will no
+longer be caught by anything. The mitigation is that `expected/` is frozen and
+reviewed by hand: a new case's expected file is now hand-written from a failing
+run's output, which was always the real requirement — the oracle only let you
+skip the reading.
 
-Both oracles are green today (`node fixtures/run.mjs` and `cargo test fixtures`
-each 47/47). Nothing forces the decision; the cost of waiting is the dead exports.
+Surviving `lib/` exports were re-swept afterwards. `ALL_TOOLS`,
+`parseToolExclusions`, `MAX_GRANTED_TOOLS`/`MAX_GRANTED_SKILLS`,
+`integrationProviderId` and the variable helpers all had live designer consumers
+and stayed; `eventNodeKey` and `EXTENSIONS` stayed because
+`scripts/gen-catalog.mjs` imports them.
+
+`cargo test fixtures` is 47/47.
 
 ---
 
@@ -349,32 +362,46 @@ predictable cost of building it that way, and it was the right trade — but the
 duplicates are real and worth one consolidation pass **after the app is proven to
 run**, not at the tail of a change nobody has launched yet:
 
-- **Four armed-confirm buttons**, now structurally identical (`confirmButton.tsx`,
-  `deleteWorkflowButton.tsx`, and both buttons in `memory/store/itemButtons.tsx`).
-  The three-way split was justified pre-Phase-F because each posted a different
-  server action through a `<form>`; all four bodies are now the same
-  `call(cmd, args).then(cb, cb)`. Two lanes even disagreed on the refetch idiom.
-  ≈130 lines.
-- **`skillModal.tsx` and `memoryModal.tsx` are the same file** — 94 and 98 lines
-  whose diff is 22 lines of string literals plus the command name, and
-  `workflowModal.tsx` is the same shape a third time. All three commands take the
-  identical `{id, name, emoji, description}`. ≈110 lines.
-- **Ten copies of an unreachable error fallback**, with four different messages
-  (`"Something went wrong"` / `"Save failed"` / `"Delete failed"` /
-  `"Connection failed"`). `lib/ipc.tsx`'s `call()` always rethrows an `Error`, so
-  `err instanceof Error` is always true and the fallback string is dead in every
-  one. One exported helper.
-- **FormData scaffolding that outlived the server actions**: `ModalShell`'s
-  `entryId` prop and its hidden input (no callers), `ConfirmButton`'s
-  `FormData` signature and `label`/`confirm`/`title` props (no caller has ever
-  passed a non-default), `cronBuilder`'s `name` prop and hidden input.
-- **`relativeTime` lives in `workflowCard.tsx`** and is imported by two other
-  pages, dragging `WorkflowCard` → `WorkflowModal` → `ModalShell` → `EmojiGrid`
-  into their module graphs for an 8-line date formatter. Belongs in `lib/`.
-- `memory/store/page.tsx`'s `load` depends on `query`, so pressing search refetches
-  `list_registry` and every store's item count alongside the filtered items.
+**Partly closed by the ponytail audit pass of 2026-07-25** (commit `cfd8078`).
+Status per item:
 
-Estimated ≈390 lines. None of it is broken; all of it is code someone will read.
+- ~~**Four armed-confirm buttons**~~ — **half done.** `confirmButton.tsx` and
+  `deleteWorkflowButton.tsx` merged into one `ConfirmButton` taking
+  `onConfirm: () => void | Promise<void>`; the form-action caller passes a
+  closure. **Still open:** both buttons in `memory/store/itemButtons.tsx` are the
+  same shape and were not in that pass's scope.
+- ~~**`skillModal.tsx` and `memoryModal.tsx`**~~ — **done.** Merged into
+  `app/dashboard/entryModal.tsx`, parameterized by `kind` against one `KINDS`
+  record. **Still open:** `workflowModal.tsx` (106 lines) is the same shape a
+  third time.
+- **Ten copies of an unreachable error fallback** — **open, still ten.**
+  `lib/ipc.tsx`'s `call()` always rethrows an `Error`, so `err instanceof Error`
+  is always true and the fallback string is dead in every one. One exported
+  helper.
+- **FormData scaffolding that outlived the server actions** — **partly done.**
+  `ConfirmButton`'s `FormData` signature and its `label`/`confirm`/`title` props
+  are gone. **Still open:** `ModalShell`'s `entryId` prop and hidden input, and
+  `cronBuilder`'s `name` prop and hidden input — both callerless.
+- **`relativeTime` lives in `workflowCard.tsx`** — **open.** Imported by
+  `memory/store/page.tsx` and `workflows/runs/page.tsx`, dragging
+  `WorkflowCard` → `WorkflowModal` → `ModalShell` → `EmojiGrid` into their module
+  graphs for an 8-line date formatter. Belongs in `lib/`.
+- `memory/store/page.tsx`'s `load` depends on `query` — **open.** Pressing search
+  refetches `list_registry` and every store's item count alongside the filtered
+  items.
+
+Roughly half the estimated ≈390 lines remain. None of it is broken; all of it is
+code someone will read.
+
+The same pass also removed `react-icons` (ten inline SVGs in
+`app/dashboard/icons.tsx`), factored `app/dashboard/field.tsx` over the 9 sites
+that genuinely shared the labeled-input shape, unified the three tool-param
+structs on `mcp::McpToolParam`, and collapsed `registry::save_simple` into
+`save_entry`. It deliberately did **not** replace Next.js with Vite: measured at
+−2s build, −140 MB `node_modules` and ~−50 KB on a bundle that loads from the
+local filesystem, against three new build deps and ~150 lines of hand-rolled
+router, font and pending-state code. Revisit only if real dynamic route segments
+are wanted.
 
 ### 3.9 The Saturn Agent chat ships with Phase G, not v1
 
