@@ -101,8 +101,8 @@ function downsample(grid: number[][], f: number): number[][] {
     );
 }
 
-// Both call sites (sidebar, mobile nav) render the same small logo mark, so the
-// grids are downsampled once here instead of behind a `scale` prop.
+// The sidebar renders one fixed size, so the grids are downsampled once here
+// instead of behind a `scale` prop.
 const ringGrid = downsample(rings, 4);
 const planetGrid = downsample(planet, 4);
 

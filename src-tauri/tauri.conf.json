@@ -16,6 +16,8 @@
         "title": "Saturn",
         "width": 1100,
         "height": 750,
+        "minWidth": 768,
+        "minHeight": 480,
         "url": "/dashboard/workflows/"
       }
     ],

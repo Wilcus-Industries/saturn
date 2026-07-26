@@ -34,8 +34,10 @@ screen with no sidebar. Its ~20 colocated components moved with it when
 
 ## Shell
 
-`(shell)/layout.tsx` is `MobileNav` + `Sidebar` + a `max-w-5xl` content column.
-`nav.ts` holds the three destinations and `isActive`, shared by both navs, and
+`(shell)/layout.tsx` is `Sidebar` + a `max-w-5xl` content column. There is no
+responsive branch: the window has a `minWidth` of 768 (`tauri.conf.json`), so
+the sidebar is unconditional and the mobile top bar the hosted product carried
+is gone. `nav.ts` holds the three destinations and `isActive`, and
 normalizes trailing slashes on both sides — `usePathname()` reports what is
 actually in the address bar, which is slash-terminated on a hard load but
 whatever href was pushed after a client navigation.
@@ -133,5 +135,5 @@ the SVG must be rasterized with Chrome and not ImageMagick.
 
 `docs/open-decisions.md` §3.10 tracks what the four concurrent UI lanes solved
 separately — a third modal of the same shape, ten copies of a dead error
-fallback, `relativeTime` living in `workflowCard.tsx`, callerless `FormData`
-scaffolding. None of it is broken; all of it is code someone will read.
+fallback, `relativeTime` living in `workflowCard.tsx`. None of it is broken; all
+of it is code someone will read.

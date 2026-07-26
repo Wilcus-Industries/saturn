@@ -1,6 +1,6 @@
 import { Database, DiagramProject, Gear } from "./icons";
 
-// shared between the desktop sidebar and the mobile top bar.
+// the sidebar's destinations.
 // Hrefs carry a trailing slash to match `trailingSlash: true`: every route is
 // exported as `<dir>/index.html`, and Tauri's asset protocol does no
 // extensionless fallback, so a reload at a slash-less path finds no file.

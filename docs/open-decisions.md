@@ -481,10 +481,11 @@ Status per item:
   `lib/ipc.tsx`'s `call()` always rethrows an `Error`, so `err instanceof Error`
   is always true and the fallback string is dead in every one. One exported
   helper.
-- **FormData scaffolding that outlived the server actions** — **partly done.**
+- ~~**FormData scaffolding that outlived the server actions**~~ — **done.**
   `ConfirmButton`'s `FormData` signature and its `label`/`confirm`/`title` props
-  are gone. **Still open:** `ModalShell`'s `entryId` prop and hidden input, and
-  `cronBuilder`'s `name` prop and hidden input — both callerless.
+  went in the audit pass; `ModalShell`'s `entryId` prop and hidden input and
+  `cronBuilder`'s `name` prop and hidden input — all four callerless — went in
+  the dead-weight sweep of 2026-07-25.
 - **`relativeTime` lives in `workflowCard.tsx`** — **open.** Imported by
   `memory/store/page.tsx` and `workflows/runs/page.tsx`, dragging
   `WorkflowCard` → `WorkflowModal` → `ModalShell` → `EmojiGrid` into their module

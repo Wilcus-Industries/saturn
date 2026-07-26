@@ -38,7 +38,7 @@ export default function Sidebar() {
     return (
         <aside
             data-sidebar-rail
-            className={`sticky top-0 hidden h-dvh w-64 shrink-0 flex-col overflow-hidden border-r border-foreground/15 md:flex
+            className={`sticky top-0 flex h-dvh w-64 shrink-0 flex-col overflow-hidden border-r border-foreground/15
                 bg-background transition-[width] duration-200 ease-out motion-reduce:transition-none`}
         >
             {/* lockup — the landing hero's saturn, downsampled to a sidebar mark.

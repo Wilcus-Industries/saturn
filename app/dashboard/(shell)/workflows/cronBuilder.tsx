@@ -63,19 +63,17 @@ function parseCron(cron: string | undefined): BuilderState {
     return DEFAULT_STATE;
 }
 
-// visual builder for the cron shapes describeCron understands. In the designer
-// it runs in callback mode (onChange writes the node config). The form-field
-// path (hidden input) is kept for any <form> consumer. There is no interval
-// floor to cap against any more — plans are gone and the scheduler ticks every
-// minute, which is exactly the shortest interval offered.
+// visual builder for the cron shapes describeCron understands. `onChange` writes
+// the node config; the hidden form field the server actions read is gone with
+// them. There is no interval floor to cap against any more — plans are gone and
+// the scheduler ticks every minute, which is exactly the shortest interval
+// offered.
 export default function CronBuilder({
     initial,
     onChange,
-    name = "cron",
 }: {
     initial?: string;
     onChange?: (cron: string) => void;
-    name?: string;
 }) {
     const [start] = useState(() => parseCron(initial));
     const [frequency, setFrequency] = useState<Frequency>(start.frequency);
@@ -180,7 +178,6 @@ export default function CronBuilder({
             </div>
 
             <p className={"font-mono text-xs text-gray-400"}>{describeCron(cron)} — times are UTC</p>
-            <input type={"hidden"} name={name} value={cron} />
         </div>
     );
 }

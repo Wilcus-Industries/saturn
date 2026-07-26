@@ -19,15 +19,17 @@ Create:
 
 With:
 
-- Persistent `pgvector`-based agent memory 
+- Persistent vector-search agent memory
 - No-code node based workflows
 - And more
 
 ## Status
 
-Saturn is being rebuilt as a single-user native macOS desktop app (Tauri + Rust
-backend). The hosted deployment is gone — there is nothing to sign up for and
-nothing to self-host yet. See [`CLAUDE.md`](CLAUDE.md) for the current state of
+Saturn is a single-user native macOS desktop app: a Tauri shell over a Rust
+backend, one SQLite file and the login Keychain. No server, no account, no
+tenant — there is nothing to sign up for. The hosted deployment is gone.
+
+Build it with `npx tauri build`; see [`CLAUDE.md`](CLAUDE.md) for the state of
 the codebase.
 
 ## License
