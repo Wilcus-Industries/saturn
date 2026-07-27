@@ -194,8 +194,10 @@ pub fn execute_mcp_tool(
     let (token, _) = registry::fresh_mcp_token(store, vault, &entry)?;
     crate::mcp::call_tool(&entry.server_url, tool_name, args, token.as_deref()).map_err(|err| {
         match err {
-            // the OAuth connect flow needs a redirect target the desktop app
-            // does not have yet — a manual auth token is the way through today
+            // deliberately not `mcp::authorize` here: a run is the wrong place
+            // to open a browser and block five minutes on a human. Connect is
+            // where authorization happens, and a scheduled run at 3am gets a
+            // failed step instead of a window nobody is there to click
             McpError::AuthRequired(_) => {
                 "authorization required — connect the server in settings".to_string()
             }
@@ -442,24 +444,31 @@ pub fn execute_run(
     let tool = |is_memory, entry_id: &str, tool_name: &str, input: &str| {
         execute_tool(store, vault, is_memory, entry_id, tool_name, input)
     };
-    // The `saturn-agent` node: one whole Saturn Agent turn, bound to a session
-    // by NAME (get-or-create, so placing the node costs no UI). `nested: true`
-    // drops `run_workflow` from the tool surface — that is the recursion guard:
-    // a workflow run cannot start another workflow run.
+    // The `saturn-agent` node: one whole Saturn Agent turn. The interpreter has
+    // already picked the binding — an id from a chat chip wired into the node's
+    // `session` port, else the config NAME, get-or-created here so a node placed
+    // without a chip still costs no UI. `nested: true` drops `run_workflow` from
+    // the tool surface — that is the recursion guard: a workflow run cannot start
+    // another workflow run.
     //
     // ponytail: the turn's deltas go nowhere — the run console gets the final
     // text (interpreter::exec_saturn) and the session transcript gets all of it.
     // Upgrade to streaming into the console if a long turn looks frozen.
-    let saturn = |session: &str, model: &str, prompt: &str| {
-        let session_id = crate::saturn::session_by_name(store, session)?;
+    let saturn = |turn: &crate::interpreter::SaturnTurn| {
+        let session_id = match turn.chat {
+            Some(id) => id.to_string(),
+            None => crate::saturn::session_by_name(store, turn.session)?,
+        };
         crate::saturn::run_turn(
             store,
             vault,
             &crate::saturn::TurnRequest {
                 session_id: &session_id,
-                model,
-                reasoning: None,
-                text: prompt,
+                model: turn.model,
+                // openrouter::reasoning_param is the allowlist — a blank or
+                // unknown mode drops the parameter, same as the agent node
+                reasoning: Some(turn.reasoning),
+                text: turn.prompt,
                 workflow_id: Some(&wf.id),
                 nested: true,
             },
@@ -1021,14 +1030,14 @@ mod tests {
         );
 
         // mcp.rs: saved past the save-time URL guard through the injected seam,
-        // so the *fetch-time* egress guard is what refuses it. A literal private
-        // address needs no resolver, so nothing leaves this process.
+        // so the *fetch-time* scheme check is what refuses it. A non-http scheme
+        // needs no resolver and no socket, so nothing leaves this process.
         let mcp_id = registry::save_mcp_server_with(
             &store,
             &vault,
             None,
             "internal",
-            "https://169.254.169.254/mcp",
+            "ws://example.com/mcp",
             "",
             false,
             r#"[{"name":"read","access":"read","enabled":true}]"#,
@@ -1037,7 +1046,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             execute_tool(&store, &vault, false, &mcp_id, "read", "{}"),
-            Err("Server URL must be a public host".into()),
+            Err("Server URL must be http or https".into()),
         );
         // and the pre-flight checks that never reach the client at all
         assert_eq!(

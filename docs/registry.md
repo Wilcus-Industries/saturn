@@ -97,47 +97,60 @@ required first, capped at `MAX_TOOL_PARAMS = 12`. The `js::J` machinery in
 (though `to_parameters` re-sorts on the way out to OpenRouter — a deliberate,
 presentational divergence, `docs/open-decisions.md` §2.1).
 
-### The SSRF guard
+### The URL policy
 
-`mcp.rs` is security-critical and was translated as-is, not improved. The server
-URL is the user's own, but **everything the server hands back** —
+**Scheme only.** An MCP server is as often a CLI serving
+`http://127.0.0.1:8765/mcp` (`hound --http`, and everything like it) as a hosted
+`https://` endpoint, so `mcp.rs` uses the same `http::parse_request_url` the
+http-request node does: `http` or `https`, any host, plain or private. The
+egress blocklist, the resolve-time check and the address pin the hosted product
+carried are deleted, along with `ip_blocked` itself — the http-request node was
+already the local-network hole they were guarding around
+(`docs/open-decisions.md` §1.3).
+
+What that concedes: **everything a server hands back** —
 `authorization_servers`, the authorization/token/registration endpoints, the PRM
-resource URL — is the server's, i.e. attacker-controlled. A hostile server
-answering `"token_endpoint": "https://169.254.169.254/…"` must not get a request.
+resource URL — is the server's, so a hostile *remote* server answering
+`"token_endpoint": "http://169.254.169.254/…"` now gets its request. On a
+single-user desktop that reach is the user's own machine, and any graph could
+already point an http node at it.
 
-So the module has exactly **one fetch site**, `send_guarded`, which calls
-`assert_public_https_url` on the start URL and again on every redirect hop.
-Adding a second fetch site is how the guard gets skipped; don't.
-
-Two things are stronger here than in the TypeScript, both deliberate:
-
-- Node's `fetch` followed redirects itself, so a public host could 30x the
-  request onto a private address *past* the guard. Redirects are followed
-  manually and re-validated.
-- Node resolved the host, checked the addresses, then handed the URL to `fetch`,
-  which resolved again — a rebinding server can answer differently the second
-  time. `ClientBuilder::resolve_to_addrs` pins the address that was checked.
+Still exactly **one fetch site**, `send_guarded`, which re-parses the URL on the
+start hop and on every redirect — a 30x must not walk the request onto `file:`
+or `data:`. Adding a second fetch site is how the scheme check gets skipped;
+don't. Redirects stay manual for that reason.
 
 Nothing in `mcp.rs` logs. An access token, a refresh token, an authorization code
 and a PKCE verifier all pass through it; `TokenSet` deliberately does not derive
 `Debug`.
 
-Save-time validation is `assert_https_url_shape` — sync, no DNS — rejecting
-literal private/loopback/localhost hosts. It does *not* reject credentials in the
-URL (`https://good.example.com@10.0.0.1/`); not exploitable, since the guard
-reads the real host, but a phishing-shaped URL survives save and is shown back
-(`docs/open-decisions.md` §2.5).
+Save-time validation is the same function — sync, no DNS, so a server that is
+not listening yet still saves. It does *not* reject credentials in the URL
+(`https://good.example.com@10.0.0.1/`); a phishing-shaped URL survives save and
+is shown back (`docs/open-decisions.md` §2.5).
 
 ### OAuth
 
 Connect is one button for both kinds of server. `discover_mcp_tools` tries
-`tools/list` with whatever credential is stored; a 401 with *none* stored calls
-`mcp::authorize`, which runs the whole PKCE flow — protected-resource metadata →
-authorization-server metadata → dynamic client registration → browser →
-authorization code → token set — and discovery is retried with the token
-`registry::store_mcp_oauth` just persisted. A 401 *with* a credential is the
-server rejecting it, not an invitation to authorize again, so it surfaces as the
-connect error it always was.
+`tools/list` with whatever credential is stored; a 401 with no *manual* token
+calls `mcp::authorize`, which runs the whole PKCE flow — protected-resource
+metadata → authorization-server metadata → dynamic client registration → browser
+→ authorization code → token set — and discovery is retried with the token
+`registry::store_mcp_oauth` just persisted.
+
+The guard is `auth_token.is_none()`, not "no credential at all", and that
+distinction is what makes the button work more than once. A 401 holding the
+user's manual token is the server rejecting *that token*, so it surfaces as the
+connect error it always was. A 401 holding an OAuth token means the grant is
+gone, and re-authorizing is the only way back — there is no disconnect button to
+clear a stale set, by design. `fresh_mcp_token` completes the loop: a refresh the
+server refuses drops the set rather than returning `Err`, so the next call is a
+401 with no credential, which is exactly the path that re-opens the browser.
+
+Settings reads both credentials. `has_token` renders "token set", `connected`
+(the stored set parses *and* carries a non-empty access token, so a pending
+pre-redirect set reads false) renders "signed in", and either one turns the
+button from "connect →" into "discover tools →".
 
 The redirect target is a loopback listener (RFC 8252 §7.3): `127.0.0.1` on an
 ephemeral port, bound *before* registration because the port is part of the

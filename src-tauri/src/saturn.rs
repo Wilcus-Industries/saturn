@@ -9,7 +9,9 @@
 //!
 //! Recovered from `b6d0f71` (`lib/agentChat.server.ts` + `app/mcp/tools.ts`),
 //! which the desktop pivot deleted wholesale — see `docs/open-decisions.md`
-//! §3.9. What came back is the turn loop, the prompts and 12 of the 28 tools;
+//! §3.9. What came back is the turn loop, the prompts and 12 of the 28 tools
+//! (plus `call_mcp_tool`, which is new — the chat calls the user's MCP servers
+//! directly instead of only authoring graphs that would);
 //! what did not is every tool whose subject (tiers, credits, the hosted webhook
 //! URL, skill/variable CRUD) no longer exists.
 //!
@@ -574,7 +576,7 @@ pub fn session_catalog(store: &Store) -> HashMap<String, CatalogEntry> {
 
 // --- the tool surface --------------------------------------------------------
 
-/// The 12 tools Saturn drives its own data with, plus the 3 its memory store
+/// The 13 tools Saturn drives its own data with, plus the 3 its memory store
 /// contributes. `nested` drops `run_workflow`: a `saturn-agent` node is already
 /// inside a run, and letting that turn start another is the recursion.
 ///
@@ -640,6 +642,13 @@ fn tool_specs(nested: bool) -> Vec<ToolSpec> {
         spec(TOOL_ENTRY, "list_registry",
             "Everything registered on this machine: MCP servers (with their tool allowlists), skills, memory stores and variables — the ids behind the \"mcp:<id>:*\", \"skill:<id>\", \"memory:<id>\" and \"variable:<id>\" node types. Secrets are never returned: MCP tokens and variable values surface only as booleans.",
             vec![]),
+        spec(TOOL_ENTRY, "call_mcp_tool",
+            "Call a tool on one of the user's registered MCP servers right now and return its result — the direct way to do a one-off action or lookup, with no workflow involved. list_registry has the server ids and, per tool, its description and parameters; only enabled tools can be called. Real side effects.",
+            vec![
+                param("server_id", T::String, true, "registry entry id of the MCP server (uuid, from list_registry)"),
+                param("tool", T::String, true, "tool name, exactly as list_registry spells it"),
+                param("arguments", T::Object, false, "the tool's own arguments object (default {})"),
+            ]),
     ];
     if !nested {
         specs.push(spec(TOOL_ENTRY, "run_workflow",
@@ -905,6 +914,19 @@ fn dispatch(
             json_out(&out)
         }
 
+        // The one tool that reaches off this machine. Same entry point the agent
+        // node's granted tools use, so the enabled/read-write gate, the token
+        // refresh and the URL policy are the run pipeline's, not a second copy.
+        "call_mcp_tool" => {
+            let entry_id = uuid_arg("server_id")?;
+            let input = match args.get("arguments") {
+                None | Some(Value::Null) => "{}".to_string(),
+                Some(v @ Value::Object(_)) => v.to_string(),
+                Some(_) => return Err("arguments must be a JSON object".into()),
+            };
+            crate::runner::execute_mcp_tool(store, vault, &entry_id, &text("tool"), &input)
+        }
+
         other => Err(format!("unknown tool \"{other}\"")),
     }
 }
@@ -1156,9 +1178,18 @@ fn system_prompt(req: &TurnRequest) -> String {
 const SATURN_SYSTEM: &str = "You are Saturn Agent, the centre of Saturn — a native desktop app \
 where a person's automations live as event-driven agent workflows, authored as node graphs on a \
 canvas. You are how they talk to it.\n\
+You are a general assistant first. Answer questions, think things through, and do one-off work \
+directly — you are not limited to workflow topics, and most turns are not about a graph at all.\n\
 You have real tools over this machine's own data: workflows (list/read/create/update/delete, save \
 + validate graphs, run them, read run history), your own persistent memory, and a read view of \
 the registry (MCP servers, skills, variables, memory stores).\n\
+You can also call the user's registered MCP servers yourself, with call_mcp_tool — list_registry \
+gives you each server's id and its tools with their parameters. The registry is read live from \
+this machine, so the user can add or remove a server mid-conversation and an earlier \
+list_registry result goes stale: if a call fails with a server or tool that is not found, re-call \
+list_registry before telling the user anything is missing. When the user asks you to DO \
+something an MCP tool can do, call it and report what happened. Never author a workflow as a way \
+of calling a tool once: a workflow is for what should happen again, on a schedule or an event.\n\
 You have a memory store of your own that outlives this conversation. Search it before assuming \
 you do not know something about this person or their setup, and save what is worth having next \
 time — durable facts, preferences, decisions and how their workflows are meant to fit together. \
@@ -1478,7 +1509,7 @@ mod tests {
         };
         let send = |_: &str, _: &HashMap<String, String>, _: &str| Err("unused".to_string());
         let tool = |_, _: &str, _: &str, _: &str| Err("unused".to_string());
-        let saturn = |_: &str, _: &str, _: &str| Err("unused".to_string());
+        let saturn = |_: &crate::interpreter::SaturnTurn| Err("unused".to_string());
         let history = |id: &str| history(&store, id);
         let record = |id: &str, prompt: &str, reply: &str| {
             record_exchange(&store, id, prompt, reply)
@@ -1561,11 +1592,11 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let top = names(false);
-        assert_eq!(top.len(), 15, "{top:?}");
+        assert_eq!(top.len(), 16, "{top:?}");
         for want in [
             "list_workflows", "get_workflow", "create_workflow", "update_workflow",
             "delete_workflow", "get_catalog", "get_docs", "validate_graph", "save_graph",
-            "list_runs", "list_registry", "run_workflow",
+            "list_runs", "list_registry", "call_mcp_tool", "run_workflow",
             "memory_search", "memory_save", "memory_forget",
         ] {
             assert!(top.contains(&want.to_string()), "{want} is missing from {top:?}");
@@ -1578,6 +1609,53 @@ mod tests {
         for name in crate::memory::MEMORY_TOOL_NAMES {
             assert!(nested.contains(&name.to_string()));
         }
+    }
+
+    /// `call_mcp_tool` is the one tool that reaches off this machine, so what it
+    /// hands `execute_mcp_tool` is the contract: a checked uuid, the tool name
+    /// verbatim, and `arguments` re-encoded as an object — absent meaning `{}`,
+    /// anything else refused here rather than at the server. Nothing below opens
+    /// a socket: each call stops at a pre-flight guard.
+    #[test]
+    fn call_mcp_tool_hands_the_run_pipeline_a_checked_call() {
+        let (store, dir) = store();
+        let vault = crate::secrets::FakeVault::default();
+        let mut emit = |_: &str, _: &str| {};
+        let call = |args: Value, emit: &mut dyn FnMut(&str, &str)| {
+            dispatch(&store, &vault, "call_mcp_tool", &args, emit)
+        };
+
+        assert_eq!(
+            call(json!({ "server_id": "nope", "tool": "read" }), &mut emit),
+            Err("invalid server_id".into()),
+        );
+        let id = registry::save_mcp_server_with(
+            &store,
+            &vault,
+            None,
+            "internal",
+            "ws://example.com/mcp",
+            "",
+            false,
+            r#"[{"name":"read","access":"read","enabled":true}]"#,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(
+            call(json!({ "server_id": id, "tool": "read", "arguments": [1] }), &mut emit),
+            Err("arguments must be a JSON object".into()),
+        );
+        assert_eq!(
+            call(json!({ "server_id": id, "tool": "write" }), &mut emit),
+            Err("tool \"write\" is not enabled".into()),
+        );
+        // no `arguments` is `{}`, not a refusal — a zero-parameter tool sends
+        // nothing, and the call must reach the fetch-time scheme check
+        assert_eq!(
+            call(json!({ "server_id": id, "tool": "read" }), &mut emit),
+            Err("Server URL must be http or https".into()),
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A model writes tool arguments as a string. Everything that is not a JSON

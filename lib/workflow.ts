@@ -21,6 +21,7 @@ export type NodeCategory =
     | "session"
     | "variable"
     | "saturn"
+    | "gateway"
     | "model"
     | "integration";
 
@@ -160,10 +161,14 @@ export const valuePort = (id: string, label = id): PortSpec => ({ id, label, kin
 //   and the exchange is appended back (src-tauri/src/saturn.rs). config.system
 //   is authored via the system-prompt popover and the same-id port overrides it; config.model is the fallback when "model" is
 //   unwired. "result" carries a data:image/… URL when output=image.
-// - saturn-agent: the agent node's shape, but it IS Saturn Agent — Saturn's own
-//   prompt, tools and memory, so there is no system/tools/skills/memory port to
-//   wire. config.session binds a chat by NAME (get-or-create, blank →
-//   "workflow"); blank config.model → src-tauri/src/saturn.rs's DEFAULT_MODEL.
+// - saturn-agent: the agent node's shape in its own black "gateway" category, but
+//   it IS Saturn Agent — Saturn's own prompt, tools and memory, so there is no
+//   system/tools/skills/memory port to wire. Fully port-driven: "prompt", the
+//   single-edge "session" (a chat chip) and "model" (a model node). config.session
+//   and config.model have no inputs left — they survive only as fallbacks for
+//   graphs saved before the ports, blank → "workflow" and
+//   src-tauri/src/saturn.rs's DEFAULT_MODEL. Its one config field is "reasoning",
+//   gated on the resolved model exactly as the agent's is.
 // - model: always one static node type — per-model toolbox chips just prefill
 //   config.model, so graphs never reference keys that vanish with the list.
 // - integration:*: every config field has a same-id value input that overrides
@@ -280,6 +285,18 @@ export const CATEGORY_STYLES = {
         headerBg: "bg-cyan-500/10",
         text: "text-cyan-600 dark:text-cyan-400",
         edge: "#06b6d4",
+    },
+    // the saturn-agent gateway, and the only category painted from the theme's
+    // ink rather than a Tailwind hue — black on the light canvas, near-white on
+    // the dark one (--foreground, app/globals.css). A literal black would
+    // disappear against the dark background; every other category is a fixed
+    // hue, which is what makes this one unmistakable at a glance.
+    gateway: {
+        borderL: "border-l-foreground",
+        border: "border-foreground/60",
+        headerBg: "bg-foreground/10",
+        text: "text-foreground",
+        edge: "var(--foreground)",
     },
     model: {
         borderL: "border-l-rose-500",

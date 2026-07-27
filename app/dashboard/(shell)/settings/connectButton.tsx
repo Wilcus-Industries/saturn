@@ -7,9 +7,9 @@ import { call } from "@/lib/ipc";
 // pulls tools/list for one MCP server and merges the result into its stored
 // allowlist. A server that answers 401 sends the user through OAuth first — the
 // browser opens, Rust waits on a loopback redirect, and the spinner runs for the
-// whole of it. Only a server that reaches 401 *with* a stored credential comes
-// back needing a manual token.
-const NEEDS_TOKEN = "MCP server requires authorization";
+// whole of it. This error only comes back when a *manual* token was the
+// credential that got rejected; an OAuth 401 re-authorizes instead.
+const TOKEN_REJECTED = "MCP server requires authorization";
 
 export default function ConnectButton({
     id,
@@ -51,8 +51,8 @@ export default function ConnectButton({
                         const msg = raw.replace(/\s+/g, " ").trim().slice(0, 200);
                         setStatus({
                             text:
-                                msg === NEEDS_TOKEN
-                                    ? `${msg} — edit the server and set an auth token`
+                                msg === TOKEN_REJECTED
+                                    ? `${msg} — the stored auth token was rejected`
                                     : msg,
                             bad: true,
                         });

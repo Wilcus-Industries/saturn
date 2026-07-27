@@ -31,7 +31,7 @@ Subsystem detail lives in `docs/` — read the one your task touches, not all of
 - `npm run build` — `next build`, static-exported to `out/` (what Tauri embeds). Not a full app build
 - `npm run lint` — regenerates-and-compares `catalog.json`, then ESLint. **`catalog.json` is generated** from `lib/integrations.ts`; edit a descriptor there and run `node scripts/gen-catalog.mjs` or the check fails
 - `npx tauri build` — the real build: `Saturn.app` + a `.dmg` under `src-tauri/target/release/bundle/`. Unsigned and un-notarized (`docs/open-decisions.md` §3.11)
-- `cd src-tauri && cargo test` — 142 tests, including the 48 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
+- `cd src-tauri && cargo test` — 145 tests, including the 49 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
 - `npx tsc --noEmit` — the frontend's only check beyond ESLint
 
 **No environment variables.** Nothing in `app/`, `lib/` or `src-tauri/` reads
@@ -82,10 +82,13 @@ map threaded through designer and interpreter alike.
 
 **Saturn Agent is the front door.** The window opens at `/dashboard/agent/`, and
 the same chat docks beside the designer canvas. `src-tauri/src/saturn.rs` owns
-all of it — the persisted sessions, the 12-tool surface it drives Saturn's own
+all of it — the persisted sessions, the 13-tool surface it drives Saturn's own
 data with, and the turn loop that streams over `saturn-delta` / `saturn-done`.
 Every tool wraps a `store`/`registry`/`workflow`/`runner` entry point that
-already exists; the same loop runs behind the `saturn-agent` canvas node.
+already exists; the same loop runs behind the `saturn-agent` canvas node. It is
+a general assistant, not only a graph author: `call_mcp_tool` routes to
+`runner::execute_mcp_tool`, so the chat can act through the user's MCP servers
+directly instead of authoring a workflow to call a tool once.
 
 **The frontend is a client.** Every page is `"use client"`, fetches through
 `call()` in `lib/ipc.tsx` (Tauri IPC), and refetches on the app-wide
@@ -113,8 +116,9 @@ or in the named module's header comment.
 
 **Outbound fetch**
 
-- Every fetch in `mcp.rs` goes through the single `send_guarded` site, which calls `assert_public_https_url` on the start URL and again on every redirect hop. The server URL is the user's, but everything the server hands back is the server's. Adding a second fetch site is how the guard gets skipped.
-- Redirects are followed **manually** and re-validated per hop (`http::send`, `mcp::send_guarded`). `reqwest`'s automatic following would chase a public host's 30x onto a private address past the guard.
+- One URL policy, `http::parse_request_url`: **scheme only** (`http`/`https`), shared by the http-request node and `mcp.rs`. localhost, private addresses and plain http are all allowed — an MCP server is often a local CLI (`http://127.0.0.1:8765/mcp`). The egress blocklist is gone with the tenancy (`docs/registry.md`).
+- Every fetch in `mcp.rs` still goes through the single `send_guarded` site. Adding a second fetch site is how the scheme check gets skipped.
+- Redirects are followed **manually** and re-parsed per hop (`http::send`, `mcp::send_guarded`). `reqwest`'s automatic following would chase a 30x off http(s) entirely.
 - Per-provider senders keep untrusted config out of the fetch target — exact-host allowlists (`==`, never `contains`) and strict id/token charset checks, because a Discord channel id and a Telegram bot token are interpolated into the request path.
 - The `http-request` node deliberately reaches the local network (`docs/open-decisions.md` §1.3). That is not a missing guard.
 

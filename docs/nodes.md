@@ -22,9 +22,14 @@ node type.
 
 ### Categories and shapes
 
-Eleven categories (`events`, `logic`, `data`, `mcp`, `skill`, `memory`,
-`session`, `variable`, `saturn`, `model`, `integration`), each with a color in
-`CATEGORY_STYLES`. Four shapes are not rectangles:
+Twelve categories (`events`, `logic`, `data`, `mcp`, `skill`, `memory`,
+`session`, `variable`, `saturn`, `gateway`, `model`, `integration`), each with a
+color in `CATEGORY_STYLES`. Eleven are a fixed Tailwind hue; `gateway` — the
+`saturn-agent` node, alone in its category — paints from the theme's `foreground`
+token instead, so it reads black on the light canvas and near-white on the dark
+one. A literal black would vanish against `--background: #0a0a0a`.
+
+Four shapes are not rectangles:
 
 | shape | who | geometry.ts |
 |---|---|---|
@@ -229,41 +234,79 @@ the next run would re-send.
 
 ### The `saturn-agent` node
 
-The `agent` node's shape, but it **is** Saturn Agent: Saturn's own system prompt,
-its twelve tools and its one memory store. No `system` port and no grant ports —
-that is the point. A custom prompt would make it an `agent` node with extra steps.
+The `agent` node's shape in its own black `gateway` category, but it **is** Saturn
+Agent: Saturn's own system prompt, its twelve tools and its one memory store. No
+`system` port and no grant ports beyond the chat it runs in — that is the point. A
+custom prompt would make it an `agent` node with extra steps.
+
+Like the `agent` node it is **port-driven**; there is no literal input for either
+binding.
 
 | port / field | notes |
 |---|---|
 | `in` / `out` | flow, left and right edge |
 | `prompt` | value in, bottom |
+| `session` | value in, bottom, **single**, accepts `session` — a chat chip |
+| `model` | value in, bottom — usually a model node |
 | `result` | value out — the assistant's final text |
-| `config.session` | session **name**; blank → `"workflow"` |
-| `config.model` | OpenRouter slug; blank → `saturn::DEFAULT_MODEL` |
+| `config.reasoning` | `off`/`low`/`medium`/`high`, gated on the resolved model |
+
+`config.session` and `config.model` are **legacy fallbacks with no input on the
+node**, kept the way `if`'s `b_literal` is: a graph saved before the ports existed
+carries those keys and must keep running. Blank (or absent) → `"workflow"` and
+`saturn::DEFAULT_MODEL`. The `model` port resolves exactly as the `agent` node's
+does, evaluated after `prompt` because both land in the value stream the golden
+fixtures pin.
+
+`reasoning` uses the same `dynamicOptions` gate as the agent's: `canvas.tsx`'s
+`agentReasoningOptions` resolves the slug and offers the full effort set for a
+reasoning-capable model, `off` alone for a known non-reasoning one, and locks on
+an unknown one. One difference — `resolveAgentModelSlug` falls back to
+`lib/agent.ts`'s `DEFAULT_MODEL` for this node type, because an unwired `model`
+port here means the default rather than "no model", and without that the select
+would lock on a node that will in fact run on a reasoning-capable model. The mode
+threads through `SaturnTurn.reasoning` to `TurnRequest`; `openrouter::reasoning_param`
+is the allowlist, so a blank or unknown value simply omits the parameter.
 
 Both defaults live in `interpreter::exec_saturn` rather than in the injected
 effect, so the golden fixture pins them — `fixtures/cases/saturn-agent.json`'s
 second node leaves both fields blank, which is a thing a port can silently get
 wrong.
 
-**Sessions bind by name, not id.** `saturn::session_by_name` get-or-creates
-against the unique index, so placing the node costs no UI at all. The ceiling
-that buys: renaming that session in the chat's dropdown orphans the node onto a
+**Two ways to bind the chat, port first.** A chat chip dropped on the `session`
+port resolves to an id through the same `single_grant` the `agent` node uses —
+statically from the chip's node type, never evaluated as a value — and that id is
+what the turn runs in. With the port unwired it falls back to `config.session` as
+a NAME, which `saturn::session_by_name` get-or-creates against the unique index,
+so a node placed without a chip still costs no UI at all. The ceiling that buys:
+renaming that session in the chat's dropdown orphans a *name-bound* node onto a
 fresh session of the old name. Cron runs then append to a chat the user reads —
-chosen deliberately.
+chosen deliberately, and wiring the port is the way out of it.
+
+`fixtures/cases/saturn-agent-session.json` pins the ports and the legacy fallback
+in one graph: a chat chip and a model node feed a node whose `config.session` and
+`config.model` say something else, and the expected file shows the ports winning.
+`saturn-agent.json` — untouched since before the ports — is the other half: it
+wires neither, so it still binds by those same config keys.
 
 The node's turn runs with `nested: true`, which **drops `run_workflow` from the
 tool surface**. That is the recursion guard: a workflow run cannot start another
 workflow run. Everything else, memory included, is the chat's surface exactly.
 
-It renders with **zero designer code**: `geometry.ts`'s `isAgentEntry` keys on
-`category === "saturn"`, so the horizontal layout, the left-edge flow in, the
-stacked right-edge outputs, the bottom `prompt` port and the two `ConfigControl`
-text rows all fall out of the catalog entry.
+It renders with **zero designer code**: `geometry.ts`'s `isAgentEntry` matches
+`saturn` and `gateway` alike, so the horizontal layout, the left-edge flow in, the
+stacked right-edge outputs, the three bottom ports and the `ConfigControl` select
+all fall out of the catalog entry — the category buys the black frame through
+`entryStyles` and nothing else. The split exists precisely so neither predicate
+special-cases a key, which is what the "resolve colors through `entryStyles`"
+invariant is there to prevent.
 
 Execution is a fourth `Effects` field (`SaturnFn`), wired in `runner.rs` — the
 whole turn behind one closure, which is why `agent::Request` and the six frozen
-`agent-*` expected files are untouched. The turn's deltas go nowhere: the run
+`agent-*` expected files are untouched. Its first argument is the resolved chat
+id (`None` → bind by name), and the fixture stub prints the name-bound case
+exactly as it did before the port existed, which is what keeps
+`expected/saturn-agent.json` frozen. The turn's deltas go nowhere: the run
 console gets the final text, the session transcript gets all of it
 (`docs/ui.md`).
 

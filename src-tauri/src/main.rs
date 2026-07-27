@@ -479,11 +479,12 @@ fn delete_registry_entry(store: State<Store>, id: String) -> Result<bool, String
 /// allowlist (`discoverMcpTools`). Blocking — reqwest again, so it runs on its
 /// own std thread via Tauri's async command bridge.
 ///
-/// A 401 with no stored credential starts the interactive OAuth flow — browser,
+/// A 401 with no *manual* token starts the interactive OAuth flow — browser,
 /// loopback redirect, code exchange — and retries discovery with the token it
-/// just persisted. That makes Connect one button for both kinds of server; the
-/// wait is bounded by `mcp::CALLBACK_TIMEOUT` and the caller shows a spinner for
-/// all of it.
+/// just persisted. That makes Connect one button for both kinds of server, and
+/// it is also the only way back from a revoked grant: hitting it again
+/// re-authorizes. The wait is bounded by `mcp::CALLBACK_TIMEOUT` and the caller
+/// shows a spinner for all of it.
 #[tauri::command(async)]
 fn discover_mcp_tools(store: State<Store>, id: String) -> Result<usize, String> {
     let store = store.inner().clone();
@@ -495,9 +496,11 @@ fn discover_mcp_tools(store: State<Store>, id: String) -> Result<usize, String> 
         let (token, _) = registry::fresh_mcp_token(&store, &KEYCHAIN, &entry)?;
         let discovered = match mcp::discover_tools(&entry.server_url, token.as_deref()) {
             Ok(tools) => tools,
-            // a 401 while already holding a credential is the server rejecting
-            // it, not an invitation to authorize again
-            Err(mcp::McpError::AuthRequired(challenge)) if token.is_none() => {
+            // a 401 while holding the user's *manual* token is the server
+            // rejecting that token, not an invitation to authorize. A 401 on an
+            // OAuth token means the grant is gone — re-authorizing is the whole
+            // way back, since nothing else clears a stale set.
+            Err(mcp::McpError::AuthRequired(challenge)) if entry.auth_token.is_none() => {
                 let authorized = mcp::authorize(&entry.server_url, &challenge)?;
                 let fresh = registry::store_mcp_oauth(&store, &KEYCHAIN, &id, &authorized)?;
                 mcp::discover_tools(&entry.server_url, Some(&fresh)).map_err(|e| e.to_string())?

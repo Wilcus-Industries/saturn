@@ -1,0 +1,145 @@
+{
+  "entries": [
+    {
+      "key": "session:dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "category": "session",
+      "label": "nightly digest",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "session",
+          "label": "session",
+          "kind": "value"
+        }
+      ]
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "ev",
+        "type": "run",
+        "x": 0,
+        "y": 0,
+        "config": {}
+      },
+      {
+        "id": "prompt",
+        "type": "string",
+        "x": 60,
+        "y": 0,
+        "config": {
+          "value": "what ran last night?"
+        }
+      },
+      {
+        "id": "chat",
+        "type": "session:dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "x": 60,
+        "y": 60,
+        "config": {}
+      },
+      {
+        "id": "m",
+        "type": "model",
+        "x": 60,
+        "y": 120,
+        "config": {
+          "model": "  stub/wired  "
+        }
+      },
+      {
+        "id": "s1",
+        "type": "saturn-agent",
+        "x": 120,
+        "y": 0,
+        "config": {
+          "session": "nightly",
+          "model": "stub/model",
+          "reasoning": "high"
+        }
+      },
+      {
+        "id": "show",
+        "type": "print",
+        "x": 180,
+        "y": 0,
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0",
+        "from": {
+          "nodeId": "prompt",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "s1",
+          "portId": "prompt"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1",
+        "from": {
+          "nodeId": "chat",
+          "portId": "session"
+        },
+        "to": {
+          "nodeId": "s1",
+          "portId": "session"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e1m",
+        "from": {
+          "nodeId": "m",
+          "portId": "model"
+        },
+        "to": {
+          "nodeId": "s1",
+          "portId": "model"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e2",
+        "from": {
+          "nodeId": "s1",
+          "portId": "result"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "message"
+        },
+        "kind": "value"
+      },
+      {
+        "id": "e3",
+        "from": {
+          "nodeId": "ev",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "s1",
+          "portId": "in"
+        },
+        "kind": "flow"
+      },
+      {
+        "id": "e4",
+        "from": {
+          "nodeId": "s1",
+          "portId": "out"
+        },
+        "to": {
+          "nodeId": "show",
+          "portId": "in"
+        },
+        "kind": "flow"
+      }
+    ]
+  }
+}

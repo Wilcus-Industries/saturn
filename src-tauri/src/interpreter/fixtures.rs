@@ -87,14 +87,23 @@ fn stub_tool(memory: bool, entry_id: &str, tool: &str, input: &str) -> Result<St
 }
 
 /// The `saturn-agent` node's whole turn. Authored, not ported — the node
-/// postdates the oracle — so it reports exactly the three arguments the
-/// interpreter decides: the session name and model AFTER their defaults, and
-/// the resolved prompt. Model "stub-error" fails, like the agent stub's.
-fn stub_saturn(session: &str, model: &str, prompt: &str) -> Result<String, String> {
-    if model == "stub-error" {
+/// postdates the oracle — so it reports exactly what the interpreter decides:
+/// the chat it resolved, the model AFTER its default, and the resolved prompt.
+/// A chip-bound chat reports as "#<id>" and a name-bound one as the bare name,
+/// which is what makes the port-beats-config rule visible in the expected file.
+/// Reasoning only appears when it is set, so a node that sets neither prints
+/// exactly as it did before the ports existed and `expected/saturn-agent.json`
+/// stays frozen. Model "stub-error" fails, like the agent stub's.
+fn stub_saturn(turn: &super::SaturnTurn) -> Result<String, String> {
+    if turn.model == "stub-error" {
         return Err("stub saturn failure".into());
     }
-    Ok(format!("saturn[{session}/{model}]({})", digest(prompt)))
+    let who = turn.chat.map_or_else(|| turn.session.to_string(), |id| format!("#{id}"));
+    let reasoning = match turn.reasoning {
+        "" => String::new(),
+        r => format!("/{r}"),
+    };
+    Ok(format!("saturn[{who}/{}{reasoning}]({})", turn.model, digest(turn.prompt)))
 }
 
 /// The `agent` node's session port. Authored, not ported — chat chips postdate

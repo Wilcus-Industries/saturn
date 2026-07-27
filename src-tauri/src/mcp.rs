@@ -3,26 +3,19 @@
 //! → authorization-server metadata → dynamic client registration → PKCE
 //! authorization code.
 //!
-//! SECURITY-CRITICAL and translated as-is, not improved. The threat model that
-//! justified every guard survives the desktop pivot intact: the server URL is
-//! the user's own, but *everything the server hands back* — authorization_servers,
-//! the authorization/token/registration endpoints, the PRM resource URL — is the
-//! server's, i.e. attacker-controlled. A hostile MCP server answering
-//! `"token_endpoint": "https://169.254.169.254/…"` must not get a request.
+//! The egress blocklist this module used to enforce is GONE, deliberately: a
+//! desktop Saturn talks to MCP servers the user runs locally (`hound --http`
+//! serves `http://127.0.0.1:8765/mcp`), so the URL policy is now scheme-only,
+//! `http::parse_request_url`, shared with the http-request node. The residual
+//! that buys: everything a server hands back — authorization_servers, the
+//! authorization/token/registration endpoints, the PRM resource URL — is the
+//! server's, so a hostile *remote* server can now aim the OAuth discovery hops
+//! at 127.0.0.1 or a LAN box. Same reach the http-request node already has.
 //!
-//! So this file has exactly ONE fetch site, `send_guarded`, and it calls
-//! `assert_public_https_url` on the start URL and again on every redirect hop.
-//! Adding a second fetch site is how the guard gets skipped; don't.
-//!
-//! Two things are stronger here than in the TypeScript, both deliberate and both
-//! required by the same invariant the guard exists for:
-//!   - node's fetch followed redirects itself, so a public host could 30x the
-//!     request onto a private address *past* the guard. Redirects are followed
-//!     manually here and re-validated, exactly as `http.rs::send` does.
-//!   - node resolved the host, checked the addresses, then handed the URL to
-//!     fetch, which resolved again — a rebinding server can answer differently
-//!     the second time. `ClientBuilder::resolve` pins the address that was
-//!     checked, closing the window node conceded.
+//! Still exactly ONE fetch site, `send_guarded`, which re-parses the URL on the
+//! start hop and on every redirect. Adding a second fetch site is how the scheme
+//! check gets skipped; don't. Redirects are followed manually (reqwest's
+//! automatic following would chase a 30x onto file:/data:).
 //!
 //! Nothing here logs. An access token, a refresh token, an authorization code
 //! and a PKCE verifier all pass through this module; `TokenSet` deliberately
@@ -33,7 +26,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs};
+use std::net::TcpListener;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -44,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use crate::http::{assert_public_https_url, ip_blocked};
+use crate::http::parse_request_url;
 use crate::interpreter::{js, utf16_prefix};
 
 /// MCP revision this client speaks; sent as `mcp-protocol-version` and in the
@@ -113,52 +106,19 @@ enum Body {
 
 const REDIRECT_STATUS: [u16; 5] = [301, 302, 303, 307, 308];
 
-/// reqwest resolves the host again at connect time, so the addresses
-/// `assert_public_https_url` just approved are not necessarily the ones dialled
-/// — a rebinding DNS server answers public once and private the second time.
-/// Pinning the checked address closes that window. Literal-IP hosts need no pin
-/// (the guard already validated the address itself).
-///
-/// The pin's port is the URL's, NOT the 443 the guard used for its lookup:
-/// pinning `host:443` would silently re-aim an `https://host:8443/` request.
-fn pinned_client(url: &Url) -> Result<Client, String> {
-    let builder = Client::builder().redirect(redirect::Policy::none());
-    let Some(host) = url.host_str() else {
-        return builder.build().map_err(|e| e.to_string());
-    };
-    // bracketed IPv6 hostnames arrive as "[::1]"
-    let bare = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(host);
-    if bare.parse::<IpAddr>().is_ok() {
-        return builder.build().map_err(|e| e.to_string());
-    }
-    let port = url.port_or_known_default().unwrap_or(443);
-    let addrs: Vec<SocketAddr> = (bare, port)
-        .to_socket_addrs()
-        .map_err(|_| "Could not resolve server host".to_string())?
-        .collect();
-    // every address must be public, not merely the one we happen to dial: the
-    // resolver order is the server's to choose
-    if addrs.is_empty() || addrs.iter().any(|a| ip_blocked(a.ip())) {
-        return Err("Server host resolves to a non-public address".into());
-    }
-    builder
-        .resolve_to_addrs(host, &addrs)
-        .build()
-        .map_err(|e| e.to_string())
-}
-
-/// The only place this module touches the network. Runs the SSRF guard on the
-/// start URL and on every redirect hop, pins the validated address, and holds
-/// one wall-clock deadline across all hops.
+/// The only place this module touches the network. Re-parses the URL on the
+/// start hop and on every redirect, and holds one wall-clock deadline across all
+/// hops.
 fn send_guarded(
     method: &str,
     start_url: &str,
     mut headers: BTreeMap<String, String>,
     mut body: Body,
 ) -> Result<Response, String> {
+    let client = Client::builder()
+        .redirect(redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())?;
     let deadline = Instant::now() + TIMEOUT;
     let mut current = start_url.to_string();
     let mut cur_method = method.to_string();
@@ -167,8 +127,7 @@ fn send_guarded(
         if remaining.is_zero() {
             return Err("timed out".into());
         }
-        let url = assert_public_https_url(&current)?; // SSRF guard — every hop
-        let client = pinned_client(&url)?;
+        let url = parse_request_url(&current)?; // scheme check — every hop
         let verb = Method::from_bytes(cur_method.as_bytes()).map_err(|_| "unsupported method")?;
         let mut req = client.request(verb, url.clone()).timeout(remaining);
         for (name, value) in &headers {
@@ -1268,40 +1227,23 @@ mod tests {
         js::parse(raw).unwrap()
     }
 
-    /// The egress guard is the whole security value of this module. Literal
-    /// hosts resolve nothing, so this test never touches the network.
+    /// A locally-served MCP endpoint is the normal case now (`hound --http`,
+    /// Ollama-style CLIs), so the only shape still refused is a non-http scheme
+    /// — on the start URL and, more importantly, on a redirect hop.
     #[test]
-    fn the_guard_refuses_every_hostile_url_shape() {
-        for bad in [
-            "https://127.0.0.1/mcp",
-            "https://10.1.2.3/mcp",
-            "https://192.168.1.1/mcp",
-            "https://172.16.0.1/mcp",
-            "https://169.254.169.254/latest/meta-data/", // cloud metadata
-            "https://100.64.0.1/mcp",                    // CGNAT
-            "https://0.0.0.0/mcp",
+    fn the_guard_refuses_only_non_http_schemes() {
+        for ok in [
+            "http://127.0.0.1:8765/mcp",
+            "http://localhost:8765/mcp",
             "https://[::1]/mcp",
-            "https://[::ffff:127.0.0.1]/mcp", // IPv4-mapped loopback
-            "https://[fe80::1]/mcp",          // link-local
-            "https://[fc00::1]/mcp",          // unique-local
-            "http://example.com/mcp",         // https only
-            "ws://example.com/mcp",
-            "file:///etc/passwd",
-            "https://localhost/mcp",
-            "https://api.localhost/mcp",
-            "https://homeassistant.local/mcp",
-            "not a url",
-            // credentials do NOT make a URL invalid in either implementation —
-            // what matters is that the *host* is the thing validated
-            "https://good.example.com@10.0.0.1/mcp",
+            "http://192.168.1.50/mcp",
+            "https://mcp.example.com/mcp",
         ] {
-            assert!(
-                assert_public_https_url(bad).is_err(),
-                "{bad} must be refused"
-            );
+            assert!(parse_request_url(ok).is_ok(), "{ok} must be allowed");
         }
-        for ok in ["https://1.1.1.1/mcp", "https://[2606:4700::1111]/mcp"] {
-            assert!(assert_public_https_url(ok).is_ok(), "{ok} must be allowed");
+        for bad in ["ws://example.com/mcp", "file:///etc/passwd", "data:text/plain,hi", "not a url"]
+        {
+            assert!(parse_request_url(bad).is_err(), "{bad} must be refused");
         }
     }
 

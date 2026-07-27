@@ -28,20 +28,29 @@ const GROUPS: { id: string; label: string; Icon: IconType }[] = [
 ];
 
 // section heading per catalog category for the standard (blocks/agents) render.
-// saturn is headingless — its "agent" / "saturn agent" chips already sit under
-// the "Agents" group tab, so a third "agents" heading is pure redundancy.
+// saturn and gateway are headingless — the "agent" / "saturn agent" chips
+// already sit under the "Agents" group tab, so a third "agents" heading is pure
+// redundancy.
 const CATEGORY_HEADING: Partial<Record<NodeCategory, string>> = {
     events: "events",
     logic: "logic",
     data: "data",
     saturn: "",
+    gateway: "",
     mcp: "tools",
     skill: "skills",
     memory: "memory",
     session: "chats",
 };
 const BLOCKS_CATEGORIES: NodeCategory[] = ["events", "logic", "data"];
-const AGENTS_CATEGORIES: NodeCategory[] = ["saturn", "mcp", "skill", "memory", "session"];
+const AGENTS_CATEGORIES: NodeCategory[] = [
+    "saturn",
+    "gateway",
+    "mcp",
+    "skill",
+    "memory",
+    "session",
+];
 
 // where a section's entries come from when it has none — chats are made by
 // talking to Saturn, everything else is a settings row

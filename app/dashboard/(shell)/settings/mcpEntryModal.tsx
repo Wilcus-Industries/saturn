@@ -80,11 +80,11 @@ export default function McpEntryModal({
             />
 
             <Field
-                label={"server url (https)"}
+                label={"server url"}
                 name={"serverUrl"}
                 type={"url"}
                 required
-                placeholder={"https://mcp.example.com"}
+                placeholder={"https://mcp.example.com or http://127.0.0.1:8765/mcp"}
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
             />

@@ -8,6 +8,18 @@
 
 ## Saturn | By Wilcus Industries
 
+Saturn is Wilcus Industries' latest innovation in personal agent technology.
+
+### Agent specifications
+- [turbovec](https://github.com/RyanCodrai/turbovec) based agent memory.
+- Rust based app backend (under 300mb ram, instant speed).
+- Beautifully designed TypeScript UI.
+- 300+ models via OpenRouter.
+
+### Automations
+- No-code event driven workflows.
+- Rust interpreter for maximum speed.
+- MCP for agentic workflow creation.
 
 ## License
 

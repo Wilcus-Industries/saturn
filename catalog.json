@@ -481,7 +481,7 @@
   },
   {
     "key": "saturn-agent",
-    "category": "saturn",
+    "category": "gateway",
     "label": "saturn agent",
     "inputs": [
       {
@@ -492,6 +492,17 @@
       {
         "id": "prompt",
         "label": "prompt",
+        "kind": "value"
+      },
+      {
+        "id": "session",
+        "label": "session",
+        "kind": "value",
+        "accepts": "session"
+      },
+      {
+        "id": "model",
+        "label": "model",
         "kind": "value"
       }
     ],
@@ -509,16 +520,16 @@
     ],
     "config": [
       {
-        "id": "session",
-        "label": "session",
-        "input": "text",
-        "placeholder": "chat name"
-      },
-      {
-        "id": "model",
-        "label": "model",
-        "input": "text",
-        "placeholder": "openrouter model id"
+        "id": "reasoning",
+        "label": "reasoning",
+        "input": "select",
+        "options": [
+          "off",
+          "low",
+          "medium",
+          "high"
+        ],
+        "dynamicOptions": true
       }
     ]
   },

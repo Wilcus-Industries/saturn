@@ -1,0 +1,46 @@
+{
+  "console": [
+    {
+      "kind": "info",
+      "text": "▶ run started"
+    },
+    {
+      "kind": "info",
+      "text": "saturn agent: calling stub/wired (dddddddd-dddd-4ddd-8ddd-dddddddddddd)…"
+    },
+    {
+      "kind": "info",
+      "text": "saturn agent → saturn[#dddddddd-dddd-4ddd-8ddd-dddddddddddd/stub/wired/high](20#3fe3d159)"
+    },
+    {
+      "kind": "print",
+      "text": "saturn[#dddddddd-dddd-4ddd-8ddd-dddddddddddd/stub/wired/high](20#3fe3d159)"
+    },
+    {
+      "kind": "info",
+      "text": "run finished (2 steps)"
+    }
+  ],
+  "values": [
+    [
+      "prompt",
+      "out",
+      "what ran last night?"
+    ],
+    [
+      "m",
+      "model",
+      "stub/wired"
+    ],
+    [
+      "s1",
+      "result",
+      "saturn[#dddddddd-dddd-4ddd-8ddd-dddddddddddd/stub/wired/high](20#3fe3d159)"
+    ],
+    [
+      "s1",
+      "result",
+      "saturn[#dddddddd-dddd-4ddd-8ddd-dddddddddddd/stub/wired/high](20#3fe3d159)"
+    ]
+  ]
+}

@@ -13,6 +13,7 @@ import {
     useState,
 } from "react";
 import { Robot } from "@/app/dashboard/icons";
+import { DEFAULT_MODEL } from "@/lib/agent";
 import {
     canConnect,
     type CatalogEntry,
@@ -83,6 +84,11 @@ const FIT_MAX_ZOOM = 1;
 // model resolution — a connected model node wins; config.model is a
 // legacy-only fallback. Returns "" when a value edge feeds the model port
 // from a non-model (dynamic) upstream, or no slug is set.
+//
+// The saturn-agent node has no model field left to fall back to, and an unwired
+// port there means DEFAULT_MODEL rather than "no model" — without this the
+// reasoning select would lock on a node that will in fact run on a
+// reasoning-capable model (lib/agent.ts, mirroring saturn.rs).
 function resolveAgentModelSlug(graph: WorkflowGraph, node: WorkflowNode): string {
     const edge = graph.edges.find(
         (e) => e.kind === "value" && e.to.nodeId === node.id && e.to.portId === "model",
@@ -92,7 +98,9 @@ function resolveAgentModelSlug(graph: WorkflowGraph, node: WorkflowNode): string
         if (src?.type !== "model") return ""; // dynamic upstream — slug unknown
         return (src.config.model ?? "").trim();
     }
-    return (node.config.model ?? "").trim();
+    const configured = (node.config.model ?? "").trim();
+    if (configured) return configured;
+    return node.type === "saturn-agent" ? DEFAULT_MODEL : "";
 }
 
 // options for the agent's "output" dynamicOptions select: the resolved
