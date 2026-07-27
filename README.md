@@ -4,11 +4,12 @@
     <source media="(prefers-color-scheme: light)" srcset="public/art/logo-landscape-light.png" />
     <img src="public/art/logo-landscape-light.png" alt="Saturn" width="560" />
   </picture>
+</p>
 
-[![forthebadge](https://forthebadge.com/badges/made-with-rust.svg)](https://forthebadge.com)
-[![forthebadge](https://forthebadge.com/badges/made-with-typescript.svg)](https://forthebadge.com)
-[![forthebadge](https://forthebadge.com/badges/license-mit.svg)](https://forthebadge.com)
-
+<p align="center">
+  <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/made-with-rust.svg" alt="Made with Rust" /></a>
+  <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/made-with-typescript.svg" alt="Made with TypeScript" /></a>
+  <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/license-mit.svg" alt="MIT License" /></a>
 </p>
 
 ## Saturn
