@@ -5,9 +5,9 @@
     <img src="public/art/logo-landscape-light.png" alt="Saturn" width="560" />
   </picture>
 
-[![forthebadge](/badges/made-with-rust.svg)](https://forthebadge.com)
-[![forthebadge](/badges/made-with-typescript.svg)](https://forthebadge.com)
-[![forthebadge](/badges/license-mit.svg)](https://forthebadge.com)
+[![forthebadge](https://forthebadge.com/badges/made-with-rust.svg)](https://forthebadge.com)
+[![forthebadge](https://forthebadge.com/badges/made-with-typescript.svg)](https://forthebadge.com)
+[![forthebadge](https://forthebadge.com/badges/license-mit.svg)](https://forthebadge.com)
 
 </p>
 
