@@ -10,6 +10,7 @@
   <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/made-with-rust.svg" alt="Made with Rust" /></a>
   <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/made-with-typescript.svg" alt="Made with TypeScript" /></a>
   <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/license-mit.svg" alt="MIT License" /></a>
+  <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/powered-by-black-magic.svg" alt="Powered by black magic" /></a>
 </p>
 
 ## Saturn
