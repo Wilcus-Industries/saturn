@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="public/art/logo-landscape-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="public/art/logo-landscape-light.png" />
-    <img src="public/art/logo-landscape-light.png" alt="Saturn" width="560" />
+    <source media="(prefers-color-scheme: dark)" srcset="public/art/logo-landscape-light.png" />
+    <source media="(prefers-color-scheme: light)" srcset="public/art/logo-landscape-dark.png" />
+    <img src="public/art/logo-landscape-light.png" alt="Saturn" width="700" />
   </picture>
 </p>
 
@@ -12,6 +12,9 @@
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-000?logo=nextdotjs&logoColor=fff&style=flat" />
   <img alt="Model Context Protocol" src="https://img.shields.io/badge/Model%20Context%20Protocol-000?logo=modelcontextprotocol&logoColor=fff&style=flat" />
   <img alt="Claude" src="https://img.shields.io/badge/Claude-D97757?logo=claude&logoColor=fff&style=flat" />
+  <img src="https://img.shields.io/badge/macOS-000?logo=macos&logoColor=fff&style=flat" alt="macOS Badge">
+  <img src="https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=000&style=flat" alt="Linux Badge">
+  <img src="https://img.shields.io/badge/OpenRouter-94A3B8?logo=openrouter&logoColor=fff&style=flat" alt="OpenRouter Badge">
 </p>
 
 ## Saturn
