@@ -7,11 +7,11 @@
 </p>
 
 <p align="center">
-    ![Rust Badge](https://img.shields.io/badge/Rust-000?logo=rust&logoColor=fff&style=flat)
-    ![TypeScript Badge](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff&style=flat)
-    ![Next.js Badge](https://img.shields.io/badge/Next.js-000?logo=nextdotjs&logoColor=fff&style=flat)
-    ![Model Context Protocol Badge](https://img.shields.io/badge/Model%20Context%20Protocol-000?logo=modelcontextprotocol&logoColor=fff&style=flat)
-    ![Claude Badge](https://img.shields.io/badge/Claude-D97757?logo=claude&logoColor=fff&style=flat)
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-000?logo=rust&logoColor=fff&style=flat" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff&style=flat" />
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-000?logo=nextdotjs&logoColor=fff&style=flat" />
+  <img alt="Model Context Protocol" src="https://img.shields.io/badge/Model%20Context%20Protocol-000?logo=modelcontextprotocol&logoColor=fff&style=flat" />
+  <img alt="Claude" src="https://img.shields.io/badge/Claude-D97757?logo=claude&logoColor=fff&style=flat" />
 </p>
 
 ## Saturn
