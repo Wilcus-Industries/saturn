@@ -4,11 +4,19 @@
     <source media="(prefers-color-scheme: light)" srcset="public/art/logo-landscape-light.png" />
     <img src="public/art/logo-landscape-light.png" alt="Saturn" width="560" />
   </picture>
+
+[![forthebadge](/badges/made-with-rust.svg)](https://forthebadge.com)
+[![forthebadge](/badges/made-with-typescript.svg)](https://forthebadge.com)
+[![forthebadge](/badges/license-mit.svg)](https://forthebadge.com)
+
 </p>
 
-## Saturn | By Wilcus Industries
+## Saturn
 
 Saturn is Wilcus Industries' latest innovation in personal agent technology.
+
+![Saturn Desktop](docs/showcase.png)
+<small>It's beautiful, I know.</small>
 
 ### Agent specifications
 - [turbovec](https://github.com/RyanCodrai/turbovec) based agent memory.
