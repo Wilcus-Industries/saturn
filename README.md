@@ -7,10 +7,11 @@
 </p>
 
 <p align="center">
-  <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/made-with-rust.svg" alt="Made with Rust" /></a>
-  <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/made-with-typescript.svg" alt="Made with TypeScript" /></a>
-  <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/license-mit.svg" alt="MIT License" /></a>
-  <a href="https://forthebadge.com"><img src="https://forthebadge.com/badges/powered-by-black-magic.svg" alt="Powered by black magic" /></a>
+    ![Rust Badge](https://img.shields.io/badge/Rust-000?logo=rust&logoColor=fff&style=flat)
+    ![TypeScript Badge](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff&style=flat)
+    ![Next.js Badge](https://img.shields.io/badge/Next.js-000?logo=nextdotjs&logoColor=fff&style=flat)
+    ![Model Context Protocol Badge](https://img.shields.io/badge/Model%20Context%20Protocol-000?logo=modelcontextprotocol&logoColor=fff&style=flat)
+    ![Claude Badge](https://img.shields.io/badge/Claude-D97757?logo=claude&logoColor=fff&style=flat)
 </p>
 
 ## Saturn
