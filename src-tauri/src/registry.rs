@@ -206,12 +206,12 @@ pub fn refresh_via_mcp(oauth: &McpOauth, resource: &str) -> Result<TokenSet, Str
     })
 }
 
-/// Production wiring for `UrlShapeCheck` — `assertHttpsUrlShape`, the sync half
-/// of the SSRF guard. A save must not block on DNS, and a host that does not
-/// resolve right now must still be storable; the full resolve-time guard runs
-/// again at every fetch in the MCP client regardless.
+/// Production wiring for `UrlShapeCheck`: the same scheme-only policy the MCP
+/// client applies at fetch time. Sync and resolver-free — a save must not block
+/// on DNS, and `http://127.0.0.1:8765/mcp` for a locally-run server must store
+/// whether or not anything is listening yet.
 pub fn url_guard(raw: &str) -> Result<(), String> {
-    crate::http::assert_https_url_shape(raw).map(|_| ())
+    crate::http::parse_request_url(raw).map(|_| ())
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -527,16 +527,26 @@ pub fn fresh_mcp_token_with(
         && oauth.refresh_token.is_some()
         && oauth.expires_at.is_some_and(|exp| exp < now());
     if refreshable {
-        let fresh = refresh(&oauth, &entry.server_url)?;
-        oauth.access_token = Some(fresh.access_token);
-        // a token endpoint that omits refresh_token leaves the old one in force;
-        // one that rotates it must not leave the old one behind
-        oauth.refresh_token = fresh.refresh_token.or(oauth.refresh_token);
-        // NOT `.or(...)`: the TypeScript spread wrote `expiresAt: undefined`
-        // when the response had no expires_in, which stops the next call from
-        // refreshing at all (the token is then used until it 401s). Keeping a
-        // stale expiry would refresh on every single call instead.
-        oauth.expires_at = fresh.expires_at;
+        match refresh(&oauth, &entry.server_url) {
+            Ok(fresh) => {
+                oauth.access_token = Some(fresh.access_token);
+                // a token endpoint that omits refresh_token leaves the old one in force;
+                // one that rotates it must not leave the old one behind
+                oauth.refresh_token = fresh.refresh_token.or(oauth.refresh_token);
+                // NOT `.or(...)`: the TypeScript spread wrote `expiresAt: undefined`
+                // when the response had no expires_in, which stops the next call from
+                // refreshing at all (the token is then used until it 401s). Keeping a
+                // stale expiry would refresh on every single call instead.
+                oauth.expires_at = fresh.expires_at;
+            }
+            // A refresh token the server no longer honours is a dead end, not a
+            // failure to report: returning `Err` here would stop the caller ever
+            // reaching the 401 that re-opens the browser. Dropping the whole set
+            // makes the next call a 401 with no credential, which *is* the way
+            // back. The client id goes with it — `mcp::authorize` re-registers
+            // unconditionally, so there is nothing there worth keeping.
+            Err(_) => oauth = McpOauth::default(),
+        }
         write_mcp_oauth(store, vault, &entry.id, &oauth)?;
     }
     Ok((oauth.access_token.clone().filter(|t| !t.is_empty()), oauth))
@@ -1582,6 +1592,46 @@ mod tests {
         let with_manual = mcp_secrets(store, &vault, &id).unwrap().unwrap();
         let (token, _) = fresh_mcp_token_with(store, &vault, &with_manual, never).unwrap();
         assert_eq!(token.as_deref(), Some("manual"), "a manual token wins over oauth");
+    }
+
+    /// A refresh the server refuses must not surface as an error: that would
+    /// strand the entry forever, since a 401 is the only thing that re-opens the
+    /// browser and an `Err` here never reaches one. The dead set is dropped, not
+    /// reported, and the drop is persisted so the next call starts clean.
+    #[test]
+    fn a_refused_refresh_clears_the_set_instead_of_failing() {
+        let t = Tmp::new();
+        let (store, vault) = (&t.1, FakeVault::default());
+        let id = save_mcp_server_with(store, &vault, None, "S", "https://s.test/mcp", "", false, "[]", https_ok)
+            .unwrap();
+        write_mcp_oauth(
+            store,
+            &vault,
+            &id,
+            &McpOauth {
+                client_id: Some("cid".into()),
+                token_url: Some("https://s.test/token".into()),
+                access_token: Some("dead-at".into()),
+                refresh_token: Some("revoked-rt".into()),
+                expires_at: Some(now() - 1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        fn refused(_: &McpOauth, _: &str) -> Result<TokenSet, String> {
+            Err("invalid_grant".into())
+        }
+
+        let entry = mcp_secrets(store, &vault, &id).unwrap().unwrap();
+        let (token, oauth) = fresh_mcp_token_with(store, &vault, &entry, refused).unwrap();
+        assert_eq!(token, None, "no credential — the caller must reach a 401");
+        assert_eq!(oauth, McpOauth::default(), "the dead set is gone, client id and all");
+        // persisted: settings stops claiming the server is connected, and the
+        // next discover authorizes instead of retrying the revoked token
+        let reread = mcp_secrets(store, &vault, &id).unwrap().unwrap();
+        assert_eq!(reread.oauth, McpOauth::default());
+        assert!(!get_user_registry(store, &vault).unwrap()[0].connected);
     }
 
     /// An unexpired token must not be refreshed, and neither must an incomplete

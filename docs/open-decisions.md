@@ -118,20 +118,26 @@ header.
 gate the star poll behind a conditional GET of `/repos/{o}/{r}` and its
 `stargazers_count` · raise the star interval far above 30s.
 
-### 1.3 The http-request node reaches the local network
+### 1.3 The http-request node — and now the MCP client — reach the local network
 
 `http::parse_request_url` checks the scheme and nothing else — private
 addresses, plain http and localhost all pass. This was your call, and the reason
 holds: on a single-user desktop app the graph is the user's own, and the node's
 whole point is reaching Ollama on 11434, a NAS, or Home Assistant.
 
-Recorded here because it is a real reduction in blast radius versus the hosted
-product, one reviewer asked for a second opinion on it, and it is the kind of
-thing that looks like a bug to someone reading `assert_public_https_url` two
-files over. The strict guard **is** still enforced on every MCP fetch, where the
-URL and all metadata-derived endpoints are attacker-controlled.
+**Extended to `mcp.rs` on 2026-07-26**, for the same reason one rung further:
+plenty of MCP servers are local CLIs (`hound --http` → `http://127.0.0.1:8765/mcp`),
+and an https-only, public-only client cannot talk to them at all. The blocklist
+(`ip_blocked` and both `assert_*_https_url` functions) is deleted rather than
+bypassed, so there is one URL policy in the crate instead of two.
 
-No change proposed. Confirm it still reads correctly at the end.
+What it concedes: a hostile *remote* MCP server's discovery metadata can now aim
+Saturn's OAuth hops at loopback or the LAN. That is the same reach an http node
+already had, on a machine with one user, and nothing in the response is executed
+— but it is the one place the hosted threat model still had teeth. If it ever
+needs to come back, the narrow version is the right one: keep the scheme-only
+policy for the *user's configured* server URL, re-apply a blocklist only to
+endpoints derived from server-supplied metadata.
 
 ### 1.4 Event-node payload key order — DECIDED: Rust owns the payload
 
@@ -270,23 +276,22 @@ latter dropped deliveries whenever an NTP step put the clock behind the stamp.
 ### 2.4 MCP redirect handling is stronger than the TypeScript
 
 `node fetch` followed redirects internally, so `assertPublicHttpsUrl` only ever
-saw the first URL — a hostile MCP server answering `302 → https://169.254.169.254/`
-was fetched. The Rust follows redirects manually and re-validates every hop,
-pins the validated address with `ClientBuilder::resolve_to_addrs` (closing a
-DNS-rebinding race Node could not), strips `authorization`/`cookie` cross-origin,
-and caps the response body. These are deliberate hardenings, not port errors.
+saw the first URL. The Rust follows redirects manually and re-parses every hop,
+strips `authorization`/`cookie` cross-origin, and caps the response body. These
+are deliberate hardenings, not port errors. The address pin
+(`ClientBuilder::resolve_to_addrs`) went with the blocklist in §1.3 — it existed
+only to hold an address the guard had validated, and there is nothing left to
+validate.
 
 ### 2.5 Smaller ones, all deliberate
 
 - `mcp::send_guarded` duplicates `http::send`'s redirect loop and the two have
-  already drifted (`http.rs` clamps the per-hop timeout, `mcp.rs` does not). The
-  `mcp.rs` copy has **no test coverage** of the strip/downgrade/hop-cap logic,
-  because its own guard blocks the loopback address the test server binds. One
-  loop parameterized by URL policy would fix both.
-- Double DNS resolution per hop on the MCP path: the guard resolves, then
-  `pinned_client` resolves again and validates independently. Only the second is
-  connected to, so the first is dead weight — one extra `getaddrinfo` per hop.
-- `assert_https_url_shape` does not reject credentials in the URL
+  already drifted (`http.rs` clamps the per-hop timeout, `mcp.rs` does not). Its
+  strip/downgrade/hop-cap logic still has **no test coverage** — though the
+  reason is gone: now that loopback is allowed, a test server on 127.0.0.1 can
+  finally drive it. Both loops share one URL policy already; merging them is the
+  remaining half.
+- `parse_request_url` does not reject credentials in the URL
   (`https://good.example.com@10.0.0.1/`). Not exploitable — the guard reads the
   real host — but a phishing-shaped URL survives save-time validation and is
   shown back to the user.
@@ -403,6 +408,14 @@ correct and complete, and only the *target* was missing. Phase G/H were named as
 the unblock because the plan assumed the answer was a local HTTP server or a URL
 scheme. It was neither.
 
+The follow-up landed the same day. The flow worked exactly once per server: the
+re-authorize guard tested the resolved token rather than the *manual* one, so a
+revoked grant or a dead refresh token 401'd forever with nothing to clear it.
+The guard is now `auth_token.is_none()` and a refused refresh drops the set
+instead of returning `Err`, which turns the next Connect back into the browser
+flow. A disconnect button was considered and skipped — it is UI for a state the
+user can no longer reach.
+
 What is still deferred: a server with no `registration_endpoint` (no dynamic
 client registration) cannot be connected — there is nowhere to get a client id,
 and a manual auth token is the way through. And a 401 that arrives at *tool-call*
@@ -414,7 +427,7 @@ and block for five minutes.
 
 **Closed 2026-07-25.** It is `saturn::run_turn`, and the tool layer it was blocked
 on (`TOOL_DEFS` / `dispatchTool`) is `saturn::tool_specs` / `saturn::dispatch` —
-12 tools, not 35 (§3.9). `openrouter::stream_chat` is its only caller and is no
+13 tools, not 35 (§3.9). `openrouter::stream_chat` is its only caller and is no
 longer cold.
 
 The record of the block stands: it was listed under Phase D, it depended on Phase
@@ -545,7 +558,10 @@ are wanted.
 **Closed 2026-07-25 — it shipped**, and with more than was deferred: persistent
 sessions (the hosted chat was in-memory and died with the tab), a `saturn-agent`
 canvas node, and one undeletable Saturn memory store. The tool layer is
-`src-tauri/src/saturn.rs` — **12 tools, not 35**. The other 16 wrapped things
+`src-tauri/src/saturn.rs` — **13 tools, not 35** (12 recovered plus
+`call_mcp_tool`, which the hosted product had no equivalent of: the chat calls
+the user's own MCP servers through `runner::execute_mcp_tool`, so a one-off
+action no longer has to be dressed up as a workflow). The other 16 wrapped things
 that no longer exist (tiers, credits, the hosted webhook URL) or that Saturn
 does not need one of (memory-store CRUD, when Saturn has exactly one store); they
 are listed as deliberately-not-built in the change's own plan, and the trigger

@@ -1,16 +1,17 @@
-//! Port of sendHttpRequest + assertPublicHttpsUrl (lib/integrations.server.ts,
-//! lib/mcp.ts). SECURITY-CRITICAL and translated as-is, not improved: the URL is
-//! fully user-controlled, so every redirect hop is re-validated against the
-//! egress blocklist. reqwest's automatic redirect following is switched OFF —
-//! it would chase a public host's 30x onto a private IP past the guard, which
-//! is the exact hole the manual loop closes.
+//! Port of sendHttpRequest (lib/integrations.server.ts). The URL policy is
+//! scheme-only — `parse_request_url`, shared with the MCP client — because on a
+//! single-user desktop app every URL in play is the user's own and reaching
+//! Ollama, a NAS or an MCP server on 127.0.0.1 is the point. The egress
+//! blocklist the hosted product carried is gone with the tenancy.
+//!
+//! reqwest's automatic redirect following is still switched OFF: a 30x must not
+//! be able to walk a request off http(s) entirely, so every hop is re-parsed.
 //!
 //! Blocking reqwest on purpose: the interpreter is synchronous and owns a plain
 //! std thread (never a runtime worker), which is where a blocking client is safe.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
 use reqwest::blocking::Client;
@@ -41,147 +42,20 @@ const FORBIDDEN_HEADERS: [&str; 7] = [
 ];
 const REDIRECT_STATUS: [u16; 5] = [301, 302, 303, 307, 308];
 
-// --- egress guard ----------------------------------------------------------
-
-// IPv4 special-use / private ranges (RFC 5735 / 6598 / 1918)
-const V4_BLOCKED: &[(Ipv4Addr, u32)] = &[
-    (Ipv4Addr::new(0, 0, 0, 0), 8),
-    (Ipv4Addr::new(10, 0, 0, 0), 8),
-    (Ipv4Addr::new(100, 64, 0, 0), 10),
-    (Ipv4Addr::new(127, 0, 0, 0), 8),
-    (Ipv4Addr::new(169, 254, 0, 0), 16),
-    (Ipv4Addr::new(172, 16, 0, 0), 12),
-    (Ipv4Addr::new(192, 0, 0, 0), 24),
-    (Ipv4Addr::new(192, 0, 2, 0), 24),
-    (Ipv4Addr::new(192, 88, 99, 0), 24),
-    (Ipv4Addr::new(192, 168, 0, 0), 16),
-    (Ipv4Addr::new(198, 18, 0, 0), 15),
-    (Ipv4Addr::new(198, 51, 100, 0), 24),
-    (Ipv4Addr::new(203, 0, 113, 0), 24),
-    (Ipv4Addr::new(224, 0, 0, 0), 4),
-    (Ipv4Addr::new(240, 0, 0, 0), 4),
-];
-
-const V6_BLOCKED: &[(Ipv6Addr, u32)] = &[
-    (Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 128),      // unspecified
-    (Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), 128),      // loopback
-    (Ipv6Addr::new(0x64, 0xff9b, 0, 0, 0, 0, 0, 0), 96), // NAT64
-    (Ipv6Addr::new(0x100, 0, 0, 0, 0, 0, 0, 0), 64),   // discard-only
-    (Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 0), 7),   // unique-local
-    (Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0), 10),  // link-local
-    (Ipv6Addr::new(0xff00, 0, 0, 0, 0, 0, 0, 0), 8),   // multicast
-    (Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0), 32), // documentation
-];
-
-fn v4_blocked(ip: Ipv4Addr) -> bool {
-    let a = u32::from(ip);
-    V4_BLOCKED.iter().any(|(net, bits)| {
-        let shift = 32 - bits;
-        a >> shift == u32::from(*net) >> shift
-    })
-}
-
-pub(crate) fn ip_blocked(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => v4_blocked(v4),
-        // an IPv4-mapped literal (::ffff:127.0.0.1) must answer to the v4 rules
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-            Some(v4) => v4_blocked(v4),
-            None => {
-                let a = u128::from(v6);
-                V6_BLOCKED.iter().any(|(net, bits)| {
-                    let shift = 128 - bits;
-                    a >> shift == u128::from(*net) >> shift
-                })
-            }
-        },
-    }
-}
-
-/// The http-request node's URL policy: scheme only. Private addresses, plain
-/// http and localhost are all permitted, because on a single-user desktop app
-/// the graph is the user's own and the node's whole point is reaching things
-/// like Ollama on 11434, a NAS, or Home Assistant. The hosted product blocked
-/// them because the URL arrived from an untrusted tenant's graph; that threat
-/// model is gone with the tenancy.
+/// The URL policy for the http-request node **and** the MCP client: scheme
+/// only. Private addresses, plain http and localhost are all permitted, because
+/// on a single-user desktop app every URL in play is the user's own — the node
+/// exists to reach Ollama on 11434, a NAS or Home Assistant, and an MCP server
+/// is just as often a CLI serving `http://127.0.0.1:8765/mcp`. The hosted
+/// product blocked them because the URL arrived from an untrusted tenant; that
+/// threat model is gone with the tenancy (`docs/open-decisions.md` §1.3).
 ///
-/// Still called on every redirect hop: a 302 must not be able to walk the
-/// request off http(s) entirely (file:, data:, ftp:).
-fn parse_request_url(raw: &str) -> Result<Url, String> {
+/// Called on every redirect hop: a 302 must not be able to walk the request off
+/// http(s) entirely (file:, data:, ftp:).
+pub(crate) fn parse_request_url(raw: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "Invalid server URL".to_string())?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err("Server URL must be http or https".into());
-    }
-    Ok(url)
-}
-
-/// `assertHttpsUrlShape` — the **synchronous** half of the egress guard:
-/// https-only, no localhost/.local, no literal private or special-use address,
-/// and no name resolution at all.
-///
-/// It is a separate function because the TypeScript deliberately used only this
-/// half when *saving* an MCP server: a save must not block on DNS, and a host
-/// that happens not to resolve right now must still be storable. Resolution is
-/// the fetch path's job, where it has to happen again anyway.
-///
-/// `Ok(None)` means "shape is fine, this is a name that still needs resolving";
-/// `Ok(Some(url))` means a literal address that has already been cleared.
-pub(crate) fn assert_https_url_shape(raw: &str) -> Result<Option<Url>, String> {
-    let url = Url::parse(raw).map_err(|_| "Invalid server URL".to_string())?;
-    if url.scheme() != "https" {
-        return Err("Server URL must be https".into());
-    }
-    let host = url
-        .host_str()
-        .ok_or_else(|| "Server URL must be a public host".to_string())?
-        .to_lowercase();
-    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
-        return Err("Server URL must be a public host".into());
-    }
-    // bracketed IPv6 hostnames arrive as "[::1]"
-    let bare = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(&host);
-    if let Ok(ip) = bare.parse::<IpAddr>() {
-        return if ip_blocked(ip) {
-            Err("Server URL must be a public host".into())
-        } else {
-            Ok(Some(url))
-        };
-    }
-    Ok(None)
-}
-
-/// The strict egress guard: the shape check above, plus — for a hostname —
-/// every address it resolves to (a public name can point at 169.254.169.254).
-///
-/// Not used by the http-request node (see `parse_request_url`). This is the MCP
-/// client's guard, where the server URL *and* every endpoint derived from the
-/// server's own discovery metadata are attacker-influenceable — the one place
-/// the hosted threat model survives into the desktop app.
-///
-/// Residual: the name is resolved and its addresses checked here, then reqwest
-/// re-resolves at connect time, so a rebinding server can answer differently the
-/// second time. The TypeScript conceded this as unavoidable; `mcp.rs` closes it
-/// by pinning the addresses validated here with `ClientBuilder::resolve_to_addrs`
-/// against `url.port_or_known_default()`, not the 443 used below for the lookup.
-pub(crate) fn assert_public_https_url(raw: &str) -> Result<Url, String> {
-    let url = match assert_https_url_shape(raw)? {
-        Some(literal) => return Ok(literal),
-        None => Url::parse(raw).map_err(|_| "Invalid server URL".to_string())?,
-    };
-    let host = url.host_str().unwrap_or_default().to_lowercase();
-    let bare = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(&host);
-    let addrs: Vec<_> = (bare, 443u16)
-        .to_socket_addrs()
-        .map_err(|_| "Could not resolve server host".to_string())?
-        .collect();
-    if addrs.is_empty() || addrs.iter().any(|a| ip_blocked(a.ip())) {
-        return Err("Server host resolves to a non-public address".into());
     }
     Ok(url)
 }
@@ -454,48 +328,6 @@ mod tests {
 
     fn cfg(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
-    }
-
-    /// The blocklist is the whole security value of this module. Literal IPs
-    /// need no DNS, so this test never touches the network.
-    #[test]
-    fn blocklist_covers_the_private_space() {
-        for blocked in [
-            "127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "172.31.255.255",
-            "169.254.169.254", "100.64.0.1", "0.0.0.0", "198.18.0.1", "224.0.0.1",
-            "::1", "::", "fc00::1", "fe80::1", "ff02::1", "2001:db8::1",
-            "::ffff:127.0.0.1", "::ffff:10.0.0.1",
-        ] {
-            assert!(ip_blocked(blocked.parse().unwrap()), "{blocked} must be blocked");
-        }
-        for public in ["1.1.1.1", "8.8.8.8", "172.32.0.1", "192.167.255.255", "2606:4700::1111"] {
-            assert!(!ip_blocked(public.parse().unwrap()), "{public} must be allowed");
-        }
-        // the strict guard itself, on literal hosts (no resolver involved) —
-        // the MCP client calls it on the server URL and on every redirect hop.
-        assert!(assert_public_https_url("https://1.1.1.1/x").is_ok());
-        assert!(assert_public_https_url("https://10.0.0.1/x").is_err());
-        assert!(assert_public_https_url("https://[::1]/x").is_err());
-        assert!(assert_public_https_url("http://1.1.1.1/x").is_err()); // https only
-        assert!(assert_public_https_url("https://localhost/x").is_err());
-        assert!(assert_public_https_url("https://foo.local/x").is_err());
-        assert!(assert_public_https_url("not a url").is_err());
-
-        // the sync half refuses every shape the full guard does, and answers
-        // None for a name rather than resolving it — that None is what lets
-        // saving an MCP server stay off the resolver.
-        for bad in [
-            "https://10.0.0.1/x",
-            "https://[::1]/x",
-            "http://1.1.1.1/x",
-            "https://localhost/x",
-            "https://foo.local/x",
-            "not a url",
-        ] {
-            assert!(assert_https_url_shape(bad).is_err(), "{bad} must be refused");
-        }
-        assert!(assert_https_url_shape("https://1.1.1.1/x").unwrap().is_some());
-        assert!(assert_https_url_shape("https://example.com/x").unwrap().is_none());
     }
 
     /// The http-request node reaches the local network on purpose, so the only

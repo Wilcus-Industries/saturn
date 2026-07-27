@@ -104,8 +104,8 @@ step. Instant-delete-on-click is gone.
 
 Four tabbed groups — `blocks` / `apps` / `agents` / `models` — over a pinned
 bottom **variables** split. The `agents` group is the grant chips in category
-order: the two agent nodes, then `tools` / `skills` / `memory` / `chats`
-(`AGENTS_CATEGORIES`). Chats come from `saturn_list_sessions`, not the registry,
+order: the two agent nodes (`saturn` then `gateway`, both headingless), then
+`tools` / `skills` / `memory` / `chats` (`AGENTS_CATEGORIES`). Chats come from `saturn_list_sessions`, not the registry,
 so their empty state points at Saturn Agent rather than settings (`EMPTY_HINT`). Per-group entry lists are built in `useMemo`s, not
 inline JSX.
 

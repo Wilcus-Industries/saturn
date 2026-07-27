@@ -112,9 +112,12 @@ export const isEventEntry = (entry: CatalogEntry): boolean =>
 export const isIfEntry = (entry: CatalogEntry): boolean =>
     entry.category === "logic" && entry.key === "if" && !entry.missing;
 
-// the single saturn node (agent) renders horizontally with bottom-edge ports
+// both agent nodes render horizontally with bottom-edge ports: the "saturn"
+// agent and the black "gateway" saturn-agent. The category split is colour only
+// (entryStyles) — the shape is shared, so anything port- or config-driven falls
+// out of the catalog entry for either one.
 export const isAgentEntry = (entry: CatalogEntry): boolean =>
-    entry.category === "saturn" && !entry.missing;
+    (entry.category === "saturn" || entry.category === "gateway") && !entry.missing;
 
 // the agent's value inputs, laid left→right along the bottom edge (the flow
 // "in" goes on the left edge, outputs on the right edge — see portGeometry)
@@ -294,7 +297,8 @@ export function grabOffsetY(entry: CatalogEntry): number {
 // source outputs feeding it; for an output port, the target inputs it feeds;
 // null when the port connects to nothing. Peer anchors are resolved statically
 // (no graph passed on), so this never recurses — chip/model outputs only ever
-// feed agent nodes, whose ports don't depend on the source position. Used by
+// feed the agent node or the saturn-agent rectangle, and neither's ports depend
+// on the source position. Used by
 // every shape whose port pivots toward what it connects to (model circle,
 // grant chip, literal/variable box, event circle).
 function portPeerCentroid(

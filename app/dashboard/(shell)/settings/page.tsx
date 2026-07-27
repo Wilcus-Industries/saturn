@@ -183,8 +183,8 @@ export default function Settings() {
                         <h2 className={"font-mono text-xl"}>MCP servers</h2>
 
                         <p className={"font-mono text-sm text-gray-400"}>
-                            servers that sign you in with OAuth aren&apos;t supported yet — set an
-                            auth token instead
+                            sign-in happens in your browser — only servers needing a
+                            pre-registered OAuth client still need a manual auth token
                         </p>
 
                         {mcpServers.length === 0 && (
@@ -225,12 +225,17 @@ export default function Settings() {
                                             text-gray-400`}
                                     >
                                         {entry.has_token && <span>●●● token set</span>}
+                                        {entry.connected && <span>signed in</span>}
                                         <span>
                                             {enabledTools}/{entry.tools.length} tools
                                         </span>
                                         <ConnectButton
                                             id={entry.id}
-                                            label={entry.has_token ? "discover tools →" : "connect →"}
+                                            label={
+                                                entry.has_token || entry.connected
+                                                    ? "discover tools →"
+                                                    : "connect →"
+                                            }
                                             onDiscovered={reload}
                                         />
                                     </div>

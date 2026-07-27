@@ -220,12 +220,26 @@ pub(crate) type ModelFn<'a> = &'a (dyn Fn(&agent::Request) -> agent::Turn + Sync
 /// The first argument routes an agent's granted-tool call to the local memory
 /// store instead of an MCP server.
 pub(crate) type ToolFn<'a> = &'a (dyn Fn(bool, &str, &str, &str) -> Result<String, String> + Sync);
-/// (session name, model, prompt) → the assistant's final text. One whole Saturn
-/// Agent turn — session lookup, tool loop and transcript — behind one call, so
-/// `agent::Request` (whose exact key list six frozen `agent-*` expected files
-/// digest) stays untouched. No `cancel` parameter: the production closure
-/// captures it, exactly as `send`/`tool` capture the store and the vault.
-pub(crate) type SaturnFn<'a> = &'a (dyn Fn(&str, &str, &str) -> Result<String, String> + Sync);
+/// One whole Saturn Agent turn — session lookup, tool loop and transcript —
+/// behind one call, so `agent::Request` (whose exact key list six frozen
+/// `agent-*` expected files digest) stays untouched. A struct rather than
+/// positional arguments: four of the five fields are `&str` and three of those
+/// are interchangeable at the type level. No `cancel` field: the production
+/// closure captures it, exactly as `send`/`tool` capture the store and the vault.
+pub(crate) struct SaturnTurn<'a> {
+    /// a chat chip wired into the `session` port — an id, and it wins outright.
+    pub chat: Option<&'a str>,
+    /// the legacy `config.session` NAME, used only when `chat` is None. The
+    /// effect get-or-creates it.
+    pub session: &'a str,
+    /// resolved slug, already defaulted to `saturn::DEFAULT_MODEL`.
+    pub model: &'a str,
+    /// `config.reasoning`, raw. `openrouter::reasoning_param` is the allowlist —
+    /// anything outside `REASONING_MODES` (including "") omits the param.
+    pub reasoning: &'a str,
+    pub prompt: &'a str,
+}
+pub(crate) type SaturnFn<'a> = &'a (dyn Fn(&SaturnTurn) -> Result<String, String> + Sync);
 /// The `agent` node's `session` port, both directions: (session id) → that
 /// chat's window oldest first, and (session id, prompt, reply) → the exchange
 /// appended to it. Two calls rather than one wrapper like `SaturnFn`, because
@@ -987,24 +1001,48 @@ impl<'a> Run<'a> {
         Ok(())
     }
 
-    /// Saturn Agent as a node: no system prompt, no grants, no ports but
-    /// `prompt` — it *is* the chat, with Saturn's own prompt, tools and memory.
+    /// Saturn Agent as a node: no system prompt, no grants beyond the chat it
+    /// runs in — it *is* the chat, with Saturn's own prompt, tools and memory.
     /// Both defaults live here rather than in the effect so the golden fixtures
     /// pin them (`saturn-agent`'s second node leaves both config fields blank).
     ///
-    // ponytail: bound by session NAME — renaming in the chat dropdown orphans the
-    // node onto a fresh session of the old name. Upgrade: an id picker popover,
-    // same shape as systemPopover.tsx.
+    /// Chat and model are both port-first, config-fallback. `config.session` and
+    /// `config.model` no longer have inputs on the node — the ports replaced
+    /// them — but they are still read, exactly like `if`'s `b_literal`: a graph
+    /// saved before the ports existed carries those keys and must keep running.
+    /// The chat id resolves statically from the chip's node type through the same
+    /// `single_grant` the `agent` node uses.
+    ///
+    // ponytail: a graph still carrying config.session binds by NAME, so renaming
+    // that chat in its dropdown orphans the node onto a fresh session of the old
+    // name; and the console line below prints the chip's uuid rather than its
+    // title when the port is wired. Upgrade both by resolving the source chip's
+    // catalog label here.
     fn exec_saturn(&mut self, node: &'a Node, ctx: &mut EvalCtx) -> Result<(), Abort> {
         let label = self.label(node);
         let session = js::trim(&self.cfg(node, "session")).to_string();
         let session = if session.is_empty() { "workflow".into() } else { session };
-        let model = js::trim(&self.cfg(node, "model")).to_string();
-        let model = if model.is_empty() { crate::saturn::DEFAULT_MODEL.into() } else { model };
+        let chat = self.single_grant(node, "session", agent::session_id_from_node_type, "chat");
         let prompt = self.eval_input(node, "prompt", ctx)?.text();
+        // a connected model node wins over the config literal, exactly as it does
+        // on the `agent` node — and evaluated AFTER the prompt for the same
+        // reason: both land in the value stream, which the golden fixtures pin
+        let model = if self.incoming_value_edge(&node.id, "model").is_some() {
+            js::trim(&self.eval_input(node, "model", ctx)?.text()).to_string()
+        } else {
+            js::trim(&self.cfg(node, "model")).to_string()
+        };
+        let model = if model.is_empty() { crate::saturn::DEFAULT_MODEL.into() } else { model };
 
-        self.emit(Kind::Info, format!("{label}: calling {model} ({session})…"));
-        let turn = (self.effects.saturn)(&session, &model, &prompt);
+        let who = chat.as_deref().unwrap_or(&session);
+        self.emit(Kind::Info, format!("{label}: calling {model} ({who})…"));
+        let turn = (self.effects.saturn)(&SaturnTurn {
+            chat: chat.as_deref(),
+            session: &session,
+            model: &model,
+            reasoning: &self.cfg(node, "reasoning"),
+            prompt: &prompt,
+        });
         // the turn is the branch's suspension point — see `suspended`
         self.suspended = true;
         let text = match turn {
@@ -1212,7 +1250,7 @@ mod tests {
         };
         let model = |_: &agent::Request| agent::Turn::Failed("no model in these cases".into());
         let tool = |_, _: &str, _: &str, _: &str| Err("no tool call in these cases".to_string());
-        let saturn = |_: &str, _: &str, _: &str| Err("no saturn node in these cases".to_string());
+        let saturn = |_: &SaturnTurn| Err("no saturn node in these cases".to_string());
         let history = |_: &str| Err("no chat chip in these cases".to_string());
         let record = |_: &str, _: &str, _: &str| Err("no chat chip in these cases".to_string());
         run_workflow(
@@ -1261,7 +1299,7 @@ mod tests {
         let send = |_: &str, _: &HashMap<String, String>, _: &str| Ok(String::new());
         let model = |_: &agent::Request| agent::Turn::Failed("unused".into());
         let tool = |_, _: &str, _: &str, _: &str| Err("unused".to_string());
-        let saturn = |_: &str, _: &str, _: &str| Err("unused".to_string());
+        let saturn = |_: &SaturnTurn| Err("unused".to_string());
         let history = |_: &str| Err("unused".to_string());
         let record = |_: &str, _: &str, _: &str| Err("unused".to_string());
         let effects = Effects {

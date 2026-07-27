@@ -1236,7 +1236,10 @@ export default memo(function Node({
                 // directly: dropping a variable stores its {{var:<uuid>}}
                 // sentinel here, the box shows a token, and the ○ port is
                 // hidden (the field holds the value — no edge). Selects don't snap.
-                const canSnap = !!field.overriddenBy && field.input !== "select";
+                const paired = field.overriddenBy
+                    ? entry.inputs.find((p) => p.id === field.overriddenBy)
+                    : undefined;
+                const canSnap = !!paired && field.input !== "select";
                 const snappedId = canSnap
                     ? variableIdFromSentinel(node.config[field.id] ?? "")
                     : null;
@@ -1249,10 +1252,7 @@ export default memo(function Node({
                 // like a port row); geometry.ts anchors the edge at the row's
                 // vertical center. A snapped variable hides the port (the box
                 // holds the value directly).
-                const pairedPort =
-                    field.overriddenBy && !snappedId
-                        ? entry.inputs.find((p) => p.id === field.overriddenBy)
-                        : undefined;
+                const pairedPort = snappedId ? undefined : paired;
                 const varEntry = snappedId ? byKey[`variable:${snappedId}`] : undefined;
                 const varStyles = varEntry ? entryStyles(varEntry) : null;
                 // variable-drag affordance: while a variable drags, every snap

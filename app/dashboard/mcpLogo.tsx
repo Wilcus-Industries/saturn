@@ -24,7 +24,8 @@ export default function McpLogo({
     // Google s2 has no favicon indexed for this deployment's domain, so a
     // user registering saturn's own MCP server would get the letter tile;
     // the same-origin app icon is CSP-safe (img-src 'self').
-    const [stage, setStage] = useState<"s2" | "self" | "tile">("s2");
+    // an empty domain is a local server (see faviconDomain) — straight to the tile
+    const [stage, setStage] = useState<"s2" | "self" | "tile">(domain ? "s2" : "tile");
     const failed = stage === "tile";
     const selfHosted = () =>
         typeof window !== "undefined" &&

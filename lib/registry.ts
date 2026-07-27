@@ -76,6 +76,9 @@ export function variableIdFromSentinel(value: string): string | null {
 // agent.robinhood.com's favicon is a blank, robinhood.com's is the logo
 export function faviconDomain(serverUrl: string): string {
     const host = new URL(serverUrl).hostname;
+    // a locally-served MCP server (127.0.0.1, [::1], localhost, a .local name)
+    // has no brand to look up — "" means "letter tile, and no request to google"
+    if (!host.includes(".") || /^[\d.]+$/.test(host) || host.endsWith(".local")) return "";
     const labels = host.split(".");
     return labels.length <= 2 ? host : labels.slice(-2).join(".");
 }
