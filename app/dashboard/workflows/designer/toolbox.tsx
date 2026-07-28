@@ -12,7 +12,7 @@ import {
     type NodeCategory,
     STAR_EVENT_KEY,
 } from "@/lib/workflow";
-import type { OpenrouterModel } from "./designer";
+import type { Model, ProviderModels } from "./designer";
 import EntryIcon from "./entryIcon";
 import ModelLogo from "./modelLogo";
 import type { VariableRow } from "./variableModal";
@@ -74,12 +74,19 @@ const ONE_EVENT = "one event per workflow — remove the existing one first";
 // skips it too (src-tauri/src/github.rs, `Resource::pollable`).
 const STAR_NEEDS_PAT = "needs a GitHub token — add one in settings";
 
-// grid cell for one openrouter model: 48px logo circle over a truncated name
+// what to do about a provider missing from list_models' array — it isn't
+// connected, so it contributes no section at all (see ProviderModels)
+const PROVIDER_HINT: Record<string, string> = {
+    openrouter: "add an OpenRouter key in settings to list models",
+    "claude-code": "start the Claude Code server — see settings",
+};
+
+// grid cell for one model: 48px logo circle over a truncated name
 function ModelChip({
     model,
     onSpawnStart,
 }: {
-    model: OpenrouterModel;
+    model: Model;
     onSpawnStart: SpawnStart;
 }) {
     // openrouter display names lead with the company ("OpenAI: GPT-4o") —
@@ -200,7 +207,7 @@ function Section({
 export default function Toolbox({
     userCatalog,
     variables,
-    openrouterModels,
+    models: providers,
     githubLinked,
     onSpawnStart,
     onEditVariable,
@@ -210,8 +217,8 @@ export default function Toolbox({
     // secret variables (kind 'variable' registry rows) — listed in the pinned
     // bottom split, managed via VariableModal; hasValue mirrors has_token
     variables: VariableRow[];
-    // null = no OpenRouter key; [] = unlocked but fetch failed
-    openrouterModels: OpenrouterModel[] | null;
+    // one entry per connected provider; absent = not connected, [] = fetch failed
+    models: ProviderModels[];
     // a GitHub PAT is stored. The other four watches poll fine without one, so
     // this picks the rate-limit hint under the github app heading and disables
     // the one chip that can't run unauthenticated (github-star)
@@ -288,18 +295,32 @@ export default function Toolbox({
         return [...apps];
     }, [matches]);
 
-    // models: the static blank chip (editable custom slug), then a grid of
-    // circular cells, one per fetched openrouter model. The model list can run
-    // to hundreds of entries, so this filter is memoized on [models, q] and the
-    // count is a plain `.length` — never fed through per-group match loops.
+    // models: the static blank chip (editable custom slug), then one headed
+    // section per connected provider — the same [heading, entries] shape
+    // appsSections uses. The lists can run to hundreds of entries, so this
+    // filter is memoized on [providers, q] and the counts are plain `.length`
+    // reads — never fed through per-group match loops.
     const blankModel = CATALOG_BY_KEY.model;
     const blankMatches = matches(blankModel);
-    const models = useMemo(
+    const modelSections = useMemo(
         () =>
-            (openrouterModels ?? []).filter(
-                (m) => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
+            providers.map(
+                (p) =>
+                    [
+                        p.label,
+                        p.models.filter(
+                            (m) =>
+                                !q ||
+                                m.name.toLowerCase().includes(q) ||
+                                m.id.toLowerCase().includes(q),
+                        ),
+                    ] as const,
             ),
-        [openrouterModels, q],
+        [providers, q],
+    );
+    // providers with no credential at all — each names its own fix below
+    const missing = Object.keys(PROVIDER_HINT).filter(
+        (id) => !providers.some((p) => p.provider === id),
     );
 
     // match count per group — only surfaced while a query is active
@@ -307,7 +328,7 @@ export default function Toolbox({
         blocks: blocksSections.reduce((n, s) => n + s.entries.length, 0),
         apps: appsSections.reduce((n, [, entries]) => n + entries.length, 0),
         agents: agentsSections.reduce((n, s) => n + s.entries.length, 0),
-        models: models.length + (blankMatches ? 1 : 0),
+        models: modelSections.reduce((n, [, ms]) => n + ms.length, 0) + (blankMatches ? 1 : 0),
     };
     // when the active group has no matches but another one does, point there
     const otherMatches =
@@ -468,32 +489,44 @@ export default function Toolbox({
             )}
 
             {active.id === "models" && (
-                <section className={"flex flex-col gap-1.5"}>
-                    <h2 className={"text-[10px] uppercase tracking-wider text-gray-400"}>models</h2>
-                    {blankMatches && (
-                        <Chip
-                            entry={blankModel}
-                            borderL={CATEGORY_STYLES.model.borderL}
-                            onSpawnStart={onSpawnStart}
-                        />
-                    )}
-                    {openrouterModels === null && (
-                        <p className={"text-[10px] text-gray-400"}>
-                            add an OpenRouter key in settings to list models
-                        </p>
-                    )}
-                    {openrouterModels !== null && openrouterModels.length === 0 && (
-                        <p className={"text-[10px] text-gray-400"}>couldn&apos;t load models</p>
-                    )}
-                    {models.length === 0 && (openrouterModels?.length ?? 0) > 0 && q && (
-                        <p className={"text-[10px] text-gray-400"}>no matches</p>
-                    )}
-                    <div className={"grid grid-cols-3 gap-1"}>
-                        {models.map((m) => (
-                            <ModelChip key={m.id} model={m} onSpawnStart={onSpawnStart} />
+                <>
+                    <section className={"flex flex-col gap-1.5"}>
+                        <h2 className={"text-[10px] uppercase tracking-wider text-gray-400"}>
+                            models
+                        </h2>
+                        {blankMatches && (
+                            <Chip
+                                entry={blankModel}
+                                borderL={CATEGORY_STYLES.model.borderL}
+                                onSpawnStart={onSpawnStart}
+                            />
+                        )}
+                        {/* a provider absent from list_models isn't connected —
+                            name the fix that would add its section */}
+                        {missing.map((id) => (
+                            <p key={id} className={"text-[10px] text-gray-400"}>
+                                {PROVIDER_HINT[id]}
+                            </p>
                         ))}
-                    </div>
-                </section>
+                    </section>
+                    {modelSections.map(([label, entries]) => (
+                        <section key={label} className={"flex flex-col gap-1.5"}>
+                            <h2 className={"text-[10px] uppercase tracking-wider text-gray-400"}>
+                                {label}
+                            </h2>
+                            {entries.length === 0 && (
+                                <p className={"text-[10px] text-gray-400"}>
+                                    {q ? "no matches" : "couldn't load models"}
+                                </p>
+                            )}
+                            <div className={"grid grid-cols-3 gap-1"}>
+                                {entries.map((m) => (
+                                    <ModelChip key={m.id} model={m} onSpawnStart={onSpawnStart} />
+                                ))}
+                            </div>
+                        </section>
+                    ))}
+                </>
             )}
             </div>
 

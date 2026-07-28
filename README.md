@@ -21,6 +21,9 @@
 
 Saturn is Wilcus Industries' latest innovation in personal agent technology.
 
+> [!IMPORTANT]
+> Saturn does not have a first release yet. It will come before the end of July.
+
 ![Saturn Desktop](docs/showcase.png)
 <small>It's beautiful, I know.</small>
 

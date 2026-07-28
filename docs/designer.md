@@ -7,7 +7,7 @@
 with it.
 
 `page.tsx` fans out four IPC calls (`get_workflow`, `list_registry`,
-`list_openrouter_models`, `has_github_pat`) and passes the results to
+`list_models`, `has_github_pat`) and passes the results to
 `designer.tsx`, keyed on the workflow id so switching workflows remounts rather
 than re-renders — the graph seeds a reducer at mount. It passes
 `useAsync(..., { live: false })`: a background cron run firing `data-changed`
@@ -113,9 +113,12 @@ Search matches a node's label, `key`, app/group name, description, config-field
 labels and an MCP server's tool names **across every group**, not just the active
 tab: each tab shows a match-count badge, and if the active tab has zero hits
 while another has some, a "N matches in {Group} →" hint jumps there. The
-OpenRouter model list (hundreds of entries) is filtered in its own
-`[models, q]` memo and counted with a plain `.length` — never run through the
-other groups' match loops.
+`models` tab renders one headed section per connected provider (`list_models`
+groups them; a provider that isn't connected is absent, and the tab names its fix
+— an OpenRouter key, or starting the local server), each list hundreds of
+entries and filtered in one `[providers, q]` memo, counted with plain `.length`
+reads — never run through the other groups' match loops. The blank model chip
+(editable custom slug) sits above the provider sections.
 
 The variables split stays visible on every tab and keeps its 45% max-height even
 when the query filters everything out (empty state: `no variables match "{q}"`).

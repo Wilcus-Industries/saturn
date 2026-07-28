@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { RobotLine } from "@/app/dashboard/icons";
+import ProviderLogo from "@/app/dashboard/providerLogos";
 
 // OpenRouter model ids are "<author>/<slug>" — map known authors to an apex
 // domain for the same Google s2 favicon lookup mcpLogo.tsx uses. s2 serves a
@@ -51,6 +52,14 @@ export default function ModelLogo({
     // track the failing domain (not a boolean) so an editable node whose
     // slug changes to a new author retries the favicon
     const [failed, setFailed] = useState<string | null>(null);
+
+    // the local Claude Code server has no domain to look a favicon up by, so it
+    // brings its own mark. Before AUTHOR_DOMAINS: "claude-code" is an author
+    // segment like any other and would otherwise fall through to the robot.
+    if (slug.split("/")[0] === "claude-code") {
+        return <ProviderLogo id={"claude-code"} name={name} className={PX[size]} />;
+    }
+
     const domain = modelAuthorDomain(slug);
 
     if (!domain || failed === domain) {

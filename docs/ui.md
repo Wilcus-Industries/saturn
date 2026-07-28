@@ -171,14 +171,40 @@ refetch twice. Full reasoning in `docs/open-decisions.md` §2.7.
 
 ## Settings
 
-One page, three groups: the two Keychain-backed secrets (OpenRouter key, GitHub
-PAT), the MCP servers / skills / memory stores / variables registry
-(`docs/registry.md`), and the login-item toggle.
+One page, four groups: Models, the MCP servers / skills / memory stores /
+variables registry (`docs/registry.md`), the GitHub PAT, and the login-item
+toggle.
 
-Both secret forms are the same shape twice — a password field, a clear checkbox
-that only exists once something is stored, and a save. **Write-only both ways:**
-the value never comes back over IPC, so blank means "keep" and there is nothing
-to prefill.
+**Models is a grid of provider tiles**, one per row of `provider_status` in the
+backend's order — a 56px `rounded-[22%]` squircle holding the provider's mark,
+served by `providerLogos.tsx` from `public/provider_logos/`. Those are
+same-origin PNGs, so `img-src 'self'` already covers them and the full-colour
+brand art survives (unlike `icons.tsx`'s currentColor glyphs, which a theme
+recolours). Not connected renders `opacity-40 grayscale` and is
+still clickable: the tile is never `disabled`, because the modal behind it is
+where you go to *fix* being disconnected. Every modal body ends in `SecretForm`
+— required for OpenRouter, optional for a local provider that has been moved off
+loopback. A provider with `local: true` (Claude Code, OmniRoute) gets three more
+things above it: per-id setup instructions, an **address** field writing
+`set_provider_origin` (blank restores the shipped default, and the URL goes
+through `http::parse_request_url` in Rust, not a check in the form), and a live
+status line with a **re-check** button, which calls `provider_status` with
+`refresh: true` — the page's own read would be answered from the 30s probe cache,
+which is exactly the stale answer that button exists to escape
+(`docs/open-decisions.md` §1.6). The address shown is `provider_status.origin`,
+so no default is duplicated in TypeScript.
+
+`providerModal.tsx` uses a native `<dialog>`, **not** `modalShell.tsx`.
+ModalShell wraps its children in its own `<form>`, and `SecretForm`
+(`settings/secretForm.tsx`) is a `<form>` — nesting is invalid HTML, and
+re-implementing the write-only convention to fit ModalShell's `action` would put
+the "blank means keep" rule in two places. `<dialog>` gives the backdrop,
+Escape-to-close and focus trap with no state at all (§2.10).
+
+`SecretForm` is the shape both Keychain-backed secrets on this page share — a
+password field, a clear checkbox that only exists once something is stored, and
+a save. **Write-only both ways:** the value never comes back over IPC, so blank
+means "keep" and there is nothing to prefill.
 
 The login item writes a LaunchAgent plist naming *the path of the binary that
 registered it*, so enabling it from `tauri dev` pins a `target/debug` build that

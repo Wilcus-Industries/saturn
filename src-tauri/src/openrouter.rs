@@ -1,6 +1,9 @@
-//! Port of lib/agent.server.ts — the OpenRouter chat-completions client behind
-//! both the agent node (`chat_complete`) and the Saturn Agent chat
-//! (`stream_chat`). OpenAI-compatible wire format.
+//! Port of lib/agent.server.ts — the chat-completions client behind both the
+//! agent node (`chat_complete`) and the Saturn Agent chat (`stream_chat`).
+//! OpenAI-compatible wire format, so the same two functions serve every provider
+//! in `providers.rs`: the model slug picks the URL, timeout and body dialect,
+//! and nothing else here changes. `list_models` below stays OpenRouter's own
+//! catalogue — Claude Code's is probed in `providers.rs`.
 //!
 //! The wire-format function names never leave this module: a tool call comes
 //! back decoded to `{entry_id, tool_name}` before any caller sees it, exactly as
@@ -27,14 +30,8 @@ use serde_json::Value;
 
 use crate::agent::ToolRef;
 use crate::mcp::McpToolParam;
+use crate::providers;
 
-const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
-/// A non-streaming completion that hasn't landed in 60s is hung: the
-/// interpreter's run thread and the workflow's whole step are blocked on it, so
-/// waiting longer just holds a run open. Set explicitly because reqwest's
-/// blocking client defaults to a 30s timeout — inheriting that default would
-/// silently halve the budget and cut slow reasoning models off mid-thought.
-const TIMEOUT: Duration = Duration::from_secs(60);
 /// Output cap per reply. Bounds what one turn can spend on the user's own key,
 /// and keeps a runaway generation from blowing the transcript budget the agent
 /// loop re-sends every turn (MAX_AGENT_MESSAGES).
@@ -265,13 +262,13 @@ struct Body<'a> {
     reasoning: Option<Reasoning>,
 }
 
-/// User-renderable error from a non-2xx OpenRouter response body.
+/// User-renderable error from a non-2xx provider response body.
 ///
 /// 401 is called out by name: on a BYOK desktop app a rejected key is the single
 /// most common failure, and OpenRouter's own wording ("No auth credentials
 /// found") reads like a Saturn bug rather than "go fix your key in settings".
 /// Every other status keeps the provider's message verbatim.
-fn model_error(body: Option<&Value>, status: u16) -> String {
+fn model_error(body: Option<&Value>, status: u16, provider: &str) -> String {
     let message = body
         .and_then(|b| b.get("error"))
         .filter(|e| e.is_object())
@@ -279,9 +276,10 @@ fn model_error(body: Option<&Value>, status: u16) -> String {
         .and_then(Value::as_str);
     if status == 401 {
         return match message {
-            Some(m) => format!("model call failed: OpenRouter rejected your API key (401) — {m}"),
-            None => "model call failed: OpenRouter rejected your API key (401) — check it in settings"
-                .to_string(),
+            Some(m) => format!("model call failed: {provider} rejected your API key (401) — {m}"),
+            None => format!(
+                "model call failed: {provider} rejected your API key (401) — check it in settings"
+            ),
         };
     }
     match message {
@@ -290,13 +288,13 @@ fn model_error(body: Option<&Value>, status: u16) -> String {
     }
 }
 
-/// A transport failure (DNS, TLS, timeout) never reached OpenRouter, so there is
-/// no body to quote. The TypeScript let the raw fetch rejection escape here;
+/// A transport failure (DNS, TLS, timeout) never reached the provider, so there
+/// is no body to quote. The TypeScript let the raw fetch rejection escape here;
 /// prefixing it keeps every failure out of this module reading the same way in a
 /// run log.
-fn transport_error(err: &reqwest::Error) -> String {
+fn transport_error(err: &reqwest::Error, timeout: Duration) -> String {
     if err.is_timeout() {
-        format!("model call failed: timed out after {}s", TIMEOUT.as_secs())
+        format!("model call failed: timed out after {}s", timeout.as_secs())
     } else {
         format!("model call failed: {err}")
     }
@@ -322,9 +320,12 @@ pub struct ChatResult {
     pub images: Vec<String>,
 }
 
-/// One chat-completions turn. `Err` carries a user-renderable message for
-/// HTTP/decode failures and for a model calling a tool it wasn't given.
+/// One chat-completions turn. The provider comes from the model slug, so the
+/// caller only has to hand over the matching key (`runner::model_key`). `Err`
+/// carries a user-renderable message for HTTP/decode failures and for a model
+/// calling a tool it wasn't given.
 pub fn chat_complete(api_key: &str, req: &ChatRequest) -> Result<ChatResult, String> {
+    let (provider, model) = providers::resolve(req.model);
     let ToolDefs { defs, by_wire_name, wire_name_of } = build_tool_defs(req.tools);
 
     let mut wire = vec![WireMessage::System { content: req.system.to_string() }];
@@ -356,28 +357,30 @@ pub fn chat_complete(api_key: &str, req: &ChatRequest) -> Result<ChatResult, Str
     }
 
     let body = Body {
-        model: req.model,
+        model,
         messages: &wire,
         max_tokens: MAX_COMPLETION_TOKENS,
         stream: None,
         tools: (!defs.is_empty()).then_some(defs.as_slice()),
-        modalities: req.output_image.then_some(["image", "text"]),
-        reasoning: to_reasoning_param(req.reasoning),
+        // `modalities` and `reasoning` are OpenRouter's own body keys; a
+        // provider without them gets neither, not an empty one
+        modalities: req.output_image.then_some(["image", "text"]).filter(|_| provider.extras),
+        reasoning: to_reasoning_param(req.reasoning).filter(|_| provider.extras),
     };
 
-    let client = Client::builder().timeout(TIMEOUT).build().map_err(|e| e.to_string())?;
+    let client = Client::builder().timeout(provider.timeout).build().map_err(|e| e.to_string())?;
     let res = client
-        .post(OPENROUTER_URL)
+        .post(provider.chat_url)
         .bearer_auth(api_key)
         .json(&body)
         .send()
-        .map_err(|e| transport_error(&e))?;
+        .map_err(|e| transport_error(&e, provider.timeout))?;
 
     let status = res.status().as_u16();
     // a body that isn't JSON is simply absent, exactly as `.catch(() => null)`
     let body: Option<Value> = res.json().ok();
     if !(200..300).contains(&status) {
-        return Err(model_error(body.as_ref(), status));
+        return Err(model_error(body.as_ref(), status, provider.name));
     }
     parse_completion(body.as_ref(), &by_wire_name)
 }
@@ -583,17 +586,19 @@ pub fn stream_chat(
     req: &StreamRequest,
     on_delta: &mut dyn FnMut(Delta),
 ) -> Result<Vec<StreamToolCall>, String> {
+    let (provider, model) = providers::resolve(req.model);
     let mut wire = vec![WireMessage::System { content: req.system.to_string() }];
     wire.extend(req.messages.iter().cloned());
 
     let body = Body {
-        model: req.model,
+        model,
         messages: &wire,
         max_tokens: MAX_COMPLETION_TOKENS,
         stream: Some(true),
         tools: (!req.tools.is_empty()).then_some(req.tools),
         modalities: None,
-        reasoning: to_reasoning_param(req.reasoning),
+        // OpenRouter's own key — see `chat_complete`
+        reasoning: to_reasoning_param(req.reasoning).filter(|_| provider.extras),
     };
 
     // reqwest's blocking timeout covers reading the body too, so this cannot be
@@ -615,16 +620,16 @@ pub fn stream_chat(
         .build()
         .map_err(|e| e.to_string())?;
     let mut res = client
-        .post(OPENROUTER_URL)
+        .post(provider.chat_url)
         .bearer_auth(api_key)
         .json(&body)
         .send()
-        .map_err(|e| transport_error(&e))?;
+        .map_err(|e| transport_error(&e, STREAM_DEADLINE))?;
 
     let status = res.status().as_u16();
     if !(200..300).contains(&status) {
         let body: Option<Value> = res.json().ok();
-        return Err(model_error(body.as_ref(), status));
+        return Err(model_error(body.as_ref(), status, provider.name));
     }
 
     let mut decoder = SseDecoder::default();
@@ -696,7 +701,10 @@ pub fn list_models() -> Result<Vec<Model>, String> {
 }
 
 fn load_models() -> Result<Vec<Model>, String> {
-    let client = Client::builder().timeout(TIMEOUT).build().map_err(|e| e.to_string())?;
+    let client = Client::builder()
+        .timeout(providers::OPENROUTER.timeout)
+        .build()
+        .map_err(|e| e.to_string())?;
     let res = client.get(MODELS_URL).send().map_err(crate::http::net_error)?;
     let status = res.status().as_u16();
     if !(200..300).contains(&status) {
@@ -905,14 +913,20 @@ mod tests {
     #[test]
     fn a_rejected_key_is_named_as_such() {
         let body = serde_json::json!({ "error": { "message": "No auth credentials found" } });
-        let err = model_error(Some(&body), 401);
-        assert!(err.contains("rejected your API key (401)"), "{err}");
+        let err = model_error(Some(&body), 401, "OpenRouter");
+        assert!(err.contains("OpenRouter rejected your API key (401)"), "{err}");
         assert!(err.contains("No auth credentials found"), "{err}");
-        assert!(model_error(None, 401).contains("check it in settings"));
+        assert!(model_error(None, 401, "OpenRouter").contains("check it in settings"));
         // every other status keeps the provider's own wording
-        assert_eq!(model_error(Some(&body), 429), "model call failed: No auth credentials found");
-        assert_eq!(model_error(None, 502), "model call failed: HTTP 502");
-        assert_eq!(model_error(Some(&serde_json::json!([])), 500), "model call failed: HTTP 500");
+        assert_eq!(
+            model_error(Some(&body), 429, "OpenRouter"),
+            "model call failed: No auth credentials found"
+        );
+        assert_eq!(model_error(None, 502, "OpenRouter"), "model call failed: HTTP 502");
+        assert_eq!(
+            model_error(Some(&serde_json::json!([])), 500, "OpenRouter"),
+            "model call failed: HTTP 500"
+        );
     }
 
     #[test]

@@ -65,7 +65,7 @@ export default function ConfigControl({
         const title = locked
             ? field.id === "reasoning"
                 ? "model has no reasoning setting — pick a reasoning-capable model"
-                : "output modalities unknown — set a model from the OpenRouter list"
+                : "output modalities unknown — set a model from the model list"
             : disabledTitle;
         return (
             <select

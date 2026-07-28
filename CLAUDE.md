@@ -103,7 +103,7 @@ or in the named module's header comment.
 **Process model**
 
 - **One process, one connection, one writer.** `tauri-plugin-single-instance` is the first plugin registered, deliberately — a second launch focuses the window instead of opening a second process against the same `saturn.db`. `Store` is one `rusqlite::Connection` behind a `Mutex`; hold the guard for as short a span as possible, and never across a network call.
-- **Blocking reqwest clients must never be built on a tokio worker.** The interpreter is synchronous and each run owns a plain `std::thread`. `http.rs`, `integrations.rs`, `mcp.rs` and `openrouter::chat_complete` all depend on this; `#[tauri::command(async)]` hands the body to a runtime thread, so those commands spawn a std thread and join it.
+- **Blocking reqwest clients must never be built on a tokio worker.** The interpreter is synchronous and each run owns a plain `std::thread`. `http.rs`, `integrations.rs`, `mcp.rs`, `providers::probe` and `openrouter::chat_complete` all depend on this; `#[tauri::command(async)]` hands the body to a runtime thread, so those commands spawn a std thread and join it.
 - **SQLite, the Keychain and `ingest_event` are blocking** — `spawn_blocking`, always. `ingest_event` runs a whole workflow inline; it must never sit on a socket path or a runtime worker.
 - Background loops belong to the app process, not the window. Closing the window hides it (`on_window_event` → `prevent_close` + `hide`); only tray-Quit exits.
 
@@ -113,6 +113,11 @@ or in the named module's header comment.
 - **Nothing outlives its owner.** Every registry delete calls `secrets::delete_entry_secrets`. An orphaned Keychain item is a real leak — the row that gave it meaning is gone.
 - **Graphs and logs only ever carry the `{{var:<uuid>}}` sentinel.** Plaintext substitution happens at exactly two points of consumption: `integrations::execute` and `events::get_event_subscriptions`.
 - **A bot token may only ever appear as `events::fp(token)`.** `EventSubscription` fingerprints it in `Debug` and is deliberately not `Serialize`; `telegram.rs` never formats a `reqwest::Error` (the token rides in the URL path); `gateway.rs`'s connection state holds no token at all.
+
+**Model calls**
+
+- **The slug picks the provider, and nothing else does.** `providers::resolve` walks `providers::ALL` and strips the matching prefix exactly once — `claude-code/` runs on the local Claude Code server, `omniroute/` on the local OmniRoute gateway, a bare slug on OpenRouter — and it is called *inside* `openrouter::chat_complete` / `stream_chat`, so the URL, the timeout, the body dialect (`provider.extras` gates OpenRouter's own `reasoning` / `modalities`) and the bearer (`runner::model_key`) cannot disagree with the slug a graph stored. Embeddings are the one exception and stay OpenRouter-only: `runner::openrouter_key` is the embeddings key (`docs/open-decisions.md` §1.6).
+- **A provider's address is `providers::origin`, never a literal.** The two local providers ship a `default_origin` the user can override; the override lives in a process map seeded from the `setting` table at boot (`main.rs` `load_provider_origins`), because `resolve` is called where no `Store` is in scope. Building a URL from `default_origin` directly is how a graph ends up talking to the wrong port.
 
 **Outbound fetch**
 

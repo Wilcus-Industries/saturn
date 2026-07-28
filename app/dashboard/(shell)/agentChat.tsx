@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import AsciiSaturn from "@/app/dashboard/asciiSaturn";
-import type { OpenrouterModel } from "@/app/dashboard/workflows/designer/designer";
+import type { ProviderModels } from "@/app/dashboard/workflows/designer/designer";
 import AgentComposer from "./agentComposer";
 // the transcript lives in module state so it survives this component being
 // unmounted by the dashboard → designer navigation, and so the module-scope
@@ -146,9 +146,10 @@ export default function AgentChat({
     onGraph,
     panel,
 }: {
-    // null = no OpenRouter key stored; the composer still renders its fallback
-    // list, but the message would fail, so one line says why
-    models: OpenrouterModel[] | null;
+    // one entry per connected provider; empty = none connected — the composer
+    // still renders its fallback list, but the message would fail, so one line
+    // says why
+    models: ProviderModels[];
     workflowId?: string;
     onGraph?: (graph: unknown) => void;
     panel?: boolean;
@@ -321,16 +322,16 @@ export default function AgentChat({
                 )}
             </div>
 
-            {models === null && (
+            {models.length === 0 && (
                 <p className={"mx-auto w-full max-w-2xl pb-2 font-mono text-xs text-gray-400"}>
                     <Link href={"/dashboard/settings/"} className={"hover:text-foreground"}>
-                        add an OpenRouter key in settings →
+                        connect a model provider in settings →
                     </Link>
                 </p>
             )}
 
             <AgentComposer
-                models={models ?? []}
+                models={models}
                 onSend={handleSend}
                 streaming={streaming}
                 onStop={stop}

@@ -7,7 +7,7 @@ import { getSessionId, setSession, subscribe } from "@/app/dashboard/(shell)/age
 import { call, useAsync } from "@/lib/ipc";
 // type-only import — compile-erased, so the designer ⇄ panel import cycle
 // exists only for the type checker, never at runtime
-import type { OpenrouterModel } from "./designer";
+import type { ProviderModels } from "./designer";
 
 // resize bounds: never narrower than the composer needs, never wider than most
 // of the viewport (the canvas has to stay usable)
@@ -30,8 +30,9 @@ export default function AgentPanel({
     onClose,
 }: {
     workflowId: string;
-    // null = no OpenRouter key stored; the chat says so above its composer
-    models: OpenrouterModel[] | null;
+    // one entry per connected provider; empty = none, the chat says so above
+    // its composer
+    models: ProviderModels[];
     // a save_graph that targeted this workflow — the raw payload, unvalidated
     onGraph: (graph: unknown) => void;
     onClose: () => void;

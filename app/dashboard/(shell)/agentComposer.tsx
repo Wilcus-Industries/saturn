@@ -5,14 +5,21 @@ import { DEFAULT_MODEL } from "@/lib/agent";
 import { ArrowUp, ChevronDown, Stop } from "@/app/dashboard/icons";
 import ModelLogo from "@/app/dashboard/workflows/designer/modelLogo";
 // type-only import — compile-erased, safe in a client component
-import type { OpenrouterModel } from "@/app/dashboard/workflows/designer/designer";
+import type { ProviderModels } from "@/app/dashboard/workflows/designer/designer";
 
-// shown when the OpenRouter fetch degraded to [] — the selector still renders
-const FALLBACK_MODELS: OpenrouterModel[] = [
-    { id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5", outputModalities: ["text"], supportsReasoning: true },
-    { id: "anthropic/claude-opus-4.1", name: "Claude Opus 4.1", outputModalities: ["text"], supportsReasoning: true },
-    { id: "openai/gpt-5", name: "GPT-5", outputModalities: ["text"], supportsReasoning: true },
-    { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro", outputModalities: ["text"], supportsReasoning: true },
+// shown when no provider is connected, or every fetch degraded to [] — the
+// selector still renders (the send would fail, and the chat says why above)
+const FALLBACK_MODELS: ProviderModels[] = [
+    {
+        provider: "openrouter",
+        label: "OpenRouter",
+        models: [
+            { id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5", outputModalities: ["text"], supportsReasoning: true },
+            { id: "anthropic/claude-opus-4.1", name: "Claude Opus 4.1", outputModalities: ["text"], supportsReasoning: true },
+            { id: "openai/gpt-5", name: "GPT-5", outputModalities: ["text"], supportsReasoning: true },
+            { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro", outputModalities: ["text"], supportsReasoning: true },
+        ],
+    },
 ];
 
 const DEFAULT_EFFORT = "medium";
@@ -42,7 +49,7 @@ export default function AgentComposer({
     streaming,
     onStop,
 }: {
-    models: OpenrouterModel[];
+    models: ProviderModels[];
     onSend: (text: string, model: string, reasoning: string) => void;
     streaming: boolean;
     onStop: () => void;
@@ -85,17 +92,33 @@ export default function AgentComposer({
         return () => document.removeEventListener("pointerdown", onDown);
     }, [open, effortOpen]);
 
-    const all = models.length > 0 ? models : FALLBACK_MODELS;
-    const selected = all.find((m) => m.id === model);
+    const all = models.some((p) => p.models.length > 0) ? models : FALLBACK_MODELS;
+    const selected = useMemo(
+        () => all.flatMap((p) => p.models).find((m) => m.id === model),
+        [all, model],
+    );
 
+    // search and the MAX_LISTED cut both run PER PROVIDER — one flat slice would
+    // let OpenRouter's hundreds of rows push Claude Code's section off entirely.
+    // A group that matches nothing is dropped, so no bare heading ever renders.
     const listed = useMemo(() => {
         const needle = q.trim().toLowerCase();
-        const hits = needle
-            ? all.filter(
-                  (m) => m.id.toLowerCase().includes(needle) || m.name.toLowerCase().includes(needle),
-              )
-            : all;
-        return { rows: hits.slice(0, MAX_LISTED), more: Math.max(0, hits.length - MAX_LISTED) };
+        const hits = all.map((p) => ({
+            label: p.label,
+            rows: needle
+                ? p.models.filter(
+                      (m) =>
+                          m.id.toLowerCase().includes(needle) ||
+                          m.name.toLowerCase().includes(needle),
+                  )
+                : p.models,
+        }));
+        return {
+            groups: hits
+                .map((g) => ({ label: g.label, rows: g.rows.slice(0, MAX_LISTED) }))
+                .filter((g) => g.rows.length > 0),
+            more: hits.reduce((n, g) => n + Math.max(0, g.rows.length - MAX_LISTED), 0),
+        };
     }, [all, q]);
 
     const empty = value.trim() === "";
@@ -257,28 +280,49 @@ export default function AgentComposer({
                                 }}
                             />
                             <div className={"overflow-y-auto"}>
-                                {listed.rows.map((m) => (
-                                    <button
-                                        key={m.id}
-                                        type={"button"}
-                                        role={"option"}
-                                        aria-selected={m.id === model}
-                                        title={m.id}
-                                        onClick={() => pick(m.id)}
-                                        className={
-                                            "flex w-full cursor-pointer items-center gap-2 p-2 " +
-                                            "text-left font-mono text-xs transition-colors " +
-                                            "hover:bg-foreground hover:text-background " +
-                                            (m.id === model ? "bg-foreground/10" : "")
-                                        }
-                                    >
-                                        <span className={"min-w-0 flex-1 truncate"}>{m.name}</span>
-                                        <span className={"shrink-0 overflow-hidden rounded-full"}>
-                                            <ModelLogo slug={m.id} name={m.name} size={16} />
-                                        </span>
-                                    </button>
+                                {/* one role="group" per provider: a listbox may
+                                    own groups, and the heading itself stays out
+                                    of the option flow (aria-hidden — the group's
+                                    aria-label is what a reader announces) */}
+                                {listed.groups.map((g) => (
+                                    <div key={g.label} role={"group"} aria-label={g.label}>
+                                        <h2
+                                            aria-hidden
+                                            className={
+                                                "px-2 pb-1 pt-2 font-mono text-[10px] uppercase " +
+                                                "tracking-wider text-gray-400"
+                                            }
+                                        >
+                                            {g.label}
+                                        </h2>
+                                        {g.rows.map((m) => (
+                                            <button
+                                                key={m.id}
+                                                type={"button"}
+                                                role={"option"}
+                                                aria-selected={m.id === model}
+                                                title={m.id}
+                                                onClick={() => pick(m.id)}
+                                                className={
+                                                    "flex w-full cursor-pointer items-center gap-2 p-2 " +
+                                                    "text-left font-mono text-xs transition-colors " +
+                                                    "hover:bg-foreground hover:text-background " +
+                                                    (m.id === model ? "bg-foreground/10" : "")
+                                                }
+                                            >
+                                                <span className={"min-w-0 flex-1 truncate"}>
+                                                    {m.name}
+                                                </span>
+                                                <span
+                                                    className={"shrink-0 overflow-hidden rounded-full"}
+                                                >
+                                                    <ModelLogo slug={m.id} name={m.name} size={16} />
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
                                 ))}
-                                {listed.rows.length === 0 && (
+                                {listed.groups.length === 0 && (
                                     <p className={"p-2 font-mono text-xs text-gray-400"}>
                                         no models match &quot;{q}&quot;
                                     </p>

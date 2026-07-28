@@ -8,6 +8,7 @@ mod interpreter;
 mod mcp;
 mod memory;
 mod openrouter;
+mod providers;
 mod registry;
 mod runner;
 mod saturn;
@@ -386,25 +387,90 @@ fn set_github_pat(value: Option<String>, clear: bool) -> Result<(), String> {
     secrets::set(&KEYCHAIN, &Secret::GithubPat, value, clear)
 }
 
-// --- openrouter ------------------------------------------------------------
+// --- models ----------------------------------------------------------------
 
-/// The model picker's catalogue. `None` (JS `null`) means LOCKED — no OpenRouter
-/// key, so the toolbox hints at settings. `Some([])` means unlocked but the
-/// fetch failed, which falls back to the blank model chip. The distinction
-/// drives real UI, so it is one call rather than "has key" plus "list".
+/// One provider's slice of the model picker — `Provider.id` and `Provider.name`
+/// verbatim, so the client never re-derives the `claude-code/` slug prefix that
+/// `providers::resolve` owns.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderModels {
+    provider: &'static str,
+    label: &'static str,
+    models: Vec<openrouter::Model>,
+}
+
+/// The model picker's catalogue, grouped by provider.
+///
+/// **A provider that is not connected is absent from the vec** — that IS the
+/// "don't render a section you can't use" rule, so no caller branches on
+/// credentials. An empty vec therefore means nothing is connected at all (the
+/// toolbox hints at settings); an entry whose `models` is empty means connected
+/// but the fetch failed, which falls back to the blank model chip. Both states
+/// drive real UI, so this is one call rather than "which providers" plus "list".
 #[tauri::command(async)]
-fn list_openrouter_models() -> Result<Option<Vec<openrouter::Model>>, String> {
-    if !secrets::has(&KEYCHAIN, &Secret::OpenRouterKey) {
-        return Ok(None);
-    }
+fn list_models() -> Result<Vec<ProviderModels>, String> {
+    let has_key = secrets::has(&KEYCHAIN, &Secret::OpenRouterKey);
     // reqwest's blocking client must not be built on a runtime worker, and
     // `command(async)` hands the body to one — a plain std thread is neither.
-    let models = std::thread::spawn(openrouter::list_models)
+    let (remote, local) = std::thread::spawn(move || {
+        (has_key.then(openrouter::list_models), providers::probe_claude_code(false))
+    })
+    .join()
+    .map_err(|_| "models: worker panicked".to_string())?;
+
+    let mut out = Vec::new();
+    if has_key {
+        out.push(ProviderModels {
+            provider: providers::OPENROUTER.id,
+            label: providers::OPENROUTER.name,
+            // a failed fetch is [], not an error: connected-but-empty is a
+            // distinct UI state, and the TypeScript degraded the same way
+            models: remote.and_then(Result::ok).unwrap_or_default(),
+        });
+    }
+    if let Some(models) = local {
+        out.push(ProviderModels {
+            provider: providers::CLAUDE_CODE.id,
+            label: providers::CLAUDE_CODE.name,
+            models,
+        });
+    }
+    Ok(out)
+}
+
+/// One tile in Settings' provider grid. `enabled` means connected: a stored key
+/// for OpenRouter, a reachable local server for Claude Code.
+#[derive(serde::Serialize)]
+struct ProviderStatus {
+    id: &'static str,
+    name: &'static str,
+    enabled: bool,
+}
+
+/// Shares `list_models`' probe cache, so opening Settings costs one round trip
+/// even though both commands run. `refresh` bypasses that cache — the modal's
+/// re-check button is the one caller that must not be answered from it.
+#[tauri::command(async)]
+fn provider_status(refresh: bool) -> Result<Vec<ProviderStatus>, String> {
+    // blocking probe → plain std thread, same rule as `list_models`
+    let connected = std::thread::spawn(move || providers::probe_claude_code(refresh))
         .join()
-        .map_err(|_| "openrouter models: worker panicked".to_string())?;
-    // a failed fetch is [], not an error: unlocked-but-empty is a distinct UI
-    // state from locked, and the TypeScript degraded the same way
-    Ok(Some(models.unwrap_or_default()))
+        .map_err(|_| "provider status: worker panicked".to_string())?
+        .is_some();
+    // openrouter first: the frontend renders them in order
+    Ok(vec![
+        ProviderStatus {
+            id: providers::OPENROUTER.id,
+            name: providers::OPENROUTER.name,
+            enabled: secrets::has(&KEYCHAIN, &Secret::OpenRouterKey),
+        },
+        ProviderStatus {
+            id: providers::CLAUDE_CODE.id,
+            name: providers::CLAUDE_CODE.name,
+            enabled: connected,
+        },
+    ])
 }
 
 // --- registry --------------------------------------------------------------
@@ -683,7 +749,8 @@ fn main() {
             set_openrouter_key,
             has_github_pat,
             set_github_pat,
-            list_openrouter_models,
+            list_models,
+            provider_status,
             list_registry,
             save_mcp_server,
             save_skill,

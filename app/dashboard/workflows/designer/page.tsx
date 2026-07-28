@@ -6,7 +6,7 @@ import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import type { SessionRow } from "@/app/dashboard/(shell)/agent/sessionPicker";
 import { buildUserCatalog, type RegistryEntryRow, sessionEntry, UUID_RE } from "@/lib/registry";
 import type { WorkflowGraph } from "@/lib/workflow";
-import Designer, { type OpenrouterModel } from "./designer";
+import Designer, { type ProviderModels } from "./designer";
 
 // the fields of the workflow row the designer actually reads — the rest of what
 // get_workflow returns (timestamps, active) belongs to the list page
@@ -24,18 +24,18 @@ function DesignerPage() {
         if (!UUID_RE.test(id)) throw new Error("no such workflow");
         // user-registered mcp servers/skills/memory/variables join the static
         // catalog as nodes; everything the page needs rides one fan-out
-        const [workflow, registry, sessions, openrouterModels, githubLinked] = await Promise.all([
+        const [workflow, registry, sessions, models, githubLinked] = await Promise.all([
             call<Workflow>("get_workflow", { id }),
             call<RegistryEntryRow[]>("list_registry"),
             // chats are not registry rows but they are catalog entries — the
             // chip that grants an agent a persistent conversation
             call<SessionRow[]>("saturn_list_sessions"),
-            // null = no OpenRouter key (toolbox hints at settings); [] = unlocked
-            // but the fetch failed
-            call<OpenrouterModel[] | null>("list_openrouter_models"),
+            // one entry per connected provider; [] = nothing connected (the
+            // toolbox hints at settings), an entry with no models = fetch failed
+            call<ProviderModels[]>("list_models"),
             call<boolean>("has_github_pat"),
         ]);
-        return { workflow, registry, sessions, openrouterModels, githubLinked };
+        return { workflow, registry, sessions, models, githubLinked };
     }, [id]);
 
     // live:false — a background cron run firing `data-changed` would hand the
@@ -55,7 +55,7 @@ function DesignerPage() {
         );
     }
 
-    const { workflow, registry, sessions, openrouterModels, githubLinked } = data;
+    const { workflow, registry, sessions, models, githubLinked } = data;
     // variables for the toolbox split — name + secret flag + whether a value is
     // set. For secrets the value never reaches the client (value is '' from the
     // guarded projection); regular variables carry their viewable plaintext.
@@ -80,7 +80,7 @@ function DesignerPage() {
                 ...sessions.map((s) => sessionEntry(s.id, s.name)),
             ]}
             variables={variables}
-            openrouterModels={openrouterModels}
+            models={models}
             githubLinked={githubLinked}
             onRegistryChange={reload}
         />

@@ -118,7 +118,7 @@ Cyan, toolbox section "agents". An LLM loop, fully **port-driven**:
 
 | port | kind | notes |
 |---|---|---|
-| `prompt`, `system`, `model` | value in | usually fed by string/model nodes |
+| `prompt`, `system`, `model` | value in | usually fed by string/model nodes; the slug also picks the provider (see below) |
 | `tools` | value in, multi, accepts `tool` | mcp chip outputs |
 | `skills` | value in, multi, accepts `skill` | skill chip outputs |
 | `memory` | value in, **single**, accepts `memory` | one store per agent; a second edge replaces the first |
@@ -139,7 +139,12 @@ same memo-safe pattern as `overriddenIds`.
 `reasoning` threads through as a raw string; `runner.rs` allowlists it against
 `REASONING_MODES` and maps it to OpenRouter's `reasoning` param (`off` →
 `{enabled:false}`, a level → `{effort}`, blank or invalid → omitted). It is
-dropped entirely for `output=image`, which is single-turn.
+dropped entirely for `output=image`, which is single-turn, and dropped again in
+`openrouter.rs` for any provider whose `extras` flag is false — `reasoning` and
+`modalities` are OpenRouter's own body keys, so a Claude Code or OmniRoute call
+sends neither rather than an empty one. Both local providers' rows report
+`supportsReasoning: false`, so the select locks to `off` on its own before that
+ever matters.
 
 `output=image` sends `modalities: ["image","text"]`, drops tool grants with a
 console warning (image models don't accept `tools`), and puts the first returned
@@ -151,9 +156,26 @@ image returned → warn and fall back to text.
 
 One static node type (`model`, rose), rendering as a 54px circle with the
 company's logo inside (`modelLogo.tsx` maps the slug's author segment to an apex
-domain and then to a Google s2 favicon, with a robot fallback). The toolbox's
-per-model chips just prefill `config.model` on spawn, so **graphs never reference
-per-model keys** that would vanish with the list. A preset-spawned node carries
+domain and then to a Google s2 favicon, with a robot fallback; a leading segment
+that is a provider id — `claude-code`, `omniroute` — has no domain to look up, a
+loopback server being in nobody's favicon index, so `isProviderId` short-circuits
+it to `providerLogos.tsx`, which serves the provider marks from
+`public/provider_logos/`). The toolbox's per-model chips just prefill
+`config.model` on spawn, so **graphs never reference per-model keys** that would
+vanish with the list.
+
+**The slug is also the routing key.** `list_models` returns one group per
+connected provider (`{provider, label, models}`, the provider's own `id`/`name`;
+a provider that isn't connected is absent from the array, so no client re-derives
+the prefix), and a local provider's rows arrive already prefixed —
+`claude-code/opus`, `omniroute/auto/coding`. `providers::resolve` strips that
+prefix exactly once at send time, so `omniroute/kr/sonnet` goes on the wire as
+`kr/sonnet` — which is OmniRoute's own `provider/model` shape, and stripping
+greedily would destroy it — and a bare slug is OpenRouter's. `valid_model_id`
+already permitted `/`, so nothing about the node, the graph JSON or the fixtures
+changed to allow it. Local rows carry `outputModalities: ["text"]` and
+`supportsReasoning: false`, which is what locks the agent node's two selects;
+both are constants because `/v1/models` reports neither. A preset-spawned node carries
 `config.preset = "1"` and shows a read-only name; a blank one keeps an editable
 slug input.
 
@@ -185,7 +207,11 @@ tool array (head position, so the wire-name builder reserves clean names) and
 injects a `## Memory: <name>` system block. Calls route by
 `entry_id == memory_id` to `memory.rs`, which embeds through OpenRouter's
 `/api/v1/embeddings` (`openai/text-embedding-3-small`, 1536 dims) and searches
-the local `vec0` table.
+the local `vec0` table. That model is pinned against a `float[1536]` table, so
+embeddings are **OpenRouter-only** whatever provider the agent's own model runs
+on — an agent on a local provider with a memory store and no OpenRouter key gets
+"memory needs an OpenRouter key for embeddings" back as a tool result
+(`docs/open-decisions.md` §1.6).
 
 Every failure comes back as a value the caller renders, never a panic — those
 strings are fed back to the model and printed to the run console.

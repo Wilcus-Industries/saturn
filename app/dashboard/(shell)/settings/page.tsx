@@ -1,83 +1,15 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import ActionButton from "@/app/dashboard/actionButton";
 import ConfirmButton from "@/app/dashboard/confirmButton";
 import EntryModal from "@/app/dashboard/entryModal";
-import Field from "@/app/dashboard/field";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import { faviconDomain, type RegistryEntryRow } from "@/lib/registry";
 import ConnectButton from "./connectButton";
 import McpEntryModal from "./mcpEntryModal";
-
-// the two Keychain-backed secrets on this page are the same form twice: a
-// password field, a clear checkbox that only exists once something is stored,
-// and a save. Write-only both ways — the value never comes back over IPC, so
-// blank means "keep" and there is nothing to prefill.
-function SecretForm({
-    field,
-    placeholder,
-    isSet,
-    cmd,
-    onSaved,
-}: {
-    field: string;
-    placeholder: string;
-    isSet: boolean;
-    cmd: string;
-    onSaved: () => void;
-}) {
-    const [error, setError] = useState<string | null>(null);
-
-    return (
-        <form
-            className={"flex flex-col gap-3"}
-            action={async (formData: FormData) => {
-                setError(null);
-                try {
-                    // Rust writes the value verbatim, so the trim happens here —
-                    // an accidental space must read as "keep", not overwrite
-                    await call(cmd, {
-                        value: String(formData.get("value") ?? "").trim(),
-                        clear: formData.get("clear") === "on",
-                    });
-                } catch (err) {
-                    setError(err instanceof Error ? err.message : "Save failed");
-                    return;
-                }
-                onSaved();
-            }}
-        >
-            {/* uncontrolled on purpose — write-only, so there is nothing to prefill */}
-            <Field
-                label={field}
-                name={"value"}
-                type={"password"}
-                autoComplete={"off"}
-                placeholder={isSet ? "•••• set — leave blank to keep" : placeholder}
-            />
-
-            {error && <p className={"font-mono text-xs text-red-400"}>{error}</p>}
-
-            <div className={"flex items-center gap-4"}>
-                {isSet && (
-                    <label className={"flex items-center gap-2 font-mono text-xs text-gray-400"}>
-                        <input type={"checkbox"} name={"clear"} />
-                        clear stored value
-                    </label>
-                )}
-                <ActionButton
-                    className={`ml-auto rounded-full border border-foreground px-4 py-2
-                        font-mono text-sm transition-colors duration-200
-                        hover:bg-foreground hover:text-background`}
-                >
-                    save →
-                </ActionButton>
-            </div>
-        </form>
-    );
-}
+import ProviderModal, { type ProviderStatus } from "./providerModal";
+import SecretForm from "./secretForm";
 
 // the login item, which is a Keychain-shaped thing without being one: the state
 // lives outside the database (a LaunchAgent plist), so it is read back from the
@@ -114,7 +46,7 @@ export default function Settings() {
         async () =>
             Promise.all([
                 call<RegistryEntryRow[]>("list_registry"),
-                call<boolean>("has_openrouter_key"),
+                call<ProviderStatus[]>("provider_status", { refresh: false }),
                 call<boolean>("has_github_pat"),
                 call<boolean>("autostart_enabled"),
             ]),
@@ -139,7 +71,7 @@ export default function Settings() {
         [reload],
     );
 
-    const [registry = [], keySet = false, patSet = false, autostart = false] = data ?? [];
+    const [registry = [], providers = [], patSet = false, autostart = false] = data ?? [];
     const mcpServers = registry.filter((entry) => entry.kind === "mcp");
     const skills = registry.filter((entry) => entry.kind === "skill");
 
@@ -149,31 +81,39 @@ export default function Settings() {
 
             {deleteError && <ErrorNote error={deleteError} />}
 
-            {/* one gate for the whole page: the registry, the OpenRouter key and
-                the PAT are three local reads that land in the same tick, so four
+            {/* one gate for the whole page: the registry, the provider statuses
+                and the PAT are local reads that land in the same tick, so four
                 independent placeholders would just be four pulsing lines */}
             {loading && <Loading what={"loading settings"} />}
             {error && <ErrorNote error={error} retry={reload} />}
 
             {data && (
                 <>
-                    {/* BYOK: the user's own OpenRouter key funds every model call */}
+                    {/* one tile per model provider; greyed means not connected,
+                        and clicking it is how you connect */}
                     <section
                         className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
                     >
                         <h2 className={"font-mono text-xl"}>Models</h2>
 
                         <p className={"font-mono text-sm text-gray-400"}>
-                            add an OpenRouter key to run models
+                            connect a provider to run models — click a tile for its setup
                         </p>
 
-                        <SecretForm
-                            field={"openrouter api key"}
-                            placeholder={"sk-or-..."}
-                            isSet={keySet}
-                            cmd={"set_openrouter_key"}
-                            onSaved={reload}
-                        />
+                        {/* wrap, don't grid: a grid stretches two tiles across
+                            the section's full width, leaving them marooned in
+                            their columns. These pack left and wrap like text,
+                            which is also what stops the row re-flowing when a
+                            third provider lands */}
+                        <div className={"flex flex-wrap gap-3"}>
+                            {providers.map((provider) => (
+                                <ProviderModal
+                                    key={provider.id}
+                                    provider={provider}
+                                    reload={reload}
+                                />
+                            ))}
+                        </div>
                     </section>
 
                     {/* user registry: entries become nodes in the workflow designer */}

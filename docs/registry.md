@@ -94,7 +94,7 @@ read-only tools on and new write-capable tools off, and always overwrites
 `params` come from each tool's `inputSchema` — top-level properties only,
 required first, capped at `MAX_TOOL_PARAMS = 12`. The `js::J` machinery in
 `mcp.rs` exists to preserve the server's declaration order through that cap
-(though `to_parameters` re-sorts on the way out to OpenRouter — a deliberate,
+(though `to_parameters` re-sorts on the way out to the model — a deliberate,
 presentational divergence, `docs/open-decisions.md` §2.1).
 
 ### The URL policy

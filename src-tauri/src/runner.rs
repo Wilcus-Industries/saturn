@@ -26,6 +26,7 @@ use crate::events;
 use crate::interpreter::{js, run_workflow, utf16_prefix, ConsoleLine, Effects, Graph, Kind};
 use crate::mcp::McpError;
 use crate::openrouter::{self, ChatRequest, ToolSpec};
+use crate::providers;
 use crate::registry::{self, Entry};
 use crate::secrets::{self, Secret, Vault};
 use crate::store::{RunStatus, RunTrigger, Store, Workflow};
@@ -138,8 +139,25 @@ fn cron_matches(cron: &str, at_ms: i64) -> bool {
 /// The user's OpenRouter key. BYOK only: there is no platform key, no credits
 /// ledger and no fallback — a missing key is a user-facing error at the point of
 /// use, exactly where `getOpenrouterKey` returned null.
+///
+/// Still the *only* key for embeddings (`memory.rs` pins an OpenAI embedding
+/// model against a fixed vector width, and no other provider serves it), which
+/// is why the memory tool paths read it directly rather than through
+/// `model_key`. Chat calls route by provider — see `providers.rs`.
 pub fn openrouter_key(vault: &dyn Vault) -> Option<String> {
     secrets::get(vault, &Secret::OpenRouterKey)
+}
+
+/// The bearer for one chat call, chosen by the model slug. Claude Code binds to
+/// loopback and refuses to start off-loopback without a key of its own, so there
+/// is nothing to authenticate and any string does; OpenRouter is BYOK and a
+/// missing key is a user-facing error here, at the point of use.
+pub fn model_key(vault: &dyn Vault, model: &str) -> Result<String, String> {
+    if providers::resolve(model).0.id != providers::OPENROUTER.id {
+        return Ok("saturn".into());
+    }
+    openrouter_key(vault)
+        .ok_or_else(|| "model calls need an OpenRouter key: add one in settings".into())
 }
 
 /// `MODEL_ID` from lib/agent.ts (`/^[\w.:/-]{1,128}$/`). The slug is graph-
@@ -349,8 +367,7 @@ fn agent_turn(
         specs.splice(0..0, crate::memory::memory_tool_specs(memory_id));
     }
 
-    let api_key =
-        openrouter_key(vault).ok_or("model calls need an OpenRouter key: add one in settings")?;
+    let api_key = model_key(vault, &req.model)?;
 
     let openrouter::ChatResult { content, tool_calls, images } = openrouter::chat_complete(
         &api_key,
@@ -1026,7 +1043,7 @@ mod tests {
         );
         assert_eq!(
             execute_tool(&store, &vault, true, &memory_id, "memory_search", r#"{"query":"x"}"#),
-            Err("model calls need an OpenRouter key: add one in settings".into()),
+            Err("memory needs an OpenRouter key for embeddings: add one in settings".into()),
         );
 
         // mcp.rs: saved past the save-time URL guard through the injected seam,

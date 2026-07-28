@@ -1,18 +1,18 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import type { OpenrouterModel } from "@/app/dashboard/workflows/designer/designer";
+import type { ProviderModels } from "@/app/dashboard/workflows/designer/designer";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import AgentChat from "../agentChat";
 import { getSessionId, setSession, subscribe } from "../agentChatStore";
 import SessionPicker, { type SessionRow } from "./sessionPicker";
 
 // module-level so it is stable for useAsync — nothing here depends on props.
-// null models = no OpenRouter key stored; the chat says so above the composer.
+// no model groups = no provider connected; the chat says so above the composer.
 const load = () =>
     Promise.all([
         call<SessionRow[]>("saturn_list_sessions"),
-        call<OpenrouterModel[] | null>("list_openrouter_models"),
+        call<ProviderModels[]>("list_models"),
     ]);
 
 // the store is client-only, so the prerendered HTML has no session
@@ -54,7 +54,7 @@ export default function Agent() {
                         onPick={(id) => void setSession(id)}
                         onChanged={reload}
                     />
-                    <AgentChat models={data?.[1] ?? null} />
+                    <AgentChat models={data?.[1] ?? []} />
                 </>
             )}
         </div>

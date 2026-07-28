@@ -67,14 +67,26 @@ import VariableModal, { type VariableRow } from "./variableModal";
 // the `>=` at the use site, not `>`.
 const MAX_SAMPLE_CHARS = 500_000;
 
-// one OpenRouter model as list_openrouter_models returns it (that struct is the
-// one with rename_all, so these keys really are camelCase). Declared here rather
-// than imported: the old lib/openrouter.server.ts is gone.
-export type OpenrouterModel = {
+// one model row as `list_models` returns it — a Claude Code row rides here too,
+// already prefixed (that struct is the one with rename_all, so these keys really
+// are camelCase). Declared here rather than imported: the old
+// lib/openrouter.server.ts is gone.
+export type Model = {
     id: string;
     name: string;
     outputModalities: string[];
     supportsReasoning: boolean;
+};
+
+// `list_models`' whole return: the catalogue, grouped by provider. A provider
+// that is NOT connected is absent from the array — that is the "hide the section"
+// rule, so no caller branches on credentials, and nothing here re-derives the
+// `claude-code/` prefix. Present with an empty `models` is the other state:
+// connected, fetch failed.
+export type ProviderModels = {
+    provider: string;
+    label: string;
+    models: Model[];
 };
 
 // window pointer listeners for gestures that outlive their start element
@@ -112,7 +124,7 @@ export default function Designer({
     workflow,
     userCatalog,
     variables,
-    openrouterModels,
+    models,
     githubLinked,
     onRegistryChange,
 }: {
@@ -120,8 +132,8 @@ export default function Designer({
     userCatalog: CatalogEntry[];
     // secret variables for the toolbox's pinned split (name + has-value only)
     variables: VariableRow[];
-    // null = no OpenRouter key; [] = unlocked but fetch failed
-    openrouterModels: OpenrouterModel[] | null;
+    // one entry per connected provider; absent = not connected, [] = fetch failed
+    models: ProviderModels[];
     // a GitHub PAT is stored. Push/issue/pr/release poll unauthenticated on
     // public repos, so for those this is only a rate-limit hint — but github-star
     // is not polled at all without one, so it also greys that chip out and warns
@@ -149,15 +161,17 @@ export default function Designer({
         return map;
     }, [userCatalog, nodeTypeKey]);
 
+    // both maps flatten across every provider — a graph's model slug can come
+    // from either, and the ids can't collide (one carries the claude-code/ prefix)
     // slug → output modalities, driving the agent node's output select
     const modelModalities = useMemo(
-        () => new Map((openrouterModels ?? []).map((m) => [m.id, m.outputModalities])),
-        [openrouterModels],
+        () => new Map(models.flatMap((p) => p.models).map((m) => [m.id, m.outputModalities])),
+        [models],
     );
     // slug → reasoning capability, driving the agent node's reasoning select
     const modelReasoning = useMemo(
-        () => new Map((openrouterModels ?? []).map((m) => [m.id, m.supportsReasoning])),
-        [openrouterModels],
+        () => new Map(models.flatMap((p) => p.models).map((m) => [m.id, m.supportsReasoning])),
+        [models],
     );
 
     // live validation surfaced in the topbar (issues panel) and as per-node
@@ -1074,7 +1088,7 @@ export default function Designer({
                 <Toolbox
                     userCatalog={userCatalog}
                     variables={variables}
-                    openrouterModels={openrouterModels}
+                    models={models}
                     githubLinked={githubLinked}
                     hasEvent={events.length > 0}
                     onSpawnStart={(key, x, y, preset) =>
@@ -1114,7 +1128,7 @@ export default function Designer({
                 {agentOpen && (
                     <AgentPanel
                         workflowId={workflow.id}
-                        models={openrouterModels}
+                        models={models}
                         onGraph={handleAgentGraph}
                         onClose={() => setAgentOpen(false)}
                     />

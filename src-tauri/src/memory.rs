@@ -338,10 +338,13 @@ fn check_dims(embedding: &[f32]) -> Result<Vec<u8>, String> {
 /// callers take a vector, not a key.
 ///
 /// BYOK only — `api_key` is the user's key, passed in. Errors are the
-/// user-renderable strings the TypeScript threw and its callers caught.
+/// user-renderable strings the TypeScript threw and its callers caught. The
+/// "no key" one names embeddings specifically: chat routes by slug now
+/// (`providers.rs`), so a user on Claude Code alone can have every model call
+/// working and still land here.
 fn embed(api_key: &str, texts: &[&str]) -> Result<Vec<Vec<f32>>, String> {
     if api_key.is_empty() {
-        return Err("model calls need an OpenRouter key: add one in settings".into());
+        return Err("memory needs an OpenRouter key for embeddings: add one in settings".into());
     }
     let client = Client::builder()
         .timeout(EMBED_TIMEOUT)
@@ -676,7 +679,7 @@ mod tests {
         // a blank key is the "no key" case, and it is reached before any socket
         assert_eq!(
             call(STORE_A, "memory_search", r#"{"query":"x"}"#).unwrap_err(),
-            "model calls need an OpenRouter key: add one in settings"
+            "memory needs an OpenRouter key for embeddings: add one in settings"
         );
 
         std::fs::remove_dir_all(&dir).ok();

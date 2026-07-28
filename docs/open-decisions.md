@@ -230,6 +230,78 @@ and stayed; `eventNodeKey` and `EXTENSIONS` stayed because
 
 `cargo test fixtures` is 47/47.
 
+### 1.6 Model providers — DECIDED: a const table, editable origins
+
+**Decided 2026-07-27.** Claude Code joined OpenRouter as a model provider, and
+OmniRoute (`github.com/diegosouzapw/OmniRoute`, a self-hosted gateway over ~290
+upstream providers) joined the same day. `providers.rs` is a table of `const`
+rows — `ALL` — not a `Kind::Provider` and not a Keychain-as-KV; routing is a slug
+prefix stripped exactly once. Both local providers are OpenAI-compatible servers,
+so they cost no second HTTP client: `openrouter.rs` is the client for all three
+and `extras` gates the two body keys that are OpenRouter's own.
+
+**A table, not two consts — revised.** The first version of this decision said
+"two `const` rows, not a table", on the grounds that two rows are not a
+collection. A third row invalidated that: with two local providers, `resolve`, the
+probe cache, `list_models` and `provider_status` each had a two-armed shape that
+a table collapses. The rows are still `const` and still hand-written; only the
+lookup is a loop. The trigger named there — a real second local provider — is
+what fired.
+
+**Origins are editable, and live in a process map.** Each local row ships a
+`default_origin` (`127.0.0.1:8787`, `127.0.0.1:20128`); the user can point either
+somewhere else from its settings tile. The override persists in a two-column
+`setting` table (`provider-origin:<id>`) but is *read* from a `Mutex<Vec<..>>` in
+`providers.rs`, seeded once at setup by `main.rs::load_provider_origins`.
+`resolve` is called from inside `openrouter.rs`, which holds no `Store` and never
+should — threading SQLite through every send site to answer "what port" is the
+alternative this avoids. `set_provider_origin` validates through
+`http::parse_request_url` (the app's one URL policy) and evicts that provider's
+probe entry, because a cached "not detected" is an answer about the old address.
+The earlier "no port setting, it is a whole persistence story" call was right
+about the cost and wrong about the demand.
+
+**Per-provider keys, all optional but OpenRouter's.** `Secret::ProviderKey(id)`
+→ account `{id}-key`, which is byte-identical to the `openrouter-key` that
+shipped, so no stored key was orphaned. `runner::model_key` prefers a stored key
+and falls back to the dummy bearer `"saturn"` for a local provider — loopback has
+nothing to authenticate, but an origin moved off loopback does, and both servers
+accept one. `set_provider_key` resolves `id` through `providers::by_id` before
+touching the Keychain: the id names an account, so an unvalidated one would be an
+arbitrary write into the user's login Keychain.
+
+**Embeddings stay OpenRouter-only.** `memory.rs` pins `MEMORY_EMBED_MODEL`
+against a `float[1536]` vec table — a second provider's embedding model with a
+different width could not be written into the same table, and re-embedding every
+store to change it is not a provider question. `runner::openrouter_key` keeps its
+name and *is* the embeddings key; its missing-key error now says so
+("memory needs an OpenRouter key for embeddings"), because since this change a
+chat turn can run with no OpenRouter key at all and the old wording would have
+been a lie on exactly the graph that hits it.
+
+**`list_models` groups at the source.** It returns `Vec<ProviderModels>` —
+`{provider, label, models}` carrying `Provider.id`/`Provider.name` verbatim, one
+entry per *connected* provider — rather than one flat list. Both pickers render a
+section per group, so nothing in TypeScript ever re-derives the slug prefix that
+`providers::resolve` owns, and the per-provider search + cut is what stops
+OpenRouter's hundreds of rows pushing a local provider's section off the list.
+This deleted the old `Option<Vec<Model>>` tri-state: an empty vec is "nothing
+connected", a present entry with empty `models` is "connected, fetch failed" —
+strictly more information than the old `null`/`[]` pair, and what makes the
+per-provider hints possible. `provider_status` is deliberately NOT merged into
+it: Settings must not pay for OpenRouter's several-MB catalogue just to grey out
+a tile.
+
+**The probe caches its negative result**, where `openrouter::list_models`'
+otherwise-identical cache does not. A failed OpenRouter fetch is a blip worth
+retrying; "Claude Code is not running" is the steady state for most users, and
+re-probing per call would spend 2s on every Settings render and every
+model-picker open. The cost is that starting the server is invisible for up to
+30s — which is why `provider_status` takes `refresh: bool` and the modal's
+re-check button passes `true`. That button is the only caller that does. With two
+local providers the probes run on one `std::thread` each (`main::probe_local`),
+so a machine running neither still waits 2s, not 2s per row.
+
 ---
 
 ## 2. Known divergences
@@ -319,7 +391,7 @@ validate.
 - Lock ordering between `events::CACHE` and the `Store` mutex is unenforced. No
   deadlock today — every mutation drops the store guard before taking the cache —
   but nothing keeps it that way.
-- `list_openrouter_models` sorts with `to_lowercase().cmp()` where the TypeScript
+- `openrouter::list_models` sorts with `to_lowercase().cmp()` where the TypeScript
   used `localeCompare`. No stdlib equivalent, and ICU is not worth a dependency
   for a picker sort; accented names may order differently.
 
@@ -373,6 +445,25 @@ The related comments at `lib/workflow.ts:682` (`toNode?.` optional chain) and
 `:685` (`if (!src) continue; // dangling-endpoint error already covers it`) were
 **false**: there was no dangling-endpoint check, and the earlier edge loop threw
 before either line could run. They were dead defensive code and were not ported.
+
+### 2.10 `providerModal.tsx` uses a native `<dialog>`, not `modalShell.tsx`
+
+Every other modal in the app is `ModalShell`. This one cannot be: ModalShell
+wraps its children in its own `<form>` so it can own the submit action, and the
+OpenRouter provider's body is `SecretForm` — itself a `<form>`. Nested forms are
+invalid HTML and React will not render them meaningfully.
+
+The two ways out were to re-implement `SecretForm`'s write-only convention inline
+so it fits ModalShell's action, or to use the platform. Re-implementing puts the
+"blank means keep, checkbox means clear" rule in two places, and that rule is a
+secrets invariant (`CLAUDE.md` → Secrets), not a detail — a second copy is how it
+drifts. A native `<dialog>` gives the backdrop, Escape-to-close and focus trap
+that ModalShell exists to provide, with a `ref` and no state at all.
+
+The one thing it re-implements is the backdrop click, which `<dialog>` does not
+give for free: the click handler closes only when `e.target` is the dialog
+element itself, and the inner panel carries the padding so nothing inside can be
+mistaken for the backdrop.
 
 ---
 
