@@ -24,6 +24,14 @@ Saturn is Wilcus Industries' latest innovation in personal agent technology.
 > [!IMPORTANT]
 > Saturn does not have a first release yet. It will come before the end of July.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/demo/agent_dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="public/demo/agent_light.png" />
+    <img src="public/demo/agent_dark.png" alt="Saturn" width="700" />
+  </picture>
+</p>
+
 ### Agent specifications
 - [turbovec](https://github.com/RyanCodrai/turbovec) based agent memory.
 - Rust based app backend (under 300mb ram, instant speed).
