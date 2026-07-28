@@ -6,6 +6,7 @@ import EntryModal from "@/app/dashboard/entryModal";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import { faviconDomain, type RegistryEntryRow } from "@/lib/registry";
+import BuiltinToolsCard from "./builtinToolsCard";
 import ConnectButton from "./connectButton";
 import McpEntryModal from "./mcpEntryModal";
 import ProviderModal, { type ProviderStatus } from "./providerModal";
@@ -72,6 +73,7 @@ export default function Settings() {
     );
 
     const [registry = [], providers = [], patSet = false, autostart = false] = data ?? [];
+    const saturn = registry.find((entry) => entry.kind === "saturn");
     const mcpServers = registry.filter((entry) => entry.kind === "mcp");
     const skills = registry.filter((entry) => entry.kind === "skill");
 
@@ -120,16 +122,15 @@ export default function Settings() {
                     <section
                         className={"flex w-full flex-col gap-4 border border-foreground/15 p-4"}
                     >
-                        <h2 className={"font-mono text-xl"}>MCP servers</h2>
+                        <h2 className={"font-mono text-xl"}>Tools</h2>
 
                         <p className={"font-mono text-sm text-gray-400"}>
-                            sign-in happens in your browser — only servers needing a
-                            pre-registered OAuth client still need a manual auth token
+                            what agents can act with — Saturn&apos;s own tools, plus any mcp server
+                            you add. server sign-in happens in your browser, only servers
+                            needing a pre-registered OAuth client want a manual auth token
                         </p>
 
-                        {mcpServers.length === 0 && (
-                            <p className={"font-mono text-sm text-gray-400"}>no mcp servers yet</p>
-                        )}
+                        {saturn && <BuiltinToolsCard entry={saturn} onSaved={reload} />}
 
                         {mcpServers.map((entry) => {
                             const enabledTools = entry.tools.filter((t) => t.enabled).length;
@@ -182,6 +183,12 @@ export default function Settings() {
                                 </div>
                             );
                         })}
+
+                        {mcpServers.length === 0 && (
+                            <p className={"font-mono text-sm text-gray-400"}>
+                                no mcp servers yet — add one for tools beyond the builtins
+                            </p>
+                        )}
 
                         <McpEntryModal onSaved={reload} />
                     </section>

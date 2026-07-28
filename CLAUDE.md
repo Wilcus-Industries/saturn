@@ -21,7 +21,7 @@ Subsystem detail lives in `docs/` — read the one your task touches, not all of
 | `docs/designer.md` | designer canvas: gestures, toolbox, popovers, validation surfacing, the docked agent panel, `geometry.ts` |
 | `docs/nodes.md` | node catalog (`catalog.json` / `lib/workflow.ts`) + the `agent` and `saturn-agent` nodes, grants, memory tools |
 | `docs/workflows.md` | SQLite schema, the run pipeline, the cron scheduler, the interpreter and its golden fixtures |
-| `docs/registry.md` | `registry_entry` — MCP servers, skills, memory stores, variables; secrets and the Keychain |
+| `docs/registry.md` | `registry_entry` — MCP servers, skills, memory stores, variables, and Saturn's own builtin tools; secrets and the Keychain |
 | `docs/integrations.md` | outbound senders (Discord/Telegram/HTTP) + inbound event transports (Gateway, Telegram poller, GitHub poller) |
 | `docs/open-decisions.md` | decisions taken, deliberate divergences from the TypeScript, and deferred work. **Read before "fixing" anything that looks wrong.** |
 
@@ -82,13 +82,17 @@ map threaded through designer and interpreter alike.
 
 **Saturn Agent is the front door.** The window opens at `/dashboard/agent/`, and
 the same chat docks beside the designer canvas. `src-tauri/src/saturn.rs` owns
-all of it — the persisted sessions, the 13-tool surface it drives Saturn's own
+all of it — the persisted sessions, the 17-tool surface it drives Saturn's own
 data with, and the turn loop that streams over `saturn-delta` / `saturn-done`.
 Every tool wraps a `store`/`registry`/`workflow`/`runner` entry point that
 already exists; the same loop runs behind the `saturn-agent` canvas node. It is
 a general assistant, not only a graph author: `call_mcp_tool` routes to
-`runner::execute_mcp_tool`, so the chat can act through the user's MCP servers
-directly instead of authoring a workflow to call a tool once.
+`runner::execute_mcp_tool` and `run_command` to `bash.rs`, so the chat can act
+through the user's MCP servers and their shell directly instead of authoring a
+workflow to call a tool once. **That surface is itself a registry entry** — one
+row of `kind = "saturn"`, so every builtin gets the settings tri-state
+(off / read / read+write) for free and `run_command` can ship off
+(`docs/registry.md`).
 
 **The frontend is a client.** Every page is `"use client"`, fetches through
 `call()` in `lib/ipc.tsx` (Tauri IPC), and refetches on the app-wide
@@ -113,6 +117,13 @@ or in the named module's header comment.
 - **Nothing outlives its owner.** Every registry delete calls `secrets::delete_entry_secrets`. An orphaned Keychain item is a real leak — the row that gave it meaning is gone.
 - **Graphs and logs only ever carry the `{{var:<uuid>}}` sentinel.** Plaintext substitution happens at exactly two points of consumption: `integrations::execute` and `events::get_event_subscriptions`.
 - **A bot token may only ever appear as `events::fp(token)`.** `EventSubscription` fingerprints it in `Debug` and is deliberately not `Serialize`; `telegram.rs` never formats a `reqwest::Error` (the token rides in the URL path); `gateway.rs`'s connection state holds no token at all.
+- **The shell tool must never become the read path the rest of this list forbids.** `run_command` runs a model-written line on the user's own machine, so `bash.rs`'s seatbelt is what keeps write-only *write-only*: without its `(deny file-read* ~/Library/Keychains)`, `security find-generic-password -s com.wilcus.saturn` enumerates Saturn's own items from inside the sandbox and every rule above is moot. That deny is not redundant with the write deny — measured, `docs/open-decisions.md` §1.7.
+
+**The shell** (`docs/open-decisions.md` §1.7)
+
+- **The boundary is the kernel's, not a parser's.** Nothing reads the command to decide whether it is safe — `$(...)`, `eval` and a base64 pipe make that unwinnable. `sandbox-exec` applies the policy to the whole process tree, and the command is always an argv element to `/bin/sh -c`, never interpolated into the profile.
+- **Every path in a seatbelt profile must be `canonicalize`d.** Seatbelt matches resolved paths; `$TMPDIR` is a symlink into `/private/var/folders/…`, so a rule written against the `/var/…` spelling matches nothing and the policy is silently absent at runtime.
+- **The read/write grant IS the sandbox.** `access = "read"` emits the profile without the workspace carve-out, so the kernel refuses the write — not a branch in `saturn.rs`. `bash::sandbox_confines_writes_to_the_workspace` and `saturn::the_run_command_grant_reaches_the_sandbox` are what fail if either half regresses.
 
 **Model calls**
 

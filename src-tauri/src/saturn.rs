@@ -50,6 +50,17 @@ use crate::store::{RunTrigger, Store};
 /// it reaches a `saturn.db` that already exists) and refused by
 /// `registry::delete_entry`. Mirrored in `lib/registry.ts` as `SATURN_MEMORY_ID`.
 pub const MEMORY_ID: &str = "00000000-0000-4000-8000-000000000001";
+/// Saturn Agent's own tool surface, as a `registry_entry` row of kind `saturn`.
+/// Seeded by `store.rs`'s `SCHEMA` beside `MEMORY_ID` and refused by
+/// `registry::delete_entry` for the same reason.
+///
+/// Being a registry row is the whole feature: the settings tool list, the stored
+/// `{name, access, enabled}` allowlist, `registry::parse_tools`,
+/// `registry::can_call_tool` and the off/read/read+write tri-state all apply to
+/// Saturn's builtins with no second implementation. The row holds ONLY the
+/// user's overrides — `merge_tools` supplies the names, the descriptions and the
+/// defaults from `all_specs`, so the two can never drift.
+pub const TOOLS_ID: &str = "00000000-0000-4000-8000-000000000002";
 /// What the `saturn-agent` node runs on when its model field is blank.
 // The node itself is Phase 5; this and `session_by_name` are the seam it binds
 // to, pinned by `sessions_are_named_and_bound_by_name` in the meantime.
@@ -576,16 +587,145 @@ pub fn session_catalog(store: &Store) -> HashMap<String, CatalogEntry> {
 
 // --- the tool surface --------------------------------------------------------
 
-/// The 13 tools Saturn drives its own data with, plus the 3 its memory store
-/// contributes. `nested` drops `run_workflow`: a `saturn-agent` node is already
-/// inside a run, and letting that turn start another is the recursion.
+/// Per-builtin `(read_only, default_enabled)` — the policy the user's stored
+/// grants are merged over.
+///
+/// `read_only` is the same field an MCP server's `readOnlyHint` fills, and it is
+/// read by the same two consumers, which is why the table needs no mapping of
+/// its own: `registry::can_call_tool` blocks a `Some(false)` tool granted only
+/// "read", and `toolListEditor.tsx` disables the "read" segment on `Some(false)`
+/// and "read+write" on `Some(true)`. So `Some(true)` is a tool that is off or
+/// read, `Some(false)` one that is off or read+write, and `None` one where all
+/// three positions mean something: `call_mcp_tool` (the *target* tool's own
+/// grant is the thing being read or written) and `run_command` (read = a
+/// read-only workspace).
+///
+/// `run_command` is the only builtin that ships OFF. Everything else was already
+/// reachable before the surface became configurable, and defaulting it off would
+/// be a silent capability removal on an existing install.
+///
+/// A name missing from this table is not a builtin — `merge_tools` derives the
+/// list from `all_specs`, so this only has to answer for what is there.
+const POLICY: &[(&str, Option<bool>, bool)] = &[
+    // off / read
+    ("list_workflows", Some(true), true),
+    ("get_workflow", Some(true), true),
+    ("get_catalog", Some(true), true),
+    ("get_docs", Some(true), true),
+    ("validate_graph", Some(true), true),
+    ("list_runs", Some(true), true),
+    ("list_registry", Some(true), true),
+    ("memory_search", Some(true), true),
+    // off / read+write
+    ("create_workflow", Some(false), true),
+    ("update_workflow", Some(false), true),
+    ("delete_workflow", Some(false), true),
+    ("save_graph", Some(false), true),
+    ("run_workflow", Some(false), true),
+    ("memory_save", Some(false), true),
+    ("memory_forget", Some(false), true),
+    // off / read / read+write
+    ("call_mcp_tool", None, true),
+    ("run_command", None, false),
+];
+
+fn policy(name: &str) -> (Option<bool>, bool) {
+    POLICY
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map_or((None, true), |(_, read_only, enabled)| (*read_only, *enabled))
+}
+
+/// The stored grants merged over `POLICY` — the list settings renders, and the
+/// list `tool_specs` and `dispatch` both answer to. Pure, so the merge is
+/// testable without a database.
+///
+/// Derived from `all_specs` rather than from a second name list: a builtin added
+/// later appears in settings on its own, and a stored name that no longer exists
+/// is dropped instead of haunting the tri-state with a tool nothing dispatches.
+pub fn merge_tools(stored: &[registry::McpTool]) -> Vec<registry::McpTool> {
+    all_specs(false)
+        .into_iter()
+        .map(|s| {
+            let name = s.tool_ref.tool_name;
+            let (read_only, default_enabled) = policy(&name);
+            let prev = stored.iter().find(|t| t.name == name);
+            registry::McpTool {
+                // the full grant by default — a read-only builtin has nothing to
+                // write, and everything else was unconditional before the
+                // surface became configurable
+                access: prev.map_or_else(
+                    || if read_only == Some(true) { "read" } else { "write" }.to_string(),
+                    |t| t.access.clone(),
+                ),
+                enabled: prev.map_or(default_enabled, |t| t.enabled),
+                name,
+                read_only,
+                // settings renders this, and it is the same text the model gets
+                description: s.description,
+                // the arg specs reach the model through `ToolSpec`, never
+                // through the stored row — no reason to duplicate them into the
+                // config blob
+                params: None,
+            }
+        })
+        .collect()
+}
+
+/// The `saturn` row's config blob — `{tools, workspace}` — or `{}`.
+///
+/// One SELECT and no Keychain: `get_user_registry` would walk every entry and
+/// probe the vault for booleans nothing here reads. Fails open, because a
+/// missing row or a blob that will not parse must leave Saturn on the policy
+/// defaults rather than silently take every tool away.
+fn entry_config(store: &Store) -> Value {
+    store
+        .conn()
+        .query_row("select config from registry_entry where id = ?1", [TOOLS_ID], |r| {
+            r.get::<_, String>(0)
+        })
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+/// What the user has actually granted, for one turn. Read once per turn and
+/// threaded to `tool_specs` and `dispatch` both, so the offered surface and the
+/// dispatch gate cannot disagree.
+pub fn tool_state(store: &Store) -> Vec<registry::McpTool> {
+    let stored: Vec<registry::McpTool> =
+        serde_json::from_value(entry_config(store)["tools"].clone()).unwrap_or_default();
+    merge_tools(&stored)
+}
+
+/// The tools this turn may actually reach: every builtin the user left on and
+/// whose grant `registry::can_call_tool` accepts.
+///
+/// `nested` still drops `run_workflow` on top of that — a `saturn-agent` node is
+/// already inside a run, and letting that turn start another is the recursion
+/// (`runner.rs`'s `nested: true`). That is unrelated to the user's grants, which
+/// is why it is a parameter and not a row in `POLICY`.
+fn tool_specs(state: &[registry::McpTool], nested: bool) -> Vec<ToolSpec> {
+    all_specs(nested)
+        .into_iter()
+        .filter(|s| {
+            state.iter().any(|t| {
+                t.name == s.tool_ref.tool_name && t.enabled && registry::can_call_tool(t)
+            })
+        })
+        .collect()
+}
+
+/// Every builtin Saturn has, before any grant is applied — the names, the
+/// descriptions and the argument specs, and therefore the source `merge_tools`
+/// builds the settings list from.
 ///
 /// `ToolSpec` literals rather than `json!` or a schema file — `McpToolParam` and
 /// `to_parameters` already emit `{type, properties, required}`, and every name
 /// here is snake_case ASCII so `wire_safe` is the identity. Accepted loss versus
 /// the hosted server: no `additionalProperties: false`. Harmless — `dispatch`
 /// validates its own arguments and an invented key is simply ignored.
-fn tool_specs(nested: bool) -> Vec<ToolSpec> {
+fn all_specs(nested: bool) -> Vec<ToolSpec> {
     let id = || param("id", T::String, true, "workflow id (uuid)");
     let graph = || {
         param(
@@ -649,6 +789,12 @@ fn tool_specs(nested: bool) -> Vec<ToolSpec> {
                 param("tool", T::String, true, "tool name, exactly as list_registry spells it"),
                 param("arguments", T::Object, false, "the tool's own arguments object (default {})"),
             ]),
+        // The description is the model's ONLY briefing on the sandbox — there is
+        // no system-prompt paragraph for it — so every constraint it has to
+        // plan around is stated here rather than discovered by failing.
+        spec(TOOL_ENTRY, "run_command",
+            "Run a shell command on this machine and return its combined output. The command line is executed with /bin/sh -c, so pipes, redirection and && all work. The working directory is the Saturn workspace, and that workspace is the ONLY path you may write to — the rest of the disk is readable but not writable, and writes are refused entirely unless this tool is granted read+write. Commands are killed after 60 seconds and long output is truncated. There is no interactive input: never run anything that waits at a prompt, a pager or a password (pass --yes/--no-pager style flags, and redirect from /dev/null if unsure). A non-zero exit is returned to you as output, not as a tool error — read it.",
+            vec![param("command", T::String, true, "the shell command line to run")]),
     ];
     if !nested {
         specs.push(spec(TOOL_ENTRY, "run_workflow",
@@ -667,10 +813,24 @@ fn tool_specs(nested: bool) -> Vec<ToolSpec> {
 fn dispatch(
     store: &Store,
     vault: &dyn Vault,
+    state: &[registry::McpTool],
     name: &str,
     args: &Value,
     emit: &mut dyn FnMut(&str, &str),
 ) -> Result<String, String> {
+    // Re-resolved by NAME before anything runs, exactly as `runner.rs` re-checks
+    // a granted MCP tool: filtering the offered specs is not enough, because a
+    // model can name a tool it saw earlier in this transcript (the surface is
+    // read per turn, so a tool switched off mid-chat is still in the history) or
+    // one it invented outright. Unknown and disabled collapse to the same
+    // answer, which is a tool failure fed back to the model — never a panic, and
+    // deliberately not a hint about which builtins exist.
+    let me = state
+        .iter()
+        .find(|t| t.name == name)
+        .filter(|t| t.enabled && registry::can_call_tool(t))
+        .ok_or_else(|| format!("tool \"{name}\" is not enabled"))?;
+
     // model-written arguments: absent is "", never a type error
     let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").trim().to_string();
     let uuid_arg = |key: &str| {
@@ -919,12 +1079,49 @@ fn dispatch(
         // refresh and the URL policy are the run pipeline's, not a second copy.
         "call_mcp_tool" => {
             let entry_id = uuid_arg("server_id")?;
+            let tool = text("tool");
             let input = match args.get("arguments") {
                 None | Some(Value::Null) => "{}".to_string(),
                 Some(v @ Value::Object(_)) => v.to_string(),
                 Some(_) => return Err("arguments must be a JSON object".into()),
             };
-            crate::runner::execute_mcp_tool(store, vault, &entry_id, &text("tool"), &input)
+            // What makes "read" a real position on this tool rather than
+            // decoration: the target's OWN stored grant is the thing being read
+            // or written, so a read-only call_mcp_tool may not reach a tool the
+            // user themselves classified read+write. `can_call_tool` cannot say
+            // this — it answers about the target's grant against the *server's*
+            // annotation, not against Saturn's.
+            if me.access == "read" {
+                let rows = registry::get_user_registry(store, vault)?;
+                let granted_write = rows
+                    .iter()
+                    .find(|r| r.id == entry_id)
+                    .and_then(|r| r.tools.iter().find(|t| t.name == tool))
+                    .is_some_and(|t| t.access == "write");
+                if granted_write {
+                    return Err(format!(
+                        "\"{tool}\" is granted read+write on that server, and call_mcp_tool is granted read-only — allow read+write on call_mcp_tool in settings"
+                    ));
+                }
+            }
+            crate::runner::execute_mcp_tool(store, vault, &entry_id, &tool, &input)
+        }
+
+        // The other tool that leaves Saturn's own data, and the sandbox in
+        // `bash.rs` is the whole boundary. Deliberately NOT dropped when nested,
+        // unlike `run_workflow`: that omission guards against unbounded run
+        // recursion, which a shell command cannot cause, and the sandbox is
+        // identical whether a person or a `saturn-agent` node asked.
+        "run_command" => {
+            let command = text("command");
+            if command.is_empty() {
+                return Err("command is required".into());
+            }
+            // read the workspace and drop the connection guard before the
+            // subprocess — a 60s command must not hold every other reader out
+            let workspace =
+                entry_config(store)["workspace"].as_str().unwrap_or_default().to_string();
+            crate::bash::run(&command, me.access == "write", &workspace)
         }
 
         other => Err(format!("unknown tool \"{other}\"")),
@@ -1002,7 +1199,16 @@ pub fn run_turn(
     // `store.conn()` serializes every reader in the process
     let mut wire = transcript(store, req.session_id)?;
     let system = system_prompt(req);
-    let defs = build_tool_defs(&tool_specs(req.nested)).defs;
+    // ONE read of the user's grants for the whole turn, off the connection and
+    // done before any socket. `tool_specs` decides what is offered and
+    // `dispatch` re-checks what is called, both against this same list.
+    let mut state = tool_state(store);
+    if req.nested {
+        // the recursion guard has to reach `dispatch` too, not just the offered
+        // specs: the model can name a tool it was never offered.
+        state.retain(|t| t.name != "run_workflow");
+    }
+    let defs = build_tool_defs(&tool_specs(&state, req.nested)).defs;
 
     let mut parts: Vec<Value> = Vec::new();
     let mut full_text = String::new();
@@ -1075,7 +1281,7 @@ pub fn run_turn(
                 Err("stopped".to_string())
             } else {
                 match parse_args(&call.arguments) {
-                    Some(args) => dispatch(store, vault, &call.name, &args, emit),
+                    Some(args) => dispatch(store, vault, &state, &call.name, &args, emit),
                     None => Err("invalid tool arguments — expected a JSON object".into()),
                 }
             };
@@ -1582,10 +1788,28 @@ mod tests {
     /// the three memory tools must always be present, and every name must
     /// survive `build_tool_defs` unmangled — a renamed tool is one `dispatch`
     /// answers "unknown tool" to on every call.
+    ///
+    /// On a fresh install the offered list is what it was before the surface
+    /// became configurable: every builtin except `run_command`, which ships OFF
+    /// and therefore appears in settings without being offered to the model.
+    /// `POLICY` must also answer for every builtin — a spec with no row in it
+    /// silently defaults to "on, read+write, all three positions".
     #[test]
     fn the_tool_surface_is_stable_and_nesting_drops_run_workflow() {
+        let (store, dir) = store();
+        let state = tool_state(&store);
+        assert_eq!(state.len(), 17, "every builtin belongs in the settings list");
+        assert_eq!(state.len(), POLICY.len(), "POLICY and all_specs must list the same tools");
+        for t in &state {
+            assert!(POLICY.iter().any(|(n, _, _)| *n == t.name), "{} has no policy row", t.name);
+            assert!(t.description.is_some(), "{} reaches settings with no description", t.name);
+        }
+        let off: Vec<&str> =
+            state.iter().filter(|t| !t.enabled).map(|t| t.name.as_str()).collect();
+        assert_eq!(off, vec!["run_command"], "only run_command ships off");
+
         let names = |nested| {
-            build_tool_defs(&tool_specs(nested))
+            build_tool_defs(&tool_specs(&state, nested))
                 .defs
                 .into_iter()
                 .map(|d| d.function.name)
@@ -1609,6 +1833,167 @@ mod tests {
         for name in crate::memory::MEMORY_TOOL_NAMES {
             assert!(nested.contains(&name.to_string()));
         }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Turning a tool off has to take it off BOTH surfaces. Dropping it from the
+    /// offered specs alone is not enough: the surface is read per turn, so a
+    /// tool switched off mid-chat is still sitting in the transcript for the
+    /// model to name — and `dispatch` running it anyway would make the settings
+    /// switch cosmetic on exactly the call that matters.
+    #[test]
+    fn disabled_tools_are_neither_offered_nor_dispatchable() {
+        let (store, dir) = store();
+        let vault = crate::secrets::FakeVault::default();
+        let mut emit = |_: &str, _: &str| {};
+        let empty = || json!({ "nodes": [], "edges": [] });
+
+        // the default grant deletes
+        let doomed = store.create_workflow_with("doomed", "⚙️", "", empty()).unwrap();
+        let state = tool_state(&store);
+        assert!(
+            dispatch(&store, &vault, &state, "delete_workflow", &json!({ "id": doomed.id }), &mut emit)
+                .is_ok()
+        );
+
+        // the save the settings form makes, with delete_workflow switched off
+        let submitted: Vec<Value> = state
+            .iter()
+            .map(|t| {
+                json!({
+                    "name": t.name,
+                    "access": t.access,
+                    "enabled": t.enabled && t.name != "delete_workflow",
+                })
+            })
+            .collect();
+        let tools = registry::parse_tools(&serde_json::to_string(&submitted).unwrap()).unwrap();
+        registry::set_saturn_tools(&store, tools, "").unwrap();
+
+        let state = tool_state(&store);
+        let offered = build_tool_defs(&tool_specs(&state, false))
+            .defs
+            .into_iter()
+            .map(|d| d.function.name)
+            .collect::<Vec<_>>();
+        assert!(!offered.contains(&"delete_workflow".to_string()), "{offered:?}");
+        assert_eq!(offered.len(), 15, "only delete_workflow left");
+
+        // ...and naming it anyway is a tool failure, not a delete
+        let spared = store.create_workflow_with("spared", "⚙️", "", empty()).unwrap();
+        assert_eq!(
+            dispatch(&store, &vault, &state, "delete_workflow", &json!({ "id": spared.id }), &mut emit),
+            Err("tool \"delete_workflow\" is not enabled".into())
+        );
+        assert!(store.workflow(&spared.id).unwrap().is_some(), "a disabled tool ran anyway");
+        // an invented name is the same answer, and never a panic
+        assert!(dispatch(&store, &vault, &state, "rm_rf", &json!({}), &mut emit).is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The whole `run_command` seam in one pass: the stored grant reaches the
+    /// sandbox as the sandbox, not as a flag `dispatch` interprets.
+    ///
+    /// `bash.rs` already proves the profile confines writes; what is unproven
+    /// there is the wiring — that the settings save lands in the row, that
+    /// `tool_state` reads it back, that the tri-state's third position becomes
+    /// `write: true`, and that the configured workspace is the one the command
+    /// actually runs in. A bug in any of those makes the switch cosmetic while
+    /// every test on either side of it still passes.
+    #[test]
+    fn the_run_command_grant_reaches_the_sandbox() {
+        let (store, dir) = store();
+        let vault = crate::secrets::FakeVault::default();
+        let mut emit = |_: &str, _: &str| {};
+        let run = |state: &[registry::McpTool], store: &Store, emit: &mut dyn FnMut(&str, &str)| {
+            dispatch(store, &vault, state, "run_command", &json!({ "command": "echo hi > w.txt && cat w.txt" }), emit)
+        };
+
+        // a workspace OUTSIDE $TMPDIR, or the profile's temp carve-out would let
+        // the write through and prove nothing (the trap `bash.rs`'s own test
+        // documents)
+        let ws = crate::bash::workspace_dir("").unwrap().join(format!(".saturn-test-{}", std::process::id()));
+        let ws = crate::bash::workspace_dir(ws.to_str().unwrap()).unwrap();
+
+        // ships off: naming it is a tool failure even though it exists
+        assert_eq!(
+            run(&tool_state(&store), &store, &mut emit),
+            Err("tool \"run_command\" is not enabled".into()),
+            "run_command must ship off"
+        );
+
+        // the save the settings form makes, at each position of the switch
+        let save = |access: &str, store: &Store| {
+            let submitted: Vec<Value> = tool_state(store)
+                .iter()
+                .map(|t| {
+                    // every other tool submitted exactly as it stands; the one
+                    // under test switched on at the position being exercised
+                    let others = t.name != "run_command";
+                    json!({
+                        "name": t.name,
+                        "access": if others { t.access.clone() } else { access.to_string() },
+                        "enabled": if others { t.enabled } else { true },
+                    })
+                })
+                .collect();
+            let tools = registry::parse_tools(&serde_json::to_string(&submitted).unwrap()).unwrap();
+            registry::set_saturn_tools(store, tools, ws.to_str().unwrap()).unwrap();
+            tool_state(store)
+        };
+
+        // read+write: the command runs and the file lands in the CONFIGURED
+        // workspace, not in whatever directory the app was launched from
+        let granted = run(&save("write", &store), &store, &mut emit).unwrap();
+        assert!(granted.contains("exit code: 0"), "{granted}");
+        assert!(granted.contains("hi"), "{granted}");
+        assert!(ws.join("w.txt").exists(), "the write did not land in the configured workspace");
+
+        // read: same tool, same command, refused by the kernel rather than by a
+        // branch here — the call still succeeds, the write inside it does not
+        std::fs::remove_file(ws.join("w.txt")).ok();
+        let denied = run(&save("read", &store), &store, &mut emit).unwrap();
+        assert!(!denied.contains("exit code: 0"), "read must not write: {denied}");
+        assert!(!ws.join("w.txt").exists(), "the workspace is writable at read");
+
+        std::fs::remove_dir_all(&ws).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The seeded `saturn` row is the storage the tri-state writes to, so it has
+    /// to behave like the memory store: present on a fresh database, idempotent
+    /// across boots, and undeletable — a delete would silently reset every grant
+    /// the user made. It must also stay out of the designer toolbox: the chip
+    /// would resolve to a tool ref no run pipeline can execute.
+    #[test]
+    fn the_tools_row_is_seeded_undeletable_and_not_grantable() {
+        let (store, dir) = store();
+        let vault = crate::secrets::FakeVault::default();
+        assert!(registry::is_uuid(TOOLS_ID));
+        assert_eq!(
+            registry::delete_entry(&store, &vault, TOOLS_ID).unwrap_err(),
+            "Saturn's own tools cannot be deleted"
+        );
+
+        let rows = registry::get_user_registry(&store, &vault).unwrap();
+        let row = rows.iter().find(|r| r.id == TOOLS_ID).expect("the saturn row must be seeded");
+        assert_eq!(row.kind, "saturn");
+        assert_eq!(row.tools.len(), 17, "settings reads the merged list off list_registry");
+        assert_eq!(rows[0].id, TOOLS_ID, "created_at 0 pins Saturn first in settings");
+        assert!(!registry::build_user_catalog(&rows).values().any(|e| e.category == "saturn"));
+
+        // the workspace round-trips rather than being reset by the next save
+        registry::set_saturn_tools(&store, registry::parse_tools("[]").unwrap(), "/tmp/ws").unwrap();
+        let rows = registry::get_user_registry(&store, &vault).unwrap();
+        let row = rows.iter().find(|r| r.id == TOOLS_ID).unwrap();
+        assert_eq!(row.workspace, "/tmp/ws");
+        // ...and an empty stored list still merges back to the full surface
+        assert_eq!(row.tools.len(), 17);
+        assert_eq!(tool_state(&store).len(), 17);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// `call_mcp_tool` is the one tool that reaches off this machine, so what it
@@ -1621,8 +2006,9 @@ mod tests {
         let (store, dir) = store();
         let vault = crate::secrets::FakeVault::default();
         let mut emit = |_: &str, _: &str| {};
+        let state = tool_state(&store);
         let call = |args: Value, emit: &mut dyn FnMut(&str, &str)| {
-            dispatch(&store, &vault, "call_mcp_tool", &args, emit)
+            dispatch(&store, &vault, &state, "call_mcp_tool", &args, emit)
         };
 
         assert_eq!(

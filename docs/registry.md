@@ -1,8 +1,8 @@
-# User registry: MCP servers, skills, memory stores, variables
+# User registry: MCP servers, skills, memory stores, variables, Saturn's own tools
 
 > Part of the Saturn docs set indexed in `CLAUDE.md`. How each becomes a node is in `docs/nodes.md`; the canvas is `docs/designer.md`.
 
-The registry is the user's own node types. One table, four kinds, three UI
+The registry is the user's own node types. One table, five kinds, three UI
 surfaces:
 
 | kind | managed at | becomes |
@@ -11,6 +11,46 @@ surfaces:
 | `skill` | `/dashboard/settings/` | a green grant chip, `skill:<uuid>` |
 | `memory` | `/dashboard/memory/` | a fuchsia grant chip, `memory:<uuid>` |
 | `variable` | the **designer toolbox** | a value box, `variable:<uuid>` |
+| `saturn` | `/dashboard/settings/` | **nothing** — see below |
+
+## `saturn`: Saturn Agent's own tools are a registry row
+
+Exactly one row, `saturn::TOOLS_ID` (`…-000000000002`), seeded by `store.rs`'s
+`SCHEMA` beside Saturn's memory store and refused by `delete_entry` for the same
+reason: the row *is* the tool surface, and deleting it would silently reset every
+grant. `created_at = 0` pins it first in the settings list.
+
+Being a registry kind is the entire design. The stored `config.tools` allowlist,
+`parse_tools`, `can_call_tool` and the off / read / read+write tri-state in
+`toolListEditor.tsx` all apply to Saturn's builtins with no second
+implementation — the only thing written to the row is the user's overrides.
+Names, descriptions and defaults come from `saturn::merge_tools`, which derives
+them from `saturn::all_specs` plus the `POLICY` table, so a builtin added later
+appears in settings on its own and a stored name that no longer exists is
+dropped. `get_user_registry` runs that merge on the way out, which is why the
+settings page needs no read command of its own.
+
+`build_user_catalog` returns `None` for this kind: the builtins are dispatched by
+name inside `saturn::run_turn`, not through `execute_tool`, so a grant chip would
+resolve to something no run pipeline can execute.
+
+`config.workspace` is the one extra field — `run_command`'s working directory and
+the only path it may write to. It is a plain local path, not a secret, so it is
+projected as `Entry.workspace`; blank leaves `bash.rs` on its default (`~/Saturn`).
+`bash::valid_workspace` owns which shapes are legal, and the `saturn_save_tools`
+command asks it rather than keeping a second copy — a path the settings form
+accepts and `run_command` then refuses is one the user cannot fix from the UI.
+Writes go through `registry::set_saturn_tools` (a sibling of `set_mcp_tools`),
+which writes tools and workspace together off a fresh read so neither drops the
+other.
+
+**`run_command` is the one builtin that ships off**, and the tri-state means
+something specific for it: `read` runs the command with nothing outside the
+process temp dir writable, `read+write` adds the workspace tree. The grant is the
+seatbelt profile itself, not a flag — see `docs/open-decisions.md` §1.7 for what
+the sandbox holds, what was measured rather than assumed, and its known ceilings.
+`call_mcp_tool` reads its third position the same way: granted `read`, it refuses
+a target tool the user themselves classified `read+write`.
 
 `registry_entry` is `(id, kind, name, emoji, description, config, created_at,
 updated_at)`. The five sparse kind-specific columns the Postgres schema had

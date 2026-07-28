@@ -304,6 +304,64 @@ so a machine running neither still waits 2s, not 2s per row.
 
 ---
 
+### 1.7 The shell tool's boundary — DECIDED: a seatbelt profile, not a command parser
+
+**Decided 2026-07-27**, with the `run_command` tool. Saturn Agent can now run a
+shell command, and the command text is the least trustworthy input in the app: a
+model wrote it, frequently from text an MCP server or a web page handed it.
+
+**Rejected: reading the command.** A deny-list of `rm`, `sudo`, `curl … | sh` is
+theatre — `$(...)`, `eval`, a base64 pipe and "download this script and run it"
+all defeat it, and each new bypass is another special case in a parser that must
+be perfect to be worth anything. The boundary is the kernel's instead:
+`sandbox-exec` applies the policy to **every process in the tree** no matter what
+the line expands to, so nothing in `bash.rs` inspects the command. It is always
+an argv element handed to `/bin/sh -c`, never interpolated into the profile.
+
+`sandbox-exec` is deprecated (since 10.14) and still ships in Darwin 25, still
+used by the browsers. The alternative — an App Sandbox entitlement — constrains
+*Saturn*, not a child, and would break the app's own file and network access. If
+Apple ever removes it, the fallback is a helper binary with a real entitlement,
+not a parser.
+
+**What the profile actually holds**, all four measured on 2026-07-27 rather than
+assumed:
+
+- **Paths must be canonicalized.** Seatbelt matches *resolved* paths. `$TMPDIR`
+  is a symlink chain into `/private/var/folders/…`, and a rule written against
+  the `/var/…` spelling matches nothing — a policy that looks right in review and
+  is absent at runtime. This cost one wrong first draft.
+- **`(deny file-read* ~/Library/Keychains)` is load-bearing and is not redundant
+  with the write deny.** The login keychain is a *file* and the `security` CLI
+  reads it directly: without that line,
+  `security find-generic-password -s com.wilcus.saturn` enumerates Saturn's own
+  items from inside the sandbox. Read is otherwise broad — a shell needs `/usr`,
+  `/bin`, the dyld cache — and the tool has the network, so `~/.ssh` plus a
+  `curl` is the entire exfiltration path. This is the invariant in `CLAUDE.md`
+  ("Secrets — write-only, everywhere") held up by a file-read deny.
+- **The `/dev/*` write allowances are not politeness.** `(deny file-write*
+  (subpath "/"))` covers `/dev`, so without them `curl -o /dev/null` fails with
+  "Failure writing output to destination" while TLS itself works — and every
+  `2>/dev/null` in a one-liner breaks. To the model that reads as a broken tool.
+- **`launchd` and `osascript` do not escape it.** `launchctl submit` and
+  `osascript -e 'do shell script …'` were both tried as ways to have another
+  process do the write; the policy is inherited through both.
+
+**Known ceilings, in the code as `ponytail:` comments.** `child.kill()` reaps the
+leader only, so a backgrounded grandchild survives the 60s deadline — still
+sandboxed, still running (upgrade: `process_group(0)` plus a negative `kill`,
+which needs `libc`). Reads stay broad, so `saturn.db` itself is readable; it
+holds no secrets, and the agent has tools for its contents anyway.
+
+**The read/write grant is the sandbox, not a flag.** `access = "read"` emits the
+profile without the workspace carve-out, so the identical write is refused by the
+kernel rather than by a branch in `saturn.rs`. `bash::sandbox_confines_writes_to_the_workspace`
+is the test that fails if the profile regresses, and it deliberately puts its
+workspace outside `$TMPDIR` — inside, the temp carve-out would let every write
+through and the test would pass while proving nothing.
+
+---
+
 ## 2. Known divergences
 
 Decided. Listed so nobody "fixes" them into a regression.

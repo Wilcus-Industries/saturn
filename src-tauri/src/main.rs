@@ -1,4 +1,5 @@
 mod agent;
+mod bash;
 mod events;
 mod gateway;
 mod github;
@@ -320,6 +321,31 @@ fn saturn_rename_session(store: State<Store>, id: String, name: String) -> Resul
 #[tauri::command]
 fn saturn_delete_session(store: State<Store>, id: String) -> Result<(), String> {
     saturn::delete_session(&store, &id)
+}
+
+/// Saturn Agent's own builtin tools, saved exactly like an MCP server's
+/// allowlist: the same `parse_tools` trust boundary, the same
+/// `{name, access, enabled}` submission, the same tri-state. The list arrives
+/// whole, so a tool the client drops is simply off — and one it invents is
+/// discarded on the way back out by `saturn::merge_tools`.
+///
+/// `workspace` is `run_command`'s working directory. Blank means `bash.rs`'s own
+/// default (`~/Saturn`); anything else must be absolute or `~/`-rooted, because a
+/// relative path would resolve against whatever directory the app happened to be
+/// launched from. `bash::valid_workspace` owns that rule so the form and the
+/// runtime cannot disagree about which paths are legal.
+/// Both fields are written together — the settings form submits the pair, and
+/// `set_saturn_tools` reads the row first so neither drops the other.
+#[tauri::command]
+fn saturn_save_tools(store: State<Store>, tools: String, workspace: String) -> Result<(), String> {
+    let workspace = workspace.trim();
+    if len16(workspace) > registry::MAX_TOKEN {
+        return Err("Workspace path too long".into());
+    }
+    if !bash::valid_workspace(workspace) {
+        return Err("Workspace must be an absolute path, or start with ~/".into());
+    }
+    registry::set_saturn_tools(&store, registry::parse_tools(&tools)?, workspace)
 }
 
 #[tauri::command]
@@ -745,6 +771,7 @@ fn main() {
             saturn_rename_session,
             saturn_delete_session,
             saturn_get_messages,
+            saturn_save_tools,
             has_openrouter_key,
             set_openrouter_key,
             has_github_pat,

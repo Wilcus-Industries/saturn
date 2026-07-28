@@ -316,8 +316,13 @@ in one graph: a chat chip and a model node feed a node whose `config.session` an
 wires neither, so it still binds by those same config keys.
 
 The node's turn runs with `nested: true`, which **drops `run_workflow` from the
-tool surface**. That is the recursion guard: a workflow run cannot start another
-workflow run. Everything else, memory included, is the chat's surface exactly.
+tool surface** — from the offered specs *and* from the state `dispatch` re-checks
+against, because a model can name a tool it was never offered. That is the
+recursion guard: a workflow run cannot start another workflow run. `run_command`
+is deliberately NOT dropped — a shell command cannot recurse, and `bash.rs`'s
+sandbox is the same boundary whether a person or a node asked. Everything else,
+memory included, is the chat's surface exactly, including the user's own
+off / read / read+write grants (`docs/registry.md`, kind `saturn`).
 
 It renders with **zero designer code**: `geometry.ts`'s `isAgentEntry` matches
 `saturn` and `gateway` alike, so the horizontal layout, the left-edge flow in, the

@@ -65,6 +65,18 @@ insert or ignore into registry_entry (id, kind, name, emoji, description, config
 values ('00000000-0000-4000-8000-000000000001', 'memory', 'Saturn', '🪐',
         'What Saturn Agent remembers across conversations.', '{}',
         unixepoch() * 1000, unixepoch() * 1000);
+
+-- Saturn Agent's own builtin tools, seeded the same way and for the same reasons:
+-- being a registry row is what gives them the settings tool list, the stored
+-- allowlist and the off/read/read+write tri-state with no second implementation.
+-- created_at 0 pins it FIRST in `order by created_at, id` — Saturn's own tools
+-- belong at the top of settings, above whatever the user registered.
+-- config stays '{}': the defaults live in saturn::merge_tools, so a builtin added
+-- later shows up on its own instead of needing a migration here.
+insert or ignore into registry_entry (id, kind, name, emoji, description, config, created_at, updated_at)
+values ('00000000-0000-4000-8000-000000000002', 'saturn', 'Saturn Agent', '🪐',
+        'What Saturn Agent itself can do. Turn a tool off and it leaves the chat.', '{}',
+        0, unixepoch() * 1000);
 "#;
 
 fn now() -> i64 {

@@ -46,8 +46,16 @@ const SEGMENTS: {
 ];
 
 // per-tool allowlist rows for an MCP server; serialized into a hidden
-// "tools" field so the surrounding form can submit it as one string
-export default function ToolListEditor({ initial }: { initial: McpTool[] }) {
+// "tools" field so the surrounding form can submit it as one string.
+// `fixed` = the set itself is not the user's to edit (Saturn's builtins):
+// names are text, and there is nothing to add or remove — only the switches.
+export default function ToolListEditor({
+    initial,
+    fixed = false,
+}: {
+    initial: McpTool[];
+    fixed?: boolean;
+}) {
     const [tools, setTools] = useState<McpTool[]>(initial);
 
     const update = (index: number, patch: Partial<McpTool>) =>
@@ -66,14 +74,18 @@ export default function ToolListEditor({ initial }: { initial: McpTool[] }) {
             {tools.map((tool, i) => (
                 <div key={i} className={"flex items-center gap-2"}>
                     <div className={"flex min-w-0 flex-1 flex-col gap-0.5"}>
-                        <input
-                            value={tool.name}
-                            onChange={(e) => update(i, { name: e.target.value })}
-                            placeholder={"tool name"}
-                            aria-label={`tool ${i + 1} name`}
-                            className={`min-w-0 border border-foreground/15 bg-background p-2
-                                font-mono text-sm`}
-                        />
+                        {fixed ? (
+                            <span className={"truncate font-mono text-sm"}>{tool.name}</span>
+                        ) : (
+                            <input
+                                value={tool.name}
+                                onChange={(e) => update(i, { name: e.target.value })}
+                                placeholder={"tool name"}
+                                aria-label={`tool ${i + 1} name`}
+                                className={`min-w-0 border border-foreground/15 bg-background p-2
+                                    font-mono text-sm`}
+                            />
+                        )}
                         {tool.description && (
                             <span
                                 title={tool.description}
@@ -114,18 +126,20 @@ export default function ToolListEditor({ initial }: { initial: McpTool[] }) {
                             );
                         })}
                     </div>
-                    <button
-                        type={"button"}
-                        onClick={() => setTools(tools.filter((_, j) => j !== i))}
-                        aria-label={`remove tool ${i + 1}`}
-                        className={"px-1 font-mono text-sm text-gray-400 hover:text-red-500"}
-                    >
-                        ✕
-                    </button>
+                    {!fixed && (
+                        <button
+                            type={"button"}
+                            onClick={() => setTools(tools.filter((_, j) => j !== i))}
+                            aria-label={`remove tool ${i + 1}`}
+                            className={"px-1 font-mono text-sm text-gray-400 hover:text-red-500"}
+                        >
+                            ✕
+                        </button>
+                    )}
                 </div>
             ))}
 
-            {tools.length < MAX_MCP_TOOLS && (
+            {!fixed && tools.length < MAX_MCP_TOOLS && (
                 <button
                     type={"button"}
                     onClick={() =>
