@@ -1075,7 +1075,7 @@ pub fn delete_entry(store: &Store, vault: &dyn Vault, id: &str) -> Result<bool, 
         let removed = conn
             .execute("delete from registry_entry where id = ?1", [id])
             .map_err(|e| e.to_string())?;
-        // memory_item is a vec0 virtual table, so there is no FK to cascade the
+        // memory_item is an FTS5 virtual table, so there is no FK to cascade the
         // way the Postgres schema did — the sweep is manual and unconditional.
         conn.execute("delete from memory_item where entry_id = ?1", [id])
             .map_err(|e| e.to_string())?;

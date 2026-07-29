@@ -1,5 +1,5 @@
 //! Port of lib/memory.server.ts. A memory store is a `registry_entry` of kind
-//! `memory`; its items are `memory_item` rows in the sqlite-vec `vec0` table.
+//! `memory`; its items are `memory_item` rows in the `memory_item` FTS5 table.
 //! An agent with a store attached gets three tools — memory_search /
 //! memory_save / memory_forget — resolved to tool specs like MCP tools but
 //! executed here against the local table instead of an external server.
