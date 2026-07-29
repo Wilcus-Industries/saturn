@@ -61,6 +61,11 @@ pub enum Kind {
     Skill,
     Memory,
     Variable,
+    /// Saturn Agent's own builtin tools. Exactly one row, seeded by `store.rs`
+    /// (`saturn::TOOLS_ID`) — a kind rather than a special case anywhere else,
+    /// because that is what makes the stored `tools` allowlist, `parse_tools`,
+    /// `can_call_tool` and the settings tri-state apply to them unchanged.
+    Saturn,
 }
 
 impl Kind {
@@ -70,6 +75,7 @@ impl Kind {
             Kind::Skill => "skill",
             Kind::Memory => "memory",
             Kind::Variable => "variable",
+            Kind::Saturn => "saturn",
         }
     }
 
@@ -79,6 +85,7 @@ impl Kind {
             "skill" => Some(Kind::Skill),
             "memory" => Some(Kind::Memory),
             "variable" => Some(Kind::Variable),
+            "saturn" => Some(Kind::Saturn),
             _ => None,
         }
     }
@@ -434,6 +441,11 @@ pub fn get_user_registry(store: &Store, vault: &dyn Vault) -> Result<Vec<Entry>,
         .map(|(id, kind, name, emoji, description, raw)| {
             let config: Config = serde_json::from_str(&raw).unwrap_or_default();
             let is_variable = kind == Kind::Variable.as_str();
+            // Saturn's builtins carry no discovered metadata to store, so the
+            // row holds only the user's overrides and the merge happens on the
+            // way out. That is what lets the settings page render the full
+            // tri-state list off the `list_registry` call it already makes.
+            let is_saturn = id == crate::saturn::TOOLS_ID;
             Entry {
                 // `(auth_token <> '')`. One SQL column held three different
                 // things, so one probe answered for every kind; here they live
@@ -462,7 +474,11 @@ pub fn get_user_registry(store: &Store, vault: &dyn Vault) -> Result<Vec<Entry>,
                 },
                 secret: is_variable && config.secret,
                 server_url: config.server_url,
-                tools: config.tools,
+                tools: if is_saturn {
+                    crate::saturn::merge_tools(&config.tools)
+                } else {
+                    config.tools
+                },
                 id,
                 kind,
                 name,
@@ -610,6 +626,11 @@ pub fn build_user_catalog(rows: &[Entry]) -> HashMap<String, CatalogEntry> {
     rows.iter()
         .filter_map(|row| {
             let entry = match Kind::parse(&row.kind)? {
+                // Saturn's builtins are not grantable to an `agent` node: the
+                // chip would resolve to a tool ref no run pipeline can execute
+                // (they are dispatched by name inside `saturn::run_turn`, not
+                // through `execute_tool`), so it must not appear in the toolbox.
+                Kind::Saturn => return None,
                 Kind::Skill => chip(row, Kind::Skill, "skill"),
                 Kind::Memory => chip(row, Kind::Memory, "memory"),
                 Kind::Variable => chip(row, Kind::Variable, "value"),
@@ -845,9 +866,10 @@ pub fn save_entry(
     let (default_emoji, too_long) = match kind {
         Kind::Skill => ("⚙️", "Instructions too long"),
         Kind::Memory => ("🧠", "Note too long"),
-        // mcp and variable carry config and a Keychain secret — they have their
-        // own savers and must never take this path.
-        Kind::Mcp | Kind::Variable => return Err("Unsupported kind".into()),
+        // mcp and variable carry config and a Keychain secret, and the saturn
+        // row is seeded rather than created — they have their own savers and
+        // must never take this path.
+        Kind::Mcp | Kind::Variable | Kind::Saturn => return Err("Unsupported kind".into()),
     };
     let id = optional_id(id)?;
     let name = required_name(name)?;
@@ -946,6 +968,26 @@ pub fn set_mcp_tools(store: &Store, id: &str, tools: Vec<McpTool>) -> Result<(),
     update_entry(store, id, Kind::Mcp, &name, None, None, Some(&config))
 }
 
+/// Saturn Agent's own builtin grants — the same stored allowlist an MCP entry
+/// carries, on the seeded `saturn` row. A sibling of `set_mcp_tools` rather than
+/// a path through `save_entry`: there is no name, emoji or description to submit
+/// and the id is fixed, but the write still goes through `update_entry` so the
+/// kind guard and `updated_at` cannot be skipped.
+///
+/// The row is read first so nothing else in the blob is dropped on the way
+/// through. `run_command`'s working directory is deliberately NOT here — it is
+/// per chat session (`saturn::set_session_cwd`), not per install.
+pub fn set_saturn_tools(store: &Store, tools: Vec<McpTool>) -> Result<(), String> {
+    let id = crate::saturn::TOOLS_ID;
+    let mut config = read_config(store, id, Kind::Saturn)?.ok_or("Not found")?;
+    config.tools = tools;
+    let name: String = store
+        .conn()
+        .query_row("select name from registry_entry where id = ?1", [id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    update_entry(store, id, Kind::Saturn, &name, None, None, Some(&config))
+}
+
 /// Persists the result of one interactive authorization and hands back the
 /// access token it just stored. Which field of the flow's result feeds which
 /// stored field is registry knowledge, so the mapping lives here beside
@@ -1020,6 +1062,11 @@ pub fn delete_entry(store: &Store, vault: &dyn Vault, id: &str) -> Result<bool, 
     if id == crate::saturn::MEMORY_ID {
         return Err("Saturn's memory store cannot be deleted".into());
     }
+    // same reasoning: the row IS Saturn's tool surface, and deleting it would
+    // silently reset every grant the user made to the policy defaults.
+    if id == crate::saturn::TOOLS_ID {
+        return Err("Saturn's own tools cannot be deleted".into());
+    }
     if !is_uuid(id) {
         return Err("Invalid id".into());
     }
@@ -1028,7 +1075,7 @@ pub fn delete_entry(store: &Store, vault: &dyn Vault, id: &str) -> Result<bool, 
         let removed = conn
             .execute("delete from registry_entry where id = ?1", [id])
             .map_err(|e| e.to_string())?;
-        // memory_item is a vec0 virtual table, so there is no FK to cascade the
+        // memory_item is an FTS5 virtual table, so there is no FK to cascade the
         // way the Postgres schema did — the sweep is manual and unconditional.
         conn.execute("delete from memory_item where entry_id = ?1", [id])
             .map_err(|e| e.to_string())?;
@@ -1056,16 +1103,19 @@ mod tests {
         fn new() -> Tmp {
             let dir = std::env::temp_dir().join(format!("saturn-registry-{}", uuid()));
             let store = Store::open(&dir.join("saturn.db")).unwrap();
-            // Every database is seeded with Saturn Agent's own memory store
-            // (store.rs's SCHEMA). Raw SQL rather than `delete_entry`, which
-            // refuses it on purpose — these tests are about the *user's*
-            // registry, and counting it into every assertion would only make
-            // them read as arithmetic. That it exists, survives a reopen and
-            // cannot be deleted is asserted in saturn.rs instead.
-            store
-                .conn()
-                .execute("delete from registry_entry where id = ?1", [crate::saturn::MEMORY_ID])
-                .unwrap();
+            // Every database is seeded with Saturn Agent's own memory store and
+            // its builtin-tool row (store.rs's SCHEMA). Raw SQL rather than
+            // `delete_entry`, which refuses both on purpose — these tests are
+            // about the *user's* registry, and counting them into every
+            // assertion would only make them read as arithmetic. That they
+            // exist, survive a reopen and cannot be deleted is asserted in
+            // saturn.rs instead.
+            for seeded in [crate::saturn::MEMORY_ID, crate::saturn::TOOLS_ID] {
+                store
+                    .conn()
+                    .execute("delete from registry_entry where id = ?1", [seeded])
+                    .unwrap();
+            }
             Tmp(dir, store)
         }
     }
@@ -1333,11 +1383,10 @@ mod tests {
         {
             let conn = store.conn();
             let mut ins = conn
-                .prepare("insert into memory_item (embedding, entry_id, content, created_at) values (?1, ?2, ?3, ?4)")
+                .prepare("insert into memory_item (content, entry_id, created_at) values (?1, ?2, ?3)")
                 .unwrap();
             for (entry, text) in [(&mem, "mine"), (&mcp, "another store")] {
-                ins.execute(params![crate::store::vec_blob(&vec![0.5f32; 1536]), entry, text, now()])
-                    .unwrap();
+                ins.execute(params![text, entry, now()]).unwrap();
             }
         }
 
@@ -1348,7 +1397,7 @@ mod tests {
             .conn()
             .query_row("select count(*) from memory_item where entry_id = ?1", [&mcp], |r| r.get(0))
             .unwrap();
-        assert_eq!(left, 0, "vec0 rows outlived their entry");
+        assert_eq!(left, 0, "memory rows outlived their entry");
         let others: i64 = store
             .conn()
             .query_row("select count(*) from memory_item where entry_id = ?1", [&mem], |r| r.get(0))

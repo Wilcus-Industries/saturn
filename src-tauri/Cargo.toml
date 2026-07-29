@@ -24,6 +24,11 @@ tauri-plugin-single-instance = "2"
 # binary's current path, which is why the app has to live in /Applications
 # before the toggle is switched on.
 tauri-plugin-autostart = "2"
+# The native folder picker behind the composer's working-directory chip. Only
+# `dialog:allow-open` is granted (capabilities/default.json), and the webview
+# reaches it as the raw `plugin:dialog|open` command through `lib/ipc.tsx`, so
+# the matching npm package is not a dependency.
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
@@ -39,7 +44,13 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 # 0.39, not 0.40: rusqlite 0.40 pulls libsqlite3-sys 0.38.1, whose build script uses
 # `cfg_select!` — still unstable on rustc 1.94. Revisit when that stabilizes.
+# bundled compiles SQLite with -DSQLITE_ENABLE_FTS5, which is what memory search
+# runs on — no extension to load and nothing to register.
 rusqlite = { version = "0.39", features = ["bundled", "serde_json"] }
+# ponytail: dead weight except for one thing — SQLite cannot DROP a virtual table
+# whose module is unregistered, and `store::take_vec0_memory_items` has to drop the
+# pre-FTS5 `vec0` memory_item. Delete this, the auto_extension registration in
+# store.rs and that function together once every install has booted once.
 sqlite-vec = "0.1.9"
 # Keychain, keyed off the bundle identifier. apple-native only — the linux/windows
 # backends would pull dbus and the windows crates for a macOS-only v1.

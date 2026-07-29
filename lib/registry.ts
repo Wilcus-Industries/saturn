@@ -6,7 +6,7 @@
 import { ALL_TOOLS } from "@/lib/agent";
 import { type CatalogEntry, type McpToolParam, valuePort } from "@/lib/workflow";
 
-type RegistryKind = "mcp" | "skill" | "memory" | "variable";
+type RegistryKind = "mcp" | "skill" | "memory" | "variable" | "saturn";
 export type McpTool = {
     name: string;
     access: "read" | "write";
@@ -169,13 +169,18 @@ export const sessionEntry = (id: string, name: string): CatalogEntry => ({
     emoji: "💬",
 });
 
+// the builtin 'saturn' row is settings-only: its tools belong to Saturn Agent
+// itself, not to an agent node's tools port, and it carries no server_url —
+// toServerEntry's faviconDomain would throw on it inside the designer's render.
 export const buildUserCatalog = (rows: RegistryEntryRow[]): CatalogEntry[] =>
-    rows.map((row) =>
-        row.kind === "skill"
-            ? toSkillEntry(row)
-            : row.kind === "memory"
-              ? toMemoryEntry(row)
-              : row.kind === "variable"
-                ? toVariableEntry(row)
-                : toServerEntry(row),
-    );
+    rows
+        .filter((row) => row.kind !== "saturn")
+        .map((row) =>
+            row.kind === "skill"
+                ? toSkillEntry(row)
+                : row.kind === "memory"
+                  ? toMemoryEntry(row)
+                  : row.kind === "variable"
+                    ? toVariableEntry(row)
+                    : toServerEntry(row),
+        );

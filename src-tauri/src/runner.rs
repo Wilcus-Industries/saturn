@@ -140,10 +140,9 @@ fn cron_matches(cron: &str, at_ms: i64) -> bool {
 /// ledger and no fallback — a missing key is a user-facing error at the point of
 /// use, exactly where `getOpenrouterKey` returned null.
 ///
-/// Still the *only* key for embeddings (`memory.rs` pins an OpenAI embedding
-/// model against a fixed vector width, and no other provider serves it), which
-/// is why the memory tool paths read it directly rather than through
-/// `model_key`. Chat calls route by provider — see `providers.rs`.
+/// Only OpenRouter's key, and nothing reaches it except through `model_key`:
+/// chat routes by slug (`providers.rs`) and memory search is a local FTS5 index
+/// with no key at all, so an install on a local provider never needs one.
 pub fn openrouter_key(vault: &dyn Vault) -> Option<String> {
     secrets::get(vault, &Secret::OpenRouterKey)
 }
@@ -152,12 +151,16 @@ pub fn openrouter_key(vault: &dyn Vault) -> Option<String> {
 /// loopback and refuses to start off-loopback without a key of its own, so there
 /// is nothing to authenticate and any string does; OpenRouter is BYOK and a
 /// missing key is a user-facing error here, at the point of use.
+///
+/// That error names the *model*, not OpenRouter, because the slug is what chose
+/// the provider: nothing is wrong with the install, the user picked a model from
+/// a provider they have not connected, and the fix is either key or model.
 pub fn model_key(vault: &dyn Vault, model: &str) -> Result<String, String> {
     if providers::resolve(model).0.id != providers::OPENROUTER.id {
         return Ok("saturn".into());
     }
     openrouter_key(vault)
-        .ok_or_else(|| "model calls need an OpenRouter key: add one in settings".into())
+        .ok_or_else(|| "no connected provider for this model: connect one in settings".into())
 }
 
 /// `MODEL_ID` from lib/agent.ts (`/^[\w.:/-]{1,128}$/`). The slug is graph-
@@ -236,10 +239,7 @@ pub fn execute_tool(
     input: &str,
 ) -> Result<String, String> {
     if is_memory {
-        // read per call, not per run: a key pasted into settings mid-run must
-        // work on the next tool call, and `embed` names the missing-key error
-        let key = openrouter_key(vault).unwrap_or_default();
-        return crate::memory::execute_memory_tool(store, &key, entry_id, tool_name, input);
+        return crate::memory::execute_memory_tool(store, entry_id, tool_name, input);
     }
     execute_mcp_tool(store, vault, entry_id, tool_name, input)
 }
@@ -788,6 +788,23 @@ mod tests {
         (dir, store, secrets::FakeVault::default())
     }
 
+    /// The whole point of routing the key by slug: an install with no OpenRouter
+    /// key still runs every model call a local provider serves. Both `saturn.rs`'s
+    /// chat turn and `agent_turn` go through this one function, so a regression
+    /// here is what would silently make the key mandatory again.
+    #[test]
+    fn a_local_slug_needs_no_openrouter_key() {
+        let vault = secrets::FakeVault::default();
+        assert_eq!(model_key(&vault, "claude-code/opus"), Ok("saturn".into()));
+        // a bare slug is OpenRouter's, and that one really does need the key
+        assert_eq!(
+            model_key(&vault, "anthropic/claude-opus-4"),
+            Err("no connected provider for this model: connect one in settings".into()),
+        );
+        secrets::set(&vault, &Secret::OpenRouterKey, Some("sk-or-x"), false).unwrap();
+        assert_eq!(model_key(&vault, "anthropic/claude-opus-4"), Ok("sk-or-x".into()));
+    }
+
     /// The whole slice: a schedule node the cron tick selects, an http-request
     /// node that really talks to a socket, and a print node rendering its
     /// response — claimed, executed, and persisted as a workflow_run row.
@@ -979,7 +996,7 @@ mod tests {
         // openrouter.rs's entry point is one line past this: BYOK, and the key
         // gate is the last thing before the socket
         assert!(
-            log.contains(&"agent: model calls need an OpenRouter key: add one in settings".into()),
+            log.contains(&"agent: no connected provider for this model: connect one in settings".into()),
             "{log:?}",
         );
         std::fs::remove_dir_all(&dir).ok();
@@ -1036,14 +1053,15 @@ mod tests {
     fn the_tool_effect_reaches_memory_and_mcp() {
         let (dir, store, vault) = temp_store();
         let memory_id = registry::save_entry(&store, registry::Kind::Memory, None, "notes", "", "").unwrap();
-        // memory.rs: dispatch guard, then embed's BYOK gate — no key, no socket
+        // memory.rs: its dispatch guard fires, then a real search runs against the
+        // local FTS5 index — no key anywhere in this path, and no socket
         assert_eq!(
             execute_tool(&store, &vault, true, &memory_id, "memory_nope", "{}"),
             Err("unknown memory operation".into()),
         );
         assert_eq!(
             execute_tool(&store, &vault, true, &memory_id, "memory_search", r#"{"query":"x"}"#),
-            Err("memory needs an OpenRouter key for embeddings: add one in settings".into()),
+            Ok("[]".into()),
         );
 
         // mcp.rs: saved past the save-time URL guard through the injected seam,

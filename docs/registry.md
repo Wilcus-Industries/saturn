@@ -1,8 +1,8 @@
-# User registry: MCP servers, skills, memory stores, variables
+# User registry: MCP servers, skills, memory stores, variables, Saturn's own tools
 
 > Part of the Saturn docs set indexed in `CLAUDE.md`. How each becomes a node is in `docs/nodes.md`; the canvas is `docs/designer.md`.
 
-The registry is the user's own node types. One table, four kinds, three UI
+The registry is the user's own node types. One table, five kinds, three UI
 surfaces:
 
 | kind | managed at | becomes |
@@ -11,6 +11,44 @@ surfaces:
 | `skill` | `/dashboard/settings/` | a green grant chip, `skill:<uuid>` |
 | `memory` | `/dashboard/memory/` | a fuchsia grant chip, `memory:<uuid>` |
 | `variable` | the **designer toolbox** | a value box, `variable:<uuid>` |
+| `saturn` | `/dashboard/settings/` | **nothing** — see below |
+
+## `saturn`: Saturn Agent's own tools are a registry row
+
+Exactly one row, `saturn::TOOLS_ID` (`…-000000000002`), seeded by `store.rs`'s
+`SCHEMA` beside Saturn's memory store and refused by `delete_entry` for the same
+reason: the row *is* the tool surface, and deleting it would silently reset every
+grant. `created_at = 0` pins it first in the settings list.
+
+Being a registry kind is the entire design. The stored `config.tools` allowlist,
+`parse_tools`, `can_call_tool` and the off / read / read+write tri-state in
+`toolListEditor.tsx` all apply to Saturn's builtins with no second
+implementation — the only thing written to the row is the user's overrides.
+Names, descriptions and defaults come from `saturn::merge_tools`, which derives
+them from `saturn::all_specs` plus the `POLICY` table, so a builtin added later
+appears in settings on its own and a stored name that no longer exists is
+dropped. `get_user_registry` runs that merge on the way out, which is why the
+settings page needs no read command of its own.
+
+`build_user_catalog` returns `None` for this kind: the builtins are dispatched by
+name inside `saturn::run_turn`, not through `execute_tool`, so a grant chip would
+resolve to something no run pipeline can execute.
+
+The row holds tools and nothing else. `run_command`'s working directory used to
+live here as `config.workspace`, one path per install; it is now **per chat
+session** (`saturn_session.cwd`, picked from the composer — `docs/ui.md`), because
+the directory you are working in changes far more often than a grant does and a
+per-install setting made every chat share one. Writes go through
+`registry::set_saturn_tools` (a sibling of `set_mcp_tools`) off a fresh read, so
+nothing else in the blob is dropped on the way through.
+
+**`run_command` is the one builtin that ships off**, and the tri-state means
+something specific for it: `read` runs the command with nothing outside the
+process temp dir writable, `read+write` adds the session's cwd tree. The grant is the
+seatbelt profile itself, not a flag — see `docs/open-decisions.md` §1.7 for what
+the sandbox holds, what was measured rather than assumed, and its known ceilings.
+`call_mcp_tool` reads its third position the same way: granted `read`, it refuses
+a target tool the user themselves classified `read+write`.
 
 `registry_entry` is `(id, kind, name, emoji, description, config, created_at,
 updated_at)`. The five sparse kind-specific columns the Postgres schema had
@@ -176,7 +214,7 @@ never trusted.
 ## Memory stores
 
 Name, emoji, description — no tools, no URL. Items live in the `memory_item`
-`vec0` table, partitioned by `entry_id`, and are managed on their own tab:
+FTS5 table, scoped by `entry_id`, and are managed on their own tab:
 `/dashboard/memory/` lists the stores with item counts, `/dashboard/memory/store/?id=`
 browses one (search, per-item delete, wipe). Wipe empties without deleting the
 row, so every node wired to that store keeps resolving.

@@ -270,14 +270,53 @@ accept one. `set_provider_key` resolves `id` through `providers::by_id` before
 touching the Keychain: the id names an account, so an unvalidated one would be an
 arbitrary write into the user's login Keychain.
 
-**Embeddings stay OpenRouter-only.** `memory.rs` pins `MEMORY_EMBED_MODEL`
-against a `float[1536]` vec table — a second provider's embedding model with a
-different width could not be written into the same table, and re-embedding every
-store to change it is not a provider question. `runner::openrouter_key` keeps its
-name and *is* the embeddings key; its missing-key error now says so
-("memory needs an OpenRouter key for embeddings"), because since this change a
-chat turn can run with no OpenRouter key at all and the old wording would have
-been a lie on exactly the graph that hits it.
+**Memory search is FTS5, not embeddings — DECIDED 2026-07-28.** The embedding
+call was the last thing in the app that *required* an OpenRouter key: an agent
+running entirely on Claude Code still could not read its own memory, because
+`memory.rs` POSTed every query and every save to
+`openrouter.ai/api/v1/embeddings` against a `float[1536]` `vec0` table. Three
+ways out were on the table — a local HTTP embedder (Ollama), Apple's
+`NLEmbedding` over objc2 FFI, or dropping vectors entirely — and the third is
+the only one that *removes* code instead of moving the dependency somewhere
+else. `memory_item` is now an FTS5 table and search is BM25 over
+`order by rank`. Gone with it: `embed`, `check_dims`, the `EMBED_*` constants,
+`store::vec_blob`, the 30 s timeout that could pin a run thread, the `api_key`
+parameter and both of its read sites.
+
+The cost is real and accepted: BM25 matches words, so "car" no longer retrieves
+"automobile". What made that acceptable is the shape of the thing — a
+single-user store of short notes, queried by a model perfectly able to phrase a
+keyword query, and told to in the tool description. If semantic recall is ever
+missed, the honest fix is a local embedder behind the same `search` signature,
+not a key.
+
+Two pieces of this are load-bearing and easy to undo by accident:
+
+- **`fts_query` is not cosmetic.** FTS5's MATCH argument is a query *language*.
+  `what's the deploy pipeline?` is a hard `fts5: syntax error near "'"`, and
+  `AND` / `OR` / `NOT` / `NEAR` / `*` / `^` / `:` / `-` / `"` are operators a
+  model trips by accident. No model text is passed through: every alphanumeric
+  run is lifted out and re-emitted as a quoted term, which cannot carry syntax.
+  Terms are joined with `OR`, not FTS5's implicit `AND`, because a
+  natural-language query carries filler words no saved item contains and `AND`
+  would return nothing for most of them.
+- **`entry_id` is UNINDEXED, so nothing scopes a query but the WHERE clause.**
+  vec0's partition key used to do it structurally. Drop the `entry_id = ?` and
+  every store in the file is searched at once — one agent's memories in another
+  agent's context.
+
+`search` no longer returns `score`. bm25 is an unbounded negative number, not
+the 0-1 cosine similarity it replaced, and normalizing it into one would hand
+the model an invented number to reason about. Rank order is the signal.
+
+**The migration gets one chance.** `SCHEMA` is create-if-not-exists, so an
+existing `vec0` `memory_item` would survive it silently and every later insert
+would fail on the wrong column list. `store::take_vec0_memory_items` runs
+*before* the batch, lifts `(content, entry_id, created_at)` out, and drops the
+table; `Store::open` re-inserts after. `sqlite-vec` is still a dependency for
+exactly one reason — SQLite cannot `drop` a virtual table whose module is
+unregistered — and is marked `ponytail:` for removal along with the migration
+once every install has booted once.
 
 **`list_models` groups at the source.** It returns `Vec<ProviderModels>` —
 `{provider, label, models}` carrying `Provider.id`/`Provider.name` verbatim, one
@@ -301,6 +340,103 @@ model-picker open. The cost is that starting the server is invisible for up to
 re-check button passes `true`. That button is the only caller that does. With two
 local providers the probes run on one `std::thread` each (`main::probe_local`),
 so a machine running neither still waits 2s, not 2s per row.
+
+---
+
+### 1.7 The shell tool's boundary — DECIDED: a seatbelt profile, not a command parser
+
+**Decided 2026-07-27**, with the `run_command` tool. Saturn Agent can now run a
+shell command, and the command text is the least trustworthy input in the app: a
+model wrote it, frequently from text an MCP server or a web page handed it.
+
+**Rejected: reading the command.** A deny-list of `rm`, `sudo`, `curl … | sh` is
+theatre — `$(...)`, `eval`, a base64 pipe and "download this script and run it"
+all defeat it, and each new bypass is another special case in a parser that must
+be perfect to be worth anything. The boundary is the kernel's instead:
+`sandbox-exec` applies the policy to **every process in the tree** no matter what
+the line expands to, so nothing in `bash.rs` inspects the command. It is always
+an argv element handed to `/bin/sh -c`, never interpolated into the profile.
+
+`sandbox-exec` is deprecated (since 10.14) and still ships in Darwin 25, still
+used by the browsers. The alternative — an App Sandbox entitlement — constrains
+*Saturn*, not a child, and would break the app's own file and network access. If
+Apple ever removes it, the fallback is a helper binary with a real entitlement,
+not a parser.
+
+**What the profile actually holds**, all four measured on 2026-07-27 rather than
+assumed:
+
+- **Paths must be canonicalized.** Seatbelt matches *resolved* paths. `$TMPDIR`
+  is a symlink chain into `/private/var/folders/…`, and a rule written against
+  the `/var/…` spelling matches nothing — a policy that looks right in review and
+  is absent at runtime. This cost one wrong first draft.
+- **`(deny file-read* ~/Library/Keychains)` is load-bearing and is not redundant
+  with the write deny.** The login keychain is a *file* and the `security` CLI
+  reads it directly: without that line,
+  `security find-generic-password -s com.wilcus.saturn` enumerates Saturn's own
+  items from inside the sandbox. Read is otherwise broad — a shell needs `/usr`,
+  `/bin`, the dyld cache — and the tool has the network, so `~/.ssh` plus a
+  `curl` is the entire exfiltration path. This is the invariant in `CLAUDE.md`
+  ("Secrets — write-only, everywhere") held up by a file-read deny.
+- **The `/dev/*` write allowances are not politeness.** `(deny file-write*
+  (subpath "/"))` covers `/dev`, so without them `curl -o /dev/null` fails with
+  "Failure writing output to destination" while TLS itself works — and every
+  `2>/dev/null` in a one-liner breaks. To the model that reads as a broken tool.
+- **`launchd` and `osascript` do not escape it.** `launchctl submit` and
+  `osascript -e 'do shell script …'` were both tried as ways to have another
+  process do the write; the policy is inherited through both.
+
+**Known ceilings, in the code as `ponytail:` comments.** `child.kill()` reaps the
+leader only, so a backgrounded grandchild survives the 60s deadline — still
+sandboxed, still running (upgrade: `process_group(0)` plus a negative `kill`,
+which needs `libc`). Reads stay broad, so `saturn.db` itself is readable; it
+holds no secrets, and the agent has tools for its contents anyway.
+
+**The read/write grant is the sandbox, not a flag.** `access = "read"` emits the
+profile without the cwd carve-out, so the identical write is refused by the
+kernel rather than by a branch in `saturn.rs`. `bash::sandbox_confines_writes_to_the_cwd`
+is the test that fails if the profile regresses, and it deliberately puts its
+directory outside `$TMPDIR` — inside, the temp carve-out would let every write
+through and the test would pass while proving nothing.
+
+### 1.7a The working directory is per session — DECIDED: 2026-07-28
+
+The shell shipped with one workspace per install (`config.workspace`, default
+`~/Saturn`, a text field in settings). That was wrong on the first real use: the
+directory you are working in changes per conversation, and a text field is the
+wrong gesture for something picked that often. It is now `saturn_session.cwd`,
+set from a native folder picker in the composer beside the model and effort
+chips, blank meaning `$HOME`. The per-install setting is **deleted**, not kept as
+a fallback — two places to configure one path is how the chat and the sandbox end
+up disagreeing about where the command ran.
+
+**Moving the default from `~/Saturn` to `$HOME` moved a security boundary, and
+that cost a real fix.** `$HOME` encloses every credential directory the profile
+denies. Seatbelt is last-match-wins, and the denies were emitted *before* the
+`allow file-write*` carve-out — correct while the carve-out was `~/Saturn`,
+silently void the moment the carve-out became `~`. Measured, not reasoned about:
+with the old ordering and a read+write grant, `cat ~/.ssh/*` succeeds from a home
+cwd. The denies now land last, and there are two tests rather than one because
+the failure is invisible from either side alone —
+`sandbox_denies_credentials_even_when_the_cwd_is_home` reads the generated
+profile text, `a_read_write_grant_on_the_home_cwd_still_cannot_touch_credentials`
+runs the real kernel. Both were mutation-tested by restoring the old ordering;
+both fail.
+
+**No `read_file` / `write_file` tools.** `run_command` with `cat`, `sed` and a
+heredoc already is one, and the empirical case for the narrower surface is
+mini-swe-agent, which outscores far more elaborate harnesses on one bash tool.
+Two tool surfaces onto the same filesystem is also two things to keep inside one
+sandbox. If they are ever added, they must take the same `cwd` and the same
+grant, not a second path of their own.
+
+**`CLAUDE.md` / `AGENTS.md` / `AGENT.md` are read from the cwd root every turn**
+(`saturn::project_instructions`), capped at 16k chars across all three. Root
+only: no walk up to a parent, which would silently pull in instructions from a
+directory the user did not pick, and no recursive scan. Re-read per turn rather
+than cached — the user edits these while the chat is open, and a stale copy is
+worse than none. Every failure is silent; a turn never fails because a file
+would not read.
 
 ---
 
@@ -732,10 +868,15 @@ existing `saturn.db`; and **`window` as the only edit site**, so the `agent`
 node's `session` chip (`history`) inherits it without a second implementation.
 
 Not done, and the reason: **one turn's own tool results are still unbounded** —
-8 turns × 5 calls × `MAX_TOOL_RESULT` is larger than the history compaction now
+5 calls per turn × `MAX_TOOL_RESULT` compounds past what the history compaction
 folds, because `wire` grows in place across the tool loop and never re-reads the
 window. Compaction bounds what a turn *starts* with, not what it accumulates.
-Budget it too if a tool-heavy turn starts overflowing. Compaction also never
+This got sharper on 2026-07-28 when the chat's `MAX_AGENT_TURNS` cap came off
+(below): the multiplier is now however many turns the model takes, so a chat that
+does not converge ends on a provider context-length 400 rather than on a cap.
+That error breaks the loop and is shown, so it fails visibly — but the fix, when
+it is wanted, is to re-compact *inside* the loop once `wire` crosses `COMPACT_AT`
+rather than to put the turn cap back. Compaction also never
 fires on the `agent`-node write path (`record_exchange` has no key or model); it
 reads compacted windows but cannot make one, so that path stays bounded by the
 60-row cap exactly as before.

@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, Once};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{ffi::sqlite3_auto_extension, params, Connection, Result};
+use rusqlite::{ffi::sqlite3_auto_extension, params, Connection, OptionalExtension, Result};
 use serde::Serialize;
 use serde_json::Value;
 use sqlite_vec::sqlite3_vec_init;
@@ -42,18 +42,15 @@ create table if not exists registry_entry (
     created_at integer not null, updated_at integer not null
 );
 
--- entry_id is a partition key, not metadata: every search is scoped to exactly one
--- memory store, and a partition key pre-filters the index instead of filtering hits.
--- content is auxiliary (+): never queried on, and aux columns stay out of the vector
--- index. distance_metric=cosine matches what pgvector's <=> gave us.
--- No HNSW index on purpose: brute force over tens of thousands of vectors is
--- single-digit ms, invisible next to the embedding round trip, and costs nothing on
--- write. Add it when a query is measurably slow.
-create virtual table if not exists memory_item using vec0(
-    embedding float[1536] distance_metric=cosine,
-    entry_id text partition key,
-    +content text,
-    created_at integer
+-- FTS5, not vectors: memory search is BM25 over the text, so it needs no embedding
+-- call, no key and no network (docs/open-decisions.md §1.6).
+-- Only `content` is indexed. entry_id and created_at are UNINDEXED — carried in the
+-- row but invisible to `match`, so a uuid never tokenizes into the term index and a
+-- query cannot accidentally match on one. SQLite core filters them after the match.
+-- Scoping every query by entry_id is not an optimization: without it one store's
+-- items surface in another store's results, straight into the model's context.
+create virtual table if not exists memory_item using fts5(
+    content, entry_id UNINDEXED, created_at UNINDEXED
 );
 
 -- Saturn Agent's own memory store, seeded in SQL rather than Rust: execute_batch
@@ -65,6 +62,18 @@ insert or ignore into registry_entry (id, kind, name, emoji, description, config
 values ('00000000-0000-4000-8000-000000000001', 'memory', 'Saturn', '🪐',
         'What Saturn Agent remembers across conversations.', '{}',
         unixepoch() * 1000, unixepoch() * 1000);
+
+-- Saturn Agent's own builtin tools, seeded the same way and for the same reasons:
+-- being a registry row is what gives them the settings tool list, the stored
+-- allowlist and the off/read/read+write tri-state with no second implementation.
+-- created_at 0 pins it FIRST in `order by created_at, id` — Saturn's own tools
+-- belong at the top of settings, above whatever the user registered.
+-- config stays '{}': the defaults live in saturn::merge_tools, so a builtin added
+-- later shows up on its own instead of needing a migration here.
+insert or ignore into registry_entry (id, kind, name, emoji, description, config, created_at, updated_at)
+values ('00000000-0000-4000-8000-000000000002', 'saturn', 'Saturn Agent', '🪐',
+        'What Saturn Agent itself can do. Turn a tool off and it leaves the chat.', '{}',
+        0, unixepoch() * 1000);
 "#;
 
 fn now() -> i64 {
@@ -167,6 +176,42 @@ fn workflow_row(r: &rusqlite::Row) -> Result<Workflow> {
     })
 }
 
+/// Drains a pre-FTS5 `vec0` `memory_item` and drops it, returning
+/// `(content, entry_id, created_at)` for `Store::open` to re-insert once SCHEMA
+/// has created the FTS5 table. A no-op when the table is already FTS5 or absent,
+/// so it costs one `sqlite_master` lookup per boot forever after.
+///
+/// ponytail: sqlite-vec is now linked *only* so this DROP has a `vec0` module to
+/// call — SQLite cannot destroy a virtual table whose module is unregistered.
+/// Delete this function, the dependency and the `auto_extension` registration
+/// together once every install has run it once.
+fn take_vec0_memory_items(conn: &Connection) -> Result<Vec<(String, String, i64)>> {
+    let sql: Option<String> = conn
+        .query_row(
+            "select sql from sqlite_master where type = 'table' and name = 'memory_item'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if !sql.is_some_and(|s| s.contains("vec0")) {
+        return Ok(Vec::new());
+    }
+    // no `match` constraint, so this is a plain scan vec0 serves itself. content is
+    // read as Option because an aux column can hold NULL and a boot-time error here
+    // would brick the app over one empty row.
+    let rows = {
+        let mut stmt = conn.prepare("select content, entry_id, created_at from memory_item")?;
+        let out = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, Option<String>>(0)?.unwrap_or_default(), r.get(1)?, r.get(2)?))
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        out
+    };
+    conn.execute_batch("drop table memory_item")?;
+    Ok(rows)
+}
+
 /// Cloning shares the one connection — a run executes on its own thread and
 /// needs an owned handle, and SQLite is single-writer anyway.
 #[derive(Clone)]
@@ -196,7 +241,19 @@ impl Store {
         // Per-connection and OFF by default — without it the run cascade above is
         // decorative.
         conn.pragma_update(None, "foreign_keys", true)?;
+        // One-time: memory_item was a `vec0` table before search moved to FTS5. Only
+        // the text was ever worth keeping, so lift it out and drop the table — SCHEMA
+        // is `create ... if not exists`, so leaving the old one in place would keep
+        // the wrong shape forever and every insert below would fail. Rowids change;
+        // nothing outside a single search→forget round trip persists them.
+        let salvaged = take_vec0_memory_items(&conn)?;
         conn.execute_batch(SCHEMA)?;
+        for (content, entry_id, created_at) in salvaged {
+            conn.execute(
+                "insert into memory_item (content, entry_id, created_at) values (?1, ?2, ?3)",
+                params![content, entry_id, created_at],
+            )?;
+        }
         Ok(Store(Arc::new(Mutex::new(conn))))
     }
 
@@ -488,11 +545,6 @@ impl Store {
     }
 }
 
-/// sqlite-vec wants f32 vectors as a little-endian blob.
-pub fn vec_blob(v: &[f32]) -> Vec<u8> {
-    v.iter().flat_map(|f| f.to_le_bytes()).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,53 +616,63 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// The existing round_trip vec0 assertion only has two rows in the partition,
-    /// so `k` never has to *choose*: a nearest/farthest inversion inside vec0 would
-    /// still return both rows and the explicit `order by distance` would hide it.
-    /// Five rows and k=2 make the selection observable.
+    /// The one-time vec0 → FTS5 migration. It gets exactly one chance on a real
+    /// user's saturn.db, and the failure mode is silent: SCHEMA is
+    /// create-if-not-exists, so a migration that no-ops leaves the old table in
+    /// place, every later insert fails on the wrong column list, and the items are
+    /// still sitting there unreachable.
     #[test]
-    fn vec0_knn_selects_the_nearest_not_the_farthest() {
-        let dir = std::env::temp_dir().join(format!("saturn-knn-{}", uuid()));
-        let store = Store::open(&dir.join("saturn.db")).unwrap();
-        let conn = store.0.lock().unwrap();
+    fn a_vec0_memory_item_migrates_to_fts5() {
+        let dir = std::env::temp_dir().join(format!("saturn-migrate-{}", uuid()));
+        let path = dir.join("saturn.db");
 
-        let axis = |x: f32, y: f32| {
-            let mut v = vec![0.0f32; 1536];
-            v[0] = x;
-            v[1] = y;
-            v
-        };
-        let mut ins = conn
-            .prepare("insert into memory_item (embedding, entry_id, content, created_at) values (?1, ?2, ?3, ?4)")
+        // build the "old" database through Store::open, which is what registers the
+        // vec0 module in the first place
+        {
+            let store = Store::open(&path).unwrap();
+            let conn = store.0.lock().unwrap();
+            conn.execute_batch(
+                "drop table memory_item;
+                 create virtual table memory_item using vec0(
+                     embedding float[4] distance_metric=cosine,
+                     entry_id text partition key, +content text, created_at integer);",
+            )
             .unwrap();
-        // cosine distance from (1,0): 0, ~0.005, ~0.106, ~0.293, 1
-        for (name, v) in [
-            ("d0-exact", axis(1.0, 0.0)),
-            ("d1-near", axis(1.0, 0.1)),
-            ("d2", axis(1.0, 0.5)),
-            ("d3", axis(1.0, 1.0)),
-            ("d4-orthogonal", axis(0.0, 1.0)),
-        ] {
-            ins.execute(params![vec_blob(&v), "store-a", name, now()]).unwrap();
+            let blob: Vec<u8> = [1.0f32, 0.0, 0.0, 0.0].iter().flat_map(|f| f.to_le_bytes()).collect();
+            conn.execute(
+                "insert into memory_item (embedding, entry_id, content, created_at)
+                 values (?1, ?2, ?3, ?4)",
+                params![blob, "store-a", "the deploy key lives in 1password", 1234],
+            )
+            .unwrap();
         }
-        drop(ins);
 
-        let mut q = conn
-            .prepare("select content, distance from memory_item where embedding match ?1 and entry_id = ?2 and k = 2")
+        let store = Store::open(&path).unwrap();
+        let conn = store.0.lock().unwrap();
+        let sql: String = conn
+            .query_row("select sql from sqlite_master where name = 'memory_item'", [], |r| r.get(0))
             .unwrap();
-        let hits: Vec<(String, f64)> = q
-            .query_map(params![vec_blob(&axis(1.0, 0.0)), "store-a"], |r| Ok((r.get(0)?, r.get(1)?)))
-            .unwrap()
-            .map(|r| r.unwrap())
-            .collect();
-        assert_eq!(hits.len(), 2);
-        // no `order by` on purpose — vec0 must emit ascending distance itself
-        assert_eq!(hits[0].0, "d0-exact", "k picked the wrong rows: {hits:?}");
-        assert_eq!(hits[1].0, "d1-near", "k picked the wrong rows: {hits:?}");
-        assert!(hits[0].1 <= hits[1].1, "distance is not ascending: {hits:?}");
-
-        drop(q);
+        assert!(sql.contains("fts5"), "still on vec0: {sql}");
+        let row: (String, String, i64) = conn
+            .query_row("select content, entry_id, created_at from memory_item", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(row, ("the deploy key lives in 1password".into(), "store-a".into(), 1234));
+        // and the rows landed in a *searchable* table — everything above would also
+        // pass if they had been copied somewhere unindexed
+        let hits: i64 = conn
+            .query_row(r#"select count(*) from memory_item where memory_item match '"deploy"'"#, [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(hits, 1);
+        // idempotent: a third boot must not re-run it and duplicate the row
         drop(conn);
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        let n: i64 =
+            store.conn().query_row("select count(*) from memory_item", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1, "the migration ran twice");
+
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -778,37 +840,34 @@ mod tests {
             .unwrap();
         assert_eq!(orphans, 0, "foreign_keys pragma is off — cascade did nothing");
 
-        // vec0: insert two vectors in one store plus a decoy in another, then a
-        // cosine KNN scoped to the first. Fails if the extension did not load, if
-        // the aux/partition syntax is wrong, or if the metric is not cosine.
-        let mut ins = conn.prepare(
-            "insert into memory_item (embedding, entry_id, content, created_at) values (?1, ?2, ?3, ?4)",
-        ).unwrap();
-        let mut e1 = vec![0.0f32; 1536];
-        e1[0] = 1.0;
-        let mut e2 = vec![0.0f32; 1536];
-        e2[1] = 1.0;
-        ins.execute(params![vec_blob(&e1), "store-a", "match me", now()]).unwrap();
-        ins.execute(params![vec_blob(&e2), "store-a", "orthogonal", now()]).unwrap();
-        ins.execute(params![vec_blob(&e1), "store-b", "wrong store", now()]).unwrap();
+        // FTS5: two items in one store plus a decoy in another, then a match scoped
+        // to the first. Fails if the DDL's column list is wrong (`content` is one
+        // character away from FTS5's `content=` option), or if entry_id were indexed
+        // and the uuid-ish decoy leaked in.
+        let mut ins = conn
+            .prepare("insert into memory_item (content, entry_id, created_at) values (?1, ?2, ?3)")
+            .unwrap();
+        ins.execute(params!["match me on deploy", "store-a", now()]).unwrap();
+        ins.execute(params!["nothing in common", "store-a", now()]).unwrap();
+        ins.execute(params!["deploy, but the wrong store", "store-b", now()]).unwrap();
         drop(ins);
 
-        let mut q = conn.prepare(
-            "select content, distance from memory_item
-             where embedding match ?1 and entry_id = ?2 and k = 5 order by distance",
-        ).unwrap();
-        let hits: Vec<(String, f64)> = q
-            .query_map(params![vec_blob(&e1), "store-a"], |r| Ok((r.get(0)?, r.get(1)?)))
+        let mut q = conn
+            .prepare(
+                "select content from memory_item
+                 where memory_item match ?1 and entry_id = ?2 order by rank",
+            )
+            .unwrap();
+        let hits: Vec<String> = q
+            .query_map(params![r#""deploy""#, "store-a"], |r| r.get(0))
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        assert_eq!(hits.len(), 2, "partition key did not scope the search");
-        assert_eq!(hits[0].0, "match me");
-        assert!(hits[0].1 < 0.001, "cosine distance to self should be ~0, got {}", hits[0].1);
-        assert!((hits[1].1 - 1.0).abs() < 0.001, "orthogonal cosine distance should be 1");
+        assert_eq!(hits, vec!["match me on deploy"], "the WHERE did not scope the search");
 
         drop(q);
         drop(conn);
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+

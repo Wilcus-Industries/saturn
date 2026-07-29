@@ -1,4 +1,5 @@
 mod agent;
+mod bash;
 mod events;
 mod gateway;
 mod github;
@@ -320,6 +321,42 @@ fn saturn_rename_session(store: State<Store>, id: String, name: String) -> Resul
 #[tauri::command]
 fn saturn_delete_session(store: State<Store>, id: String) -> Result<(), String> {
     saturn::delete_session(&store, &id)
+}
+
+/// Saturn Agent's own builtin tools, saved exactly like an MCP server's
+/// allowlist: the same `parse_tools` trust boundary, the same
+/// `{name, access, enabled}` submission, the same tri-state. The list arrives
+/// whole, so a tool the client drops is simply off — and one it invents is
+/// discarded on the way back out by `saturn::merge_tools`.
+///
+#[tauri::command]
+fn saturn_save_tools(store: State<Store>, tools: String) -> Result<(), String> {
+    registry::set_saturn_tools(&store, registry::parse_tools(&tools)?)
+}
+
+/// The chat's working directory, tilde-abbreviated for the composer chip. Blank
+/// in storage means `$HOME`, and this resolves it rather than returning `""` —
+/// the UI shows the user where the shell will actually land, never a blank.
+#[tauri::command]
+fn saturn_cwd(store: State<Store>, session_id: String) -> Result<String, String> {
+    let stored = saturn::session_cwd(&store, &session_id);
+    Ok(bash::abbreviate(&bash::cwd_dir(&stored)?))
+}
+
+/// Store the folder the user picked. The picker only ever hands back a real
+/// directory, but this is an IPC command like any other and the length and shape
+/// checks are the trust boundary — `bash::valid_cwd` owns the shape rule so the
+/// picker and `run_command` cannot disagree about which paths are legal.
+#[tauri::command]
+fn saturn_set_cwd(store: State<Store>, session_id: String, cwd: String) -> Result<(), String> {
+    let cwd = cwd.trim();
+    if len16(cwd) > registry::MAX_TOKEN {
+        return Err("Directory path too long".into());
+    }
+    if !bash::valid_cwd(cwd) {
+        return Err("Directory must be an absolute path, or start with ~/".into());
+    }
+    saturn::set_session_cwd(&store, &session_id, cwd)
 }
 
 #[tauri::command]
@@ -654,6 +691,13 @@ fn main() {
         // prompt. `None` — Saturn takes no argv, and a login-item launch should
         // land on exactly the same state a manual one does.
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        // The composer's folder picker, and the only thing this plugin is used
+        // for. A native NSOpenPanel rather than a text field: the working
+        // directory is now picked per chat, and typing a path is the wrong
+        // gesture for something done that often. The webview calls
+        // `plugin:dialog|open` through `lib/ipc.tsx`'s `call`, so no npm
+        // package rides along for what is one IPC command.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // app_data_dir is ~/Library/Application Support/<bundle identifier>, so the
             // db path follows tauri.conf.json's identifier and cannot drift from it.
@@ -745,6 +789,9 @@ fn main() {
             saturn_rename_session,
             saturn_delete_session,
             saturn_get_messages,
+            saturn_save_tools,
+            saturn_cwd,
+            saturn_set_cwd,
             has_openrouter_key,
             set_openrouter_key,
             has_github_pat,

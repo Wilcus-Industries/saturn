@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DEFAULT_MODEL } from "@/lib/agent";
-import { ArrowUp, ChevronDown, Stop } from "@/app/dashboard/icons";
+import { ArrowUp, ChevronDown, Folder, Stop } from "@/app/dashboard/icons";
 import ModelLogo from "@/app/dashboard/workflows/designer/modelLogo";
+import { call } from "@/lib/ipc";
+import { getSessionId, subscribe } from "./agentChatStore";
 // type-only import — compile-erased, safe in a client component
 import type { ProviderModels } from "@/app/dashboard/workflows/designer/designer";
 
@@ -41,8 +43,18 @@ const remember = (name: string, value: string) => {
 // (the logo already says who made it); list rows keep the full name
 const shortName = (name: string) => name.replace(/^[^:]+:\s*/, "");
 
-// composer for the Agent chat — owns the model + reasoning selectors and hands
-// the message text up via onSend; the parent (agentChat.tsx) owns the transcript
+// The last two segments identify a folder; the ancestors rarely do. Clipped
+// here rather than by CSS truncation, which eats the tail — the useful half —
+// and rather than by direction:rtl, which reorders the neutral leading "~/".
+// The title attribute carries the whole path either way.
+const shortPath = (path: string) => {
+    const parts = path.split("/");
+    return parts.length <= 3 ? path : `…/${parts.slice(-2).join("/")}`;
+};
+
+// composer for the Agent chat — owns the model + reasoning selectors, the
+// working-directory chip, and hands the message text up via onSend; the parent
+// (agentChat.tsx) owns the transcript
 export default function AgentComposer({
     models,
     onSend,
@@ -62,6 +74,49 @@ export default function AgentComposer({
     const [q, setQ] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const pickersRef = useRef<HTMLDivElement>(null);
+
+    // the working directory is per SESSION, not a localStorage pref like the two
+    // above: it is where run_command starts and the only tree it may write to,
+    // so it belongs to the conversation that will act in it. Read from the store
+    // rather than taken as a prop — agentChat.tsx does not carry the id, and
+    // both of its mount points already share this module state.
+    const sessionId = useSyncExternalStore(subscribe, getSessionId, () => "");
+    const [cwd, setCwd] = useState("");
+    const [cwdError, setCwdError] = useState("");
+
+    useEffect(() => {
+        if (!sessionId) return;
+        let live = true;
+        void call<string>("saturn_cwd", { sessionId })
+            .then((d) => void (live && setCwd(d)))
+            // a directory that will not resolve is the chip's own problem to
+            // show, not a reason to break the composer
+            .catch(() => void (live && setCwd("")));
+        return () => void (live = false);
+    }, [sessionId]);
+
+    // `plugin:dialog|open` directly rather than @tauri-apps/plugin-dialog: the
+    // npm package is a wrapper over this one invoke, and `call` already is one.
+    // Returns null when the user cancels — leave the directory alone.
+    const pickCwd = useCallback(async () => {
+        if (!sessionId) return;
+        // the chip lives inside pickersRef, so the outside-click dismissal does
+        // not fire for it — and a popover left open behind a modal native panel
+        // reads as the app having hung
+        setOpen(false);
+        setEffortOpen(false);
+        setCwdError("");
+        try {
+            const picked = await call<string | null>("plugin:dialog|open", {
+                options: { directory: true, multiple: false, recursive: false },
+            });
+            if (typeof picked !== "string") return;
+            await call("saturn_set_cwd", { sessionId, cwd: picked });
+            setCwd(await call<string>("saturn_cwd", { sessionId }));
+        } catch (err) {
+            setCwdError(err instanceof Error ? err.message : "could not set the directory");
+        }
+    }, [sessionId]);
 
     // the saved pick. Deliberately a mount effect rather than a lazy useState
     // initializer: this page is prerendered by the static export, so reading
@@ -439,6 +494,26 @@ export default function AgentComposer({
                         )}
                     </div>
                 )}
+
+                {/* working directory — same row as the model and effort chips,
+                    pushed to the far right so it sits under the send button.
+                    `ml-auto` is what does that; nothing else in the row grows. */}
+                <button
+                    type={"button"}
+                    onClick={() => void pickCwd()}
+                    disabled={!sessionId}
+                    title={cwdError || `${cwd || "…"} — click to choose a folder`}
+                    aria-label={`Working directory: ${cwd || "loading"}. Click to choose a folder.`}
+                    className={
+                        "ml-auto flex min-w-0 cursor-pointer items-center gap-1.5 py-1 px-1 " +
+                        "font-mono text-xs transition-colors hover:text-foreground " +
+                        "disabled:cursor-default disabled:opacity-40 " +
+                        (cwdError ? "text-red-400" : "text-gray-400")
+                    }
+                >
+                    <Folder aria-hidden className={"h-3 w-3 shrink-0"} />
+                    <span className={"truncate"}>{cwd ? shortPath(cwd) : "…"}</span>
+                </button>
             </div>
         </form>
     );
