@@ -34,7 +34,7 @@ use rusqlite::params;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::agent::{MAX_AGENT_MESSAGES, MAX_AGENT_TURNS, MAX_TOOL_CALLS_PER_TURN};
+use crate::agent::{MAX_AGENT_MESSAGES, MAX_TOOL_CALLS_PER_TURN};
 use crate::interpreter::{utf16_prefix, CatalogEntry, CATALOG};
 use crate::mcp::McpToolParamType as T;
 use crate::memory::{param, spec};
@@ -131,7 +131,59 @@ pub fn init(store: &Store) -> rusqlite::Result<()> {
              created_at integer not null
          );
          create index if not exists saturn_message_session on saturn_message (session_id, id);",
-    )
+    )?;
+    // The one column added after the table shipped, so it cannot ride in the
+    // batch above — `create table if not exists` is a no-op on an existing
+    // `saturn.db` and would leave the column missing. There is no migration
+    // machinery (`store.rs`) and this does not earn one: re-running it fails
+    // with "duplicate column name", which is the success case on every boot
+    // after the first.
+    let _ = store
+        .conn()
+        .execute("alter table saturn_session add column cwd text not null default ''", []);
+    Ok(())
+}
+
+/// The session's working directory, as stored — `""` means `$HOME`, which
+/// `bash::cwd_dir` resolves. Fails open to `""` for the same reason
+/// `entry_config` does: a missing row must leave the shell on the default
+/// rather than fail the turn.
+pub fn session_cwd(store: &Store, session_id: &str) -> String {
+    store
+        .conn()
+        .query_row("select cwd from saturn_session where id = ?1", [session_id], |r| {
+            r.get::<_, String>(0)
+        })
+        .unwrap_or_default()
+}
+
+/// Store the directory the user picked. Validated through `bash::valid_cwd`
+/// rather than a second copy of the rule — a path this accepts and `run_command`
+/// then refuses is one the user cannot fix from the picker. Stored
+/// tilde-abbreviated so a home directory that moves still resolves.
+pub fn set_session_cwd(store: &Store, session_id: &str, cwd: &str) -> Result<(), String> {
+    let cwd = cwd.trim();
+    if !crate::bash::valid_cwd(cwd) {
+        return Err("directory must be an absolute path".into());
+    }
+    // resolve now, so an unreachable path is rejected while the user is looking
+    // at the picker rather than three turns later inside a tool result
+    let stored = if cwd.is_empty() {
+        String::new()
+    } else {
+        crate::bash::abbreviate(&crate::bash::cwd_dir(cwd)?)
+    };
+    let changed = store
+        .conn()
+        .execute(
+            "update saturn_session set cwd = ?2 where id = ?1",
+            params![session_id, stored],
+        )
+        .map_err(|e| e.to_string())?;
+    if changed == 0 {
+        return Err("Not found".into());
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -793,7 +845,7 @@ fn all_specs(nested: bool) -> Vec<ToolSpec> {
         // no system-prompt paragraph for it — so every constraint it has to
         // plan around is stated here rather than discovered by failing.
         spec(TOOL_ENTRY, "run_command",
-            "Run a shell command on this machine and return its combined output. The command line is executed with /bin/sh -c, so pipes, redirection and && all work. The working directory is the Saturn workspace, and that workspace is the ONLY path you may write to — the rest of the disk is readable but not writable, and writes are refused entirely unless this tool is granted read+write. Commands are killed after 60 seconds and long output is truncated. There is no interactive input: never run anything that waits at a prompt, a pager or a password (pass --yes/--no-pager style flags, and redirect from /dev/null if unsure). A non-zero exit is returned to you as output, not as a tool error — read it.",
+            "Run a shell command on this machine and return its combined output. The command line is executed with /bin/sh -c, so pipes, redirection and && all work. This is also how you read and write files — there is no separate file tool: use cat, ls, grep, sed and heredocs. The command starts in this chat's working directory (stated in your system prompt), and that tree is the ONLY path you may write to — the rest of the disk is readable but not writable, credential directories (~/.ssh, ~/.aws, ~/.gnupg, ~/.config/gh, the keychain) are neither, and writes are refused entirely unless this tool is granted read+write. Each call is a fresh shell: cd does not persist between calls, so write paths relative to the working directory or absolute. Commands are killed after 60 seconds and long output is truncated. There is no interactive input: never run anything that waits at a prompt, a pager or a password (pass --yes/--no-pager style flags, and redirect from /dev/null if unsure). A non-zero exit is returned to you as output, not as a tool error — read it.",
             vec![param("command", T::String, true, "the shell command line to run")]),
     ];
     if !nested {
@@ -814,6 +866,10 @@ fn dispatch(
     store: &Store,
     vault: &dyn Vault,
     state: &[registry::McpTool],
+    // the session's working directory, read once per turn by `run_turn` — a
+    // parameter rather than a lookup here so a 60s command is not holding the
+    // connection guard every other reader in the process is queued behind
+    cwd: &str,
     name: &str,
     args: &Value,
     emit: &mut dyn FnMut(&str, &str),
@@ -840,10 +896,7 @@ fn dispatch(
 
     match name {
         n if crate::memory::MEMORY_TOOL_NAMES.contains(&n) => {
-            // read per call, not per turn: a key pasted into settings mid-chat
-            // must work on the next tool call
-            let key = crate::runner::openrouter_key(vault).unwrap_or_default();
-            crate::memory::execute_memory_tool(store, &key, MEMORY_ID, n, &args.to_string())
+            crate::memory::execute_memory_tool(store, MEMORY_ID, n, &args.to_string())
         }
 
         "list_workflows" => {
@@ -1117,11 +1170,7 @@ fn dispatch(
             if command.is_empty() {
                 return Err("command is required".into());
             }
-            // read the workspace and drop the connection guard before the
-            // subprocess — a 60s command must not hold every other reader out
-            let workspace =
-                entry_config(store)["workspace"].as_str().unwrap_or_default().to_string();
-            crate::bash::run(&command, me.access == "write", &workspace)
+            crate::bash::run(&command, me.access == "write", cwd)
         }
 
         other => Err(format!("unknown tool \"{other}\"")),
@@ -1187,8 +1236,10 @@ pub fn run_turn(
     if registry::len16(text) > MAX_CHAT_MESSAGE {
         return Err("message too long".into());
     }
-    let api_key = crate::runner::openrouter_key(vault)
-        .ok_or("model calls need an OpenRouter key: add one in settings")?;
+    // by slug, not unconditionally: a turn on a local provider needs no OpenRouter
+    // key at all, and reading one here gated the whole chat on a key the model
+    // about to be called never sees.
+    let api_key = crate::runner::model_key(vault, req.model)?;
 
     append(store, req.session_id, "user", text, &json!([]))?;
     // before the transcript, so the turn that trips the budget is already the
@@ -1198,7 +1249,11 @@ pub fn run_turn(
     // read the transcript and DROP the connection guard before any socket —
     // `store.conn()` serializes every reader in the process
     let mut wire = transcript(store, req.session_id)?;
-    let system = system_prompt(req);
+    // read once, off the connection, and used twice: the system prompt states it
+    // and loads the project's own instruction files out of it, and `dispatch`
+    // hands it to the sandbox as `run_command`'s cwd and write carve-out.
+    let cwd = session_cwd(store, req.session_id);
+    let system = system_prompt(req, &cwd);
     // ONE read of the user's grants for the whole turn, off the connection and
     // done before any socket. `tool_specs` decides what is offered and
     // `dispatch` re-checks what is called, both against this same list.
@@ -1212,9 +1267,22 @@ pub fn run_turn(
 
     let mut parts: Vec<Value> = Vec::new();
     let mut full_text = String::new();
-    let mut outcome: Result<String, String> = Ok(String::new());
+    // no initializer: every exit from the loop below is a `break` that assigns
+    // this first, and letting the compiler prove that is what stops a future
+    // break path from silently returning an empty reply
+    let outcome: Result<String, String>;
 
-    for turn in 0..MAX_AGENT_TURNS {
+    // Unbounded, deliberately — the chat runs until the model stops calling
+    // tools, the stream errors, or the user hits stop. A chat is watched while
+    // it runs and has a stop button; the `agent` node keeps `MAX_AGENT_TURNS`
+    // because a cron-fired run has neither.
+    //
+    // ponytail: the remaining ceiling is the provider's context window. `wire`
+    // grows all turn and compaction only runs *before* a turn, so a loop that
+    // never converges ends on a context-length 400, which breaks out through
+    // the stream-error path below rather than gracefully. Upgrade: re-compact
+    // inside the loop when `wire` crosses COMPACT_AT.
+    loop {
         let mut turn_text = String::new();
         let calls = {
             // the emit closure and the part accumulator both borrow mutably, so
@@ -1281,7 +1349,7 @@ pub fn run_turn(
                 Err("stopped".to_string())
             } else {
                 match parse_args(&call.arguments) {
-                    Some(args) => dispatch(store, vault, &state, &call.name, &args, emit),
+                    Some(args) => dispatch(store, vault, &state, &cwd, &call.name, &args, emit),
                     None => Err("invalid tool arguments — expected a JSON object".into()),
                 }
             };
@@ -1310,13 +1378,6 @@ pub fn run_turn(
         if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
             outcome = Ok(full_text.clone());
             break;
-        }
-        if turn + 1 == MAX_AGENT_TURNS {
-            let note = "\n[stopped: turn limit reached]";
-            emit("c", note);
-            grow(&mut parts, "text", note);
-            full_text.push_str(note);
-            outcome = Ok(full_text.clone());
         }
     }
 
@@ -1353,8 +1414,64 @@ fn parse_args(raw: &str) -> Option<Value> {
     }
 }
 
-fn system_prompt(req: &TurnRequest) -> String {
+/// Instruction files a project keeps at its root, in the order they are read.
+/// Both spellings of the agent-neutral one: `AGENTS.md` is the convention, and
+/// `AGENT.md` is common enough in the wild that missing it reads as the feature
+/// being broken.
+const PROJECT_FILES: [&str; 3] = ["CLAUDE.md", "AGENTS.md", "AGENT.md"];
+/// Chars of project instructions carried into one system prompt, across all of
+/// `PROJECT_FILES` together. A large `CLAUDE.md` is a few thousand; this is
+/// generous for that and still nowhere near the transcript budget the turn loop
+/// is actually spending.
+const MAX_PROJECT_INSTRUCTIONS: usize = 16_000;
+
+/// The project's own instruction files, read from the session's directory.
+///
+/// Root only — no walk up to a parent and no recursive scan of subdirectories.
+/// The directory the user picked in the composer is the project they said they
+/// are working in, and a walk would silently pull in a `CLAUDE.md` from a
+/// parent they did not choose.
+///
+/// Read at the top of every turn rather than cached: the user edits these files
+/// while the chat is open, and a stale copy is worse than none. Failures are
+/// silent — an unreadable file means the turn runs without it, never that the
+/// turn fails.
+fn project_instructions(cwd: &str) -> String {
+    let Ok(dir) = crate::bash::cwd_dir(cwd) else { return String::new() };
+    let mut out = String::new();
+    for name in PROJECT_FILES {
+        let Ok(body) = std::fs::read_to_string(dir.join(name)) else { continue };
+        let body = body.trim();
+        if body.is_empty() {
+            continue;
+        }
+        let room = MAX_PROJECT_INSTRUCTIONS.saturating_sub(out.chars().count());
+        if room == 0 {
+            break;
+        }
+        let end = body.char_indices().nth(room).map_or(body.len(), |(i, _)| i);
+        out.push_str(&format!("\n\n--- {name} ---\n{}", &body[..end]));
+    }
+    out
+}
+
+fn system_prompt(req: &TurnRequest, cwd: &str) -> String {
     let mut system = SATURN_SYSTEM.to_string();
+    let shown = crate::bash::cwd_dir(cwd)
+        .map_or_else(|_| cwd.to_string(), |d| crate::bash::abbreviate(&d));
+    system.push_str(&format!(
+        "\nThe working directory for this chat is {shown}. run_command starts there, and with the \
+         read+write grant that tree is the only place you may write."
+    ));
+    let project = project_instructions(cwd);
+    if !project.is_empty() {
+        system.push_str(&format!(
+            "\n\nThe following instruction files are at the root of that directory. They are the \
+             user's standing instructions for work done there — follow them as if the user had \
+             written them in this chat, and prefer them over your own defaults where they \
+             disagree. They are not a task.{project}"
+        ));
+    }
     if let Some(id) = req.workflow_id {
         system.push_str(&format!(
             "\nThe user has workflow {id} open in the designer right now — a save_graph on that \
@@ -1381,37 +1498,48 @@ fn system_prompt(req: &TurnRequest) -> String {
 /// do it silently. Kept verbatim: the get_docs/get_catalog hard rule, the
 /// validate-before-save rule, the write-only-secrets rule, the destructive-ops
 /// rule and the no-markdown rule.
-const SATURN_SYSTEM: &str = "You are Saturn Agent, the centre of Saturn — a native desktop app \
-where a person's automations live as event-driven agent workflows, authored as node graphs on a \
+///
+/// The capability tour it opened with is now a routing list — which tool for
+/// which kind of request — because the failure mode was never that the model did
+/// not know a builtin existed, it was reaching for the wrong one (a graph for a
+/// one-off action, a save without a validate). Per-tool detail deliberately does
+/// not appear here: `all_specs` already carries it, and `run_command`'s
+/// description is by design the only briefing on the sandbox.
+const SATURN_SYSTEM: &str = "You are Saturn Agent, the centre of Saturn — a native macOS app where \
+one person's automations live as event-driven agent workflows, authored as node graphs on a \
 canvas. You are how they talk to it.\n\
-You are a general assistant first. Answer questions, think things through, and do one-off work \
-directly — you are not limited to workflow topics, and most turns are not about a graph at all.\n\
-You have real tools over this machine's own data: workflows (list/read/create/update/delete, save \
-+ validate graphs, run them, read run history), your own persistent memory, and a read view of \
-the registry (MCP servers, skills, variables, memory stores).\n\
-You can also call the user's registered MCP servers yourself, with call_mcp_tool — list_registry \
-gives you each server's id and its tools with their parameters. The registry is read live from \
-this machine, so the user can add or remove a server mid-conversation and an earlier \
-list_registry result goes stale: if a call fails with a server or tool that is not found, re-call \
-list_registry before telling the user anything is missing. When the user asks you to DO \
-something an MCP tool can do, call it and report what happened. Never author a workflow as a way \
-of calling a tool once: a workflow is for what should happen again, on a schedule or an event.\n\
-You have a memory store of your own that outlives this conversation. Search it before assuming \
-you do not know something about this person or their setup, and save what is worth having next \
-time — durable facts, preferences, decisions and how their workflows are meant to fit together. \
-Not raw transcripts, and not something they told you to forget.\n\
-Hard rule: before you author or edit ANY workflow graph, call get_docs and get_catalog first. \
-Never guess the graph format or a node type — the catalog is the only source of valid node keys, \
-ports and config fields, and it differs per machine.\n\
-Omit x and y on the nodes you write — Saturn places them. Send coordinates on EVERY node only \
-when you are round-tripping a graph out of get_workflow and want to keep the arrangement the user \
-dragged into place.\n\
-Prefer validate_graph before save_graph, and fix reported errors rather than saving a broken \
-graph. Warnings are usually worth mentioning to the user.\n\
-Secret values (variable secrets, MCP auth tokens) are write-only: you can never read them. Never \
+You are a general assistant first: answer questions, think things through, do one-off work \
+directly. Most turns are not about a graph at all. Finish what is asked — don't gold-plate, don't \
+leave it half-done.\n\
+Your tools act on this machine's real data. Pick by what the user actually wants:\n\
+Something that should happen again, on a schedule or an event → a workflow. get_docs and \
+get_catalog first, then validate_graph, then save_graph, then run_workflow to see it work.\n\
+Something that should happen once, now → just do it: call_mcp_tool for a registered server's \
+tool, run_command for the shell. Never author a workflow as a way of calling a tool once.\n\
+A question about their setup → list_workflows, get_workflow, list_runs, list_registry. Read \
+before you claim.\n\
+Something worth having next time → memory_save. And memory_search before assuming you do not know \
+something about this person or their setup — durable facts, preferences and decisions, not \
+transcripts, and not what they told you to forget.\n\
+The tool descriptions are exact — read the one you are about to use instead of guessing its \
+arguments. The rules that cost you a turn when broken:\n\
+Never write a graph before calling get_docs and get_catalog. Node keys, ports and config fields \
+differ per machine; a guessed one fails validation.\n\
+Omit x and y on nodes — Saturn places them. Send coordinates on EVERY node only when you are \
+round-tripping a graph out of get_workflow and want to keep the arrangement the user dragged into \
+place.\n\
+validate_graph before save_graph, and fix the errors rather than saving a broken graph. Warnings \
+are usually worth mentioning to the user.\n\
+The registry is read live from this machine, so an earlier list_registry goes stale: if a call \
+fails with a server or tool that is not found, re-call list_registry before telling the user \
+anything is missing.\n\
+run_command is sandboxed and is also your only way to read or write a file: this chat's working \
+directory is the only writable path, each call is a fresh shell so cd does not persist, there is \
+no interactive input, and a non-zero exit comes back as output rather than an error — read it. \
+Look before you edit — cat the file you are about to change.\n\
+Secret values (variable secrets, MCP auth tokens) are write-only. You can never read one; never \
 echo, guess or invent one.\n\
-Tools act on real data — deletes and runs have real side effects. When a request is destructive \
-or ambiguous, ask first.\n\
+Deletes and runs have real side effects. When a request is destructive or ambiguous, ask first.\n\
 Be concise and practical. The chat renders your text verbatim, so write plain text only — no \
 markdown at all (no **bold**, no # headings, no backticks); they show up as literal characters.";
 
@@ -1853,7 +1981,7 @@ mod tests {
         let doomed = store.create_workflow_with("doomed", "⚙️", "", empty()).unwrap();
         let state = tool_state(&store);
         assert!(
-            dispatch(&store, &vault, &state, "delete_workflow", &json!({ "id": doomed.id }), &mut emit)
+            dispatch(&store, &vault, &state, "", "delete_workflow", &json!({ "id": doomed.id }), &mut emit)
                 .is_ok()
         );
 
@@ -1869,7 +1997,7 @@ mod tests {
             })
             .collect();
         let tools = registry::parse_tools(&serde_json::to_string(&submitted).unwrap()).unwrap();
-        registry::set_saturn_tools(&store, tools, "").unwrap();
+        registry::set_saturn_tools(&store, tools).unwrap();
 
         let state = tool_state(&store);
         let offered = build_tool_defs(&tool_specs(&state, false))
@@ -1883,12 +2011,58 @@ mod tests {
         // ...and naming it anyway is a tool failure, not a delete
         let spared = store.create_workflow_with("spared", "⚙️", "", empty()).unwrap();
         assert_eq!(
-            dispatch(&store, &vault, &state, "delete_workflow", &json!({ "id": spared.id }), &mut emit),
+            dispatch(&store, &vault, &state, "", "delete_workflow", &json!({ "id": spared.id }), &mut emit),
             Err("tool \"delete_workflow\" is not enabled".into())
         );
         assert!(store.workflow(&spared.id).unwrap().is_some(), "a disabled tool ran anyway");
         // an invented name is the same answer, and never a panic
-        assert!(dispatch(&store, &vault, &state, "rm_rf", &json!({}), &mut emit).is_err());
+        assert!(dispatch(&store, &vault, &state, "", "rm_rf", &json!({}), &mut emit).is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The session's directory reaches the model two ways — as a stated cwd and
+    /// as the project's own instruction files — and both are silent when they
+    /// break: a prompt that simply lacks the paragraph reads exactly like one
+    /// where the user wrote no CLAUDE.md.
+    #[test]
+    fn the_system_prompt_carries_the_cwd_and_the_projects_instruction_files() {
+        let dir = std::env::temp_dir().join(format!("saturn-prompt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cwd = dir.to_str().unwrap();
+        let req = TurnRequest {
+            session_id: "s",
+            model: "m",
+            reasoning: None,
+            text: "hi",
+            workflow_id: None,
+            nested: false,
+        };
+
+        // no files: the directory is stated, and nothing claims instructions
+        let bare = system_prompt(&req, cwd);
+        assert!(bare.contains("working directory for this chat"), "{bare}");
+        assert!(!bare.contains("instruction files are at the root"), "{bare}");
+
+        // every spelling is read, and each is labelled with the name it came
+        // from — an unlabelled concatenation reads as one contradictory file
+        std::fs::write(dir.join("CLAUDE.md"), "prefer tabs").unwrap();
+        std::fs::write(dir.join("AGENTS.md"), "run the linter").unwrap();
+        std::fs::write(dir.join("AGENT.md"), "  ").unwrap();
+        let loaded = system_prompt(&req, cwd);
+        assert!(loaded.contains("--- CLAUDE.md ---\nprefer tabs"), "{loaded}");
+        assert!(loaded.contains("--- AGENTS.md ---\nrun the linter"), "{loaded}");
+        assert!(!loaded.contains("AGENT.md"), "a whitespace-only file is not a block: {loaded}");
+
+        // the cap bounds the whole set, not each file, and cuts on a char
+        // boundary — a byte slice through a multi-byte char panics
+        std::fs::write(dir.join("CLAUDE.md"), "é".repeat(MAX_PROJECT_INSTRUCTIONS * 2)).unwrap();
+        let capped = project_instructions(cwd);
+        assert!(capped.chars().count() < MAX_PROJECT_INSTRUCTIONS + 200, "{}", capped.len());
+        assert!(!capped.contains("run the linter"), "the cap must stop the later files");
+
+        // an unreadable directory costs the turn nothing
+        assert_eq!(project_instructions("/nope/does/not/exist"), "");
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1899,23 +2073,29 @@ mod tests {
     /// `bash.rs` already proves the profile confines writes; what is unproven
     /// there is the wiring — that the settings save lands in the row, that
     /// `tool_state` reads it back, that the tri-state's third position becomes
-    /// `write: true`, and that the configured workspace is the one the command
-    /// actually runs in. A bug in any of those makes the switch cosmetic while
-    /// every test on either side of it still passes.
+    /// `write: true`, and that the session's own directory is the one the
+    /// command actually runs in. A bug in any of those makes the switch
+    /// cosmetic while every test on either side of it still passes.
     #[test]
     fn the_run_command_grant_reaches_the_sandbox() {
         let (store, dir) = store();
         let vault = crate::secrets::FakeVault::default();
         let mut emit = |_: &str, _: &str| {};
-        let run = |state: &[registry::McpTool], store: &Store, emit: &mut dyn FnMut(&str, &str)| {
-            dispatch(store, &vault, state, "run_command", &json!({ "command": "echo hi > w.txt && cat w.txt" }), emit)
-        };
 
-        // a workspace OUTSIDE $TMPDIR, or the profile's temp carve-out would let
+        // a directory OUTSIDE $TMPDIR, or the profile's temp carve-out would let
         // the write through and prove nothing (the trap `bash.rs`'s own test
-        // documents)
-        let ws = crate::bash::workspace_dir("").unwrap().join(format!(".saturn-test-{}", std::process::id()));
-        let ws = crate::bash::workspace_dir(ws.to_str().unwrap()).unwrap();
+        // documents). Stored on a real session, which is where `run_turn` reads
+        // it from — not passed straight to `dispatch`.
+        let ws = crate::bash::cwd_dir("").unwrap().join(format!(".saturn-test-{}", std::process::id()));
+        let ws = crate::bash::cwd_dir(ws.to_str().unwrap()).unwrap();
+        let session = create_session(&store, Some("cwd chat")).unwrap().id;
+        set_session_cwd(&store, &session, ws.to_str().unwrap()).unwrap();
+        let cwd = session_cwd(&store, &session);
+        assert_eq!(crate::bash::cwd_dir(&cwd).unwrap(), ws, "the stored cwd must round-trip");
+
+        let run = |state: &[registry::McpTool], store: &Store, emit: &mut dyn FnMut(&str, &str)| {
+            dispatch(store, &vault, state, &cwd, "run_command", &json!({ "command": "echo hi > w.txt && cat w.txt" }), emit)
+        };
 
         // ships off: naming it is a tool failure even though it exists
         assert_eq!(
@@ -1940,23 +2120,23 @@ mod tests {
                 })
                 .collect();
             let tools = registry::parse_tools(&serde_json::to_string(&submitted).unwrap()).unwrap();
-            registry::set_saturn_tools(store, tools, ws.to_str().unwrap()).unwrap();
+            registry::set_saturn_tools(store, tools).unwrap();
             tool_state(store)
         };
 
-        // read+write: the command runs and the file lands in the CONFIGURED
-        // workspace, not in whatever directory the app was launched from
+        // read+write: the command runs and the file lands in the SESSION's
+        // directory, not in whatever directory the app was launched from
         let granted = run(&save("write", &store), &store, &mut emit).unwrap();
         assert!(granted.contains("exit code: 0"), "{granted}");
         assert!(granted.contains("hi"), "{granted}");
-        assert!(ws.join("w.txt").exists(), "the write did not land in the configured workspace");
+        assert!(ws.join("w.txt").exists(), "the write did not land in the session's directory");
 
         // read: same tool, same command, refused by the kernel rather than by a
         // branch here — the call still succeeds, the write inside it does not
         std::fs::remove_file(ws.join("w.txt")).ok();
         let denied = run(&save("read", &store), &store, &mut emit).unwrap();
         assert!(!denied.contains("exit code: 0"), "read must not write: {denied}");
-        assert!(!ws.join("w.txt").exists(), "the workspace is writable at read");
+        assert!(!ws.join("w.txt").exists(), "the directory is writable at read");
 
         std::fs::remove_dir_all(&ws).ok();
         std::fs::remove_dir_all(&dir).ok();
@@ -1984,12 +2164,10 @@ mod tests {
         assert_eq!(rows[0].id, TOOLS_ID, "created_at 0 pins Saturn first in settings");
         assert!(!registry::build_user_catalog(&rows).values().any(|e| e.category == "saturn"));
 
-        // the workspace round-trips rather than being reset by the next save
-        registry::set_saturn_tools(&store, registry::parse_tools("[]").unwrap(), "/tmp/ws").unwrap();
+        // an empty stored list still merges back to the full surface
+        registry::set_saturn_tools(&store, registry::parse_tools("[]").unwrap()).unwrap();
         let rows = registry::get_user_registry(&store, &vault).unwrap();
         let row = rows.iter().find(|r| r.id == TOOLS_ID).unwrap();
-        assert_eq!(row.workspace, "/tmp/ws");
-        // ...and an empty stored list still merges back to the full surface
         assert_eq!(row.tools.len(), 17);
         assert_eq!(tool_state(&store).len(), 17);
 
@@ -2008,7 +2186,7 @@ mod tests {
         let mut emit = |_: &str, _: &str| {};
         let state = tool_state(&store);
         let call = |args: Value, emit: &mut dyn FnMut(&str, &str)| {
-            dispatch(&store, &vault, &state, "call_mcp_tool", &args, emit)
+            dispatch(&store, &vault, &state, "", "call_mcp_tool", &args, emit)
         };
 
         assert_eq!(

@@ -158,6 +158,20 @@ Prefs (`agentModel`, `agentEffort`, `saturnSession`) are `localStorage` read in 
 mount effect rather than the `<head>`-script pattern — none of them shifts
 layout, and the composer already enters on a delay.
 
+The composer's third chip, the **working directory**, is deliberately not one of
+them. It sits at the right end of the same row as the model and effort chips
+(`ml-auto` is the whole of that alignment, so it lands under the send button),
+and it is stored on the *session* rather than in `localStorage`: it is where
+`run_command` starts and the only tree that tool may write to, so it belongs to
+the conversation that will act in it, not to the browser profile. `saturn_cwd`
+reads it back tilde-abbreviated — never blank, so the chip always says where the
+shell will actually land — and the picker is Tauri's `plugin:dialog|open` called
+straight through `call()`, no npm package: `@tauri-apps/plugin-dialog` is a
+wrapper over that one invoke and `lib/ipc.tsx` already is one. The composer takes
+no `sessionId` prop; it reads `getSessionId()` off `agentChatStore` through
+`useSyncExternalStore`, which is what makes the chip correct in both of
+`AgentChat`'s mount points without threading anything through `agentChat.tsx`.
+
 ## There is no invalidation bus
 
 23 `revalidatePath` calls did not become 23 event channels. A mutation the user

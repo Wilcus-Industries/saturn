@@ -205,25 +205,28 @@ A memory store is a `registry_entry` of kind `memory`; attaching one prepends
 three tools — `memory_search` / `memory_save` / `memory_forget` — to the agent's
 tool array (head position, so the wire-name builder reserves clean names) and
 injects a `## Memory: <name>` system block. Calls route by
-`entry_id == memory_id` to `memory.rs`, which embeds through OpenRouter's
-`/api/v1/embeddings` (`openai/text-embedding-3-small`, 1536 dims) and searches
-the local `vec0` table. That model is pinned against a `float[1536]` table, so
-embeddings are **OpenRouter-only** whatever provider the agent's own model runs
-on — an agent on a local provider with a memory store and no OpenRouter key gets
-"memory needs an OpenRouter key for embeddings" back as a tool result
-(`docs/open-decisions.md` §1.6).
+`entry_id == memory_id` to `memory.rs`, which searches a local **FTS5** table by
+BM25 (`order by rank`). No embedding call, no key and no network: memory works
+identically whatever provider the agent's model runs on, including none
+(`docs/open-decisions.md` §1.6). The trade is that matching is lexical — the
+tool description tells the model to name the terms it expects rather than ask a
+question, and `memory.rs`'s `fts_query` rebuilds whatever it writes into quoted
+terms, because a raw query with an apostrophe or the word "and" is an FTS5
+syntax error rather than a bad search.
+
+Two invariants live in that query. `entry_id` is UNINDEXED, so the `WHERE` is
+the *only* thing scoping a search to one store — drop it and every store in the
+file is searched at once. And results carry no `score`: bm25 is unbounded and
+negative, not the 0-1 similarity the vector version returned, so rank order is
+the signal.
 
 Every failure comes back as a value the caller renders, never a panic — those
 strings are fed back to the model and printed to the run console.
 
 Two things the hosted version had are gone on purpose: the `MAX_MEMORY_ITEMS`
 per-store cap (stores are uncapped now — that limit existed because Postgres had
-no ANN index and the table was shared), and the platform-credits/BYOK fork
-(BYOK only, so the key is a parameter and nothing is metered). There is no HNSW
-index either: `vec0` brute force over tens of thousands of vectors is single-digit
-milliseconds, invisible next to the ~200 ms embedding round trip, and costs
-nothing on write. Adding one later is one line in `store.rs`'s `create virtual
-table` — do it when a search is measurably slow.
+no ANN index and the table was shared), and the platform-credits/BYOK fork,
+along with the embedding call it forked on.
 
 One store is always present: Saturn Agent's own, seeded by `store.rs`'s `SCHEMA`
 and undeletable (`docs/registry.md`). It is an ordinary `memory:<uuid>` chip in
@@ -261,7 +264,7 @@ the next run would re-send.
 ### The `saturn-agent` node
 
 The `agent` node's shape in its own black `gateway` category, but it **is** Saturn
-Agent: Saturn's own system prompt, its twelve tools and its one memory store. No
+Agent: Saturn's own system prompt, its 17 tools and its one memory store. No
 `system` port and no grant ports beyond the chat it runs in — that is the point. A
 custom prompt would make it an `agent` node with extra steps.
 
@@ -324,6 +327,12 @@ sandbox is the same boundary whether a person or a node asked. Everything else,
 memory included, is the chat's surface exactly, including the user's own
 off / read / read+write grants (`docs/registry.md`, kind `saturn`).
 
+Because the node binds a session by name, it inherits **that session's working
+directory** — `run_command` in a headless run starts where the same chat's
+composer says it does, and picks up the same `CLAUDE.md`. A node bound to a
+session nobody has pointed anywhere runs in `$HOME`, which is the chat default,
+not a node-specific one.
+
 It renders with **zero designer code**: `geometry.ts`'s `isAgentEntry` matches
 `saturn` and `gateway` alike, so the horizontal layout, the left-edge flow in, the
 stacked right-edge outputs, the three bottom ports and the `ConfigControl` select
@@ -348,7 +357,7 @@ carries the copies the designer needs for its warnings and tool picker.
 
 | cap | value | where |
 |---|---|---|
-| `MAX_AGENT_TURNS` | 8 | `agent.rs` |
+| `MAX_AGENT_TURNS` | 8 | `agent.rs` — the `agent` node only. **The Saturn Agent chat has no turn cap**: it loops until the model stops calling tools, the stream errors, or the user hits stop. A chat is watched and has a stop button; a cron-fired node run has neither |
 | `MAX_TOOL_CALLS_PER_TURN` | 5 | `agent.rs` |
 | `MAX_AGENT_MCP_CALLS` | 40 | `agent.rs` — memory calls debit the same budget |
 | `MAX_AGENT_MESSAGES` | 60 | `agent.rs` — transcript length per model call |

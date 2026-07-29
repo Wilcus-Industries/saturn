@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import Field from "@/app/dashboard/field";
 import ModalShell from "@/app/dashboard/modalShell";
 import { call } from "@/lib/ipc";
 import type { RegistryEntryRow } from "@/lib/registry";
@@ -10,7 +8,8 @@ import ToolListEditor from "./toolListEditor";
 // Saturn's own tools, pinned above the mcp servers in the same card chrome —
 // minus everything that needs a server (no host, no token, no connect) and
 // minus delete: the row is seeded, so the only edits are the per-tool access
-// switches and the workspace run_command gets to work in.
+// switches. run_command's working directory is NOT here — it is per chat,
+// picked from the composer.
 export default function BuiltinToolsCard({
     entry,
     onSaved,
@@ -18,8 +17,6 @@ export default function BuiltinToolsCard({
     entry: RegistryEntryRow;
     onSaved: () => void;
 }) {
-    // controlled, like every other modal field — a failed save must not wipe it
-    const [workspace, setWorkspace] = useState("");
     const enabledTools = entry.tools.filter((t) => t.enabled).length;
 
     return (
@@ -47,7 +44,6 @@ export default function BuiltinToolsCard({
                             try {
                                 await call("saturn_save_tools", {
                                     tools: String(formData.get("tools") ?? "[]"),
-                                    workspace: String(formData.get("workspace") ?? ""),
                                 });
                             } catch (err) {
                                 return {
@@ -56,7 +52,6 @@ export default function BuiltinToolsCard({
                             }
                             onSaved();
                         }}
-                        onOpen={() => setWorkspace(entry.workspace)}
                         trigger={(open) => (
                             <button
                                 type={"button"}
@@ -67,17 +62,9 @@ export default function BuiltinToolsCard({
                             </button>
                         )}
                     >
-                        <Field
-                            label={"workspace"}
-                            name={"workspace"}
-                            placeholder={"~/Saturn"}
-                            value={workspace}
-                            onChange={(e) => setWorkspace(e.target.value)}
-                        />
-
                         <p className={"font-mono text-xs text-gray-400"}>
-                            run_command runs bash in this directory, and it is the only place
-                            Saturn may write
+                            run_command runs bash in the working directory each chat picks below
+                            its composer, and that directory is the only place Saturn may write
                         </p>
 
                         <ToolListEditor initial={entry.tools} fixed />

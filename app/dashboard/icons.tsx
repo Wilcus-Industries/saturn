@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-// The fourteen glyphs the app uses, inlined rather than carried by an icon package.
+// The fifteen glyphs the app uses, inlined rather than carried by an icon package.
 // Path data copied verbatim from the upstream sets: Font Awesome 6 Free (solid,
 // CC-BY-4.0) for everything but RobotLine, which is Remix Icon's
 // ri-robot-2-line (Apache-2.0).
@@ -86,6 +86,12 @@ export const ChevronDown = icon(
 export const Stop = icon(
     "0 0 384 512",
     "M0 128C0 92.7 28.7 64 64 64l256 0c35.3 0 64 28.7 64 64l0 256c0 35.3-28.7 64-64 64L64 448c-35.3 0-64-28.7-64-64L0 128z",
+);
+
+// the composer's working-directory chip
+export const Folder = icon(
+    "0 0 512 512",
+    "M64 480L448 480c35.3 0 64-28.7 64-64l0-256c0-35.3-28.7-64-64-64L288 96c-10.1 0-19.6-4.7-25.6-12.8L243.2 57.6C231.1 41.5 212.1 32 192 32L64 32C28.7 32 0 60.7 0 96L0 416c0 35.3 28.7 64 64 64z",
 );
 
 // Remix Icon ri-robot-2-line

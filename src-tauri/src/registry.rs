@@ -157,10 +157,6 @@ struct Config {
     /// variable's value is a Keychain item and never appears here.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     value: String,
-    /// saturn — `run_command`'s working directory, and the only path it may
-    /// write to. Blank leaves `bash.rs` on its own default.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    workspace: String,
 }
 
 /// One registry row as the client is allowed to see it: the port of
@@ -183,8 +179,6 @@ pub struct Entry {
     pub secret: bool,
     /// plaintext for regular (non-secret) variables only; "" otherwise
     pub value: String,
-    /// saturn only — `run_command`'s configured working directory; "" otherwise
-    pub workspace: String,
 }
 
 /// One MCP entry WITH its credentials. Server-side only: nothing on this struct
@@ -485,9 +479,6 @@ pub fn get_user_registry(store: &Store, vault: &dyn Vault) -> Result<Vec<Entry>,
                 } else {
                     config.tools
                 },
-                // a plain local path, never a secret — projected as it is stored
-                // so a settings save can round-trip it instead of blanking it
-                workspace: config.workspace,
                 id,
                 kind,
                 name,
@@ -977,19 +968,19 @@ pub fn set_mcp_tools(store: &Store, id: &str, tools: Vec<McpTool>) -> Result<(),
     update_entry(store, id, Kind::Mcp, &name, None, None, Some(&config))
 }
 
-/// Saturn Agent's own builtin grants plus `run_command`'s workspace — the same
-/// stored allowlist an MCP entry carries, on the seeded `saturn` row. A sibling
-/// of `set_mcp_tools` rather than a path through `save_entry`: there is no name,
-/// emoji or description to submit and the id is fixed, but the write still goes
-/// through `update_entry` so the kind guard and `updated_at` cannot be skipped.
+/// Saturn Agent's own builtin grants — the same stored allowlist an MCP entry
+/// carries, on the seeded `saturn` row. A sibling of `set_mcp_tools` rather than
+/// a path through `save_entry`: there is no name, emoji or description to submit
+/// and the id is fixed, but the write still goes through `update_entry` so the
+/// kind guard and `updated_at` cannot be skipped.
 ///
-/// Both fields are written together because both come from one form; the row is
-/// read first so nothing else in the blob is dropped on the way through.
-pub fn set_saturn_tools(store: &Store, tools: Vec<McpTool>, workspace: &str) -> Result<(), String> {
+/// The row is read first so nothing else in the blob is dropped on the way
+/// through. `run_command`'s working directory is deliberately NOT here — it is
+/// per chat session (`saturn::set_session_cwd`), not per install.
+pub fn set_saturn_tools(store: &Store, tools: Vec<McpTool>) -> Result<(), String> {
     let id = crate::saturn::TOOLS_ID;
     let mut config = read_config(store, id, Kind::Saturn)?.ok_or("Not found")?;
     config.tools = tools;
-    config.workspace = workspace.to_string();
     let name: String = store
         .conn()
         .query_row("select name from registry_entry where id = ?1", [id], |r| r.get(0))
@@ -1392,11 +1383,10 @@ mod tests {
         {
             let conn = store.conn();
             let mut ins = conn
-                .prepare("insert into memory_item (embedding, entry_id, content, created_at) values (?1, ?2, ?3, ?4)")
+                .prepare("insert into memory_item (content, entry_id, created_at) values (?1, ?2, ?3)")
                 .unwrap();
             for (entry, text) in [(&mem, "mine"), (&mcp, "another store")] {
-                ins.execute(params![crate::store::vec_blob(&vec![0.5f32; 1536]), entry, text, now()])
-                    .unwrap();
+                ins.execute(params![text, entry, now()]).unwrap();
             }
         }
 
@@ -1407,7 +1397,7 @@ mod tests {
             .conn()
             .query_row("select count(*) from memory_item where entry_id = ?1", [&mcp], |r| r.get(0))
             .unwrap();
-        assert_eq!(left, 0, "vec0 rows outlived their entry");
+        assert_eq!(left, 0, "memory rows outlived their entry");
         let others: i64 = store
             .conn()
             .query_row("select count(*) from memory_item where entry_id = ?1", [&mem], |r| r.get(0))

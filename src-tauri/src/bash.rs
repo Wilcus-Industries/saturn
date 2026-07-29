@@ -18,15 +18,21 @@
 //! The read/write split is only about **writes**. Reads stay broad in both
 //! modes because a shell is unusable otherwise — it needs `/usr`, `/bin`, the
 //! dyld cache, every library it loads. "read" therefore means *nothing outside
-//! the process temp dir is writable*; "read+write" adds exactly the workspace
-//! tree. The credential directories are denied for *reading* in both modes:
-//! this tool has the network, so `~/.ssh` plus a `curl` is the whole
-//! exfiltration path, and that guard has nothing to do with the write grant.
+//! the process temp dir is writable*; "read+write" adds exactly the cwd tree.
+//! The credential directories are denied for *reading* in both modes: this tool
+//! has the network, so `~/.ssh` plus a `curl` is the whole exfiltration path,
+//! and that guard has nothing to do with the write grant.
 //!
-//! The workspace is where the command starts and the only durable thing it can
-//! write. It comes from user config, so it is validated (absolute, creatable)
-//! and escaped before it reaches the profile's quoted string literal — a path
-//! carrying a `"` would otherwise close the literal and rewrite the policy.
+//! The cwd is the chat session's working directory: where the command starts
+//! and the only durable thing it can write. It is user-chosen (a folder picker,
+//! defaulting to `$HOME`), so it is validated (absolute, creatable) and escaped
+//! before it reaches the profile's quoted string literal — a path carrying a `"`
+//! would otherwise close the literal and rewrite the policy.
+//!
+//! Because the default cwd is `$HOME` itself, the credential denies are emitted
+//! **after** the cwd carve-out. Seatbelt is last-match-wins, so a deny written
+//! before an enclosing allow is an absent rule: with the old ordering a
+//! read+write grant on `~` made `~/.ssh` writable.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -34,8 +40,6 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Workspace under `$HOME` when the user has configured nothing.
-const DEFAULT_WORKSPACE: &str = "Saturn";
 /// A sandboxed command gets a clean environment; this is the whole `PATH`.
 /// Homebrew's two prefixes are in it because that is where a user's `rg`, `jq`
 /// or `gh` actually lives on a Mac.
@@ -73,43 +77,55 @@ fn home() -> Result<PathBuf, String> {
     std::fs::canonicalize(&raw).map_err(|e| format!("cannot resolve home directory {raw}: {e}"))
 }
 
-/// Is this a shape `workspace_dir` will accept? The settings command validates
-/// with this instead of keeping its own copy of the rule: a path the form takes
-/// and `run` later refuses is a setting the user cannot fix from the UI, and a
-/// path the form refuses and `run` would have taken (`~/Saturn` — the very
-/// string the field's own placeholder shows) is worse.
+/// Is this a shape `cwd_dir` will accept? The command that stores a session's
+/// directory validates with this instead of keeping its own copy of the rule: a
+/// path the picker takes and `run` later refuses is a setting the user cannot
+/// fix from the UI.
 ///
-/// Shape only. Whether the directory can actually be created is `workspace_dir`'s
+/// Shape only. Whether the directory can actually be created is `cwd_dir`'s
 /// answer, at the moment it matters.
-pub fn valid_workspace(configured: &str) -> bool {
+pub fn valid_cwd(configured: &str) -> bool {
     let configured = configured.trim();
     configured.is_empty() || configured.starts_with("~/") || Path::new(configured).is_absolute()
 }
 
-/// Resolve the configured workspace to a real, existing, canonical directory.
-/// `configured` is the user's setting; empty means `~/Saturn`.
-pub fn workspace_dir(configured: &str) -> Result<PathBuf, String> {
+/// Resolve a session's stored directory to a real, existing, canonical path.
+/// `configured` is what the session row holds; empty means `$HOME`.
+pub fn cwd_dir(configured: &str) -> Result<PathBuf, String> {
     let configured = configured.trim();
     let dir = if configured.is_empty() {
-        home()?.join(DEFAULT_WORKSPACE)
+        home()?
     } else if let Some(rest) = configured.strip_prefix("~/") {
-        // the settings field's own placeholder is `~/Saturn`, so a user typing a
-        // path in the shape they were shown must work. `~` is shell syntax, not
-        // path syntax — nothing below this expands it
+        // the UI renders stored paths tilde-abbreviated, so the abbreviated
+        // spelling has to round-trip. `~` is shell syntax, not path syntax —
+        // nothing below this expands it
         home()?.join(rest)
     } else {
         let dir = PathBuf::from(configured);
         if !dir.is_absolute() {
-            return Err(format!("workspace must be an absolute path, got \"{configured}\""));
+            return Err(format!("directory must be an absolute path, got \"{configured}\""));
         }
         dir
     };
     std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("cannot create workspace {}: {e}", dir.display()))?;
+        .map_err(|e| format!("cannot create directory {}: {e}", dir.display()))?;
     // canonicalize AFTER create_dir_all: it fails on a path that does not exist,
     // and its output is what the seatbelt profile must carry (see the header).
     std::fs::canonicalize(&dir)
-        .map_err(|e| format!("cannot resolve workspace {}: {e}", dir.display()))
+        .map_err(|e| format!("cannot resolve directory {}: {e}", dir.display()))
+}
+
+/// `$HOME` written back as `~` — how a path is shown in the composer, and the
+/// spelling `cwd_dir` reads back. Kept here beside `cwd_dir` so the two halves
+/// of the round trip cannot drift.
+pub fn abbreviate(dir: &Path) -> String {
+    let raw = dir.to_string_lossy().into_owned();
+    let Ok(home) = home() else { return raw };
+    match dir.strip_prefix(&home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => raw,
+    }
 }
 
 /// A path as a seatbelt string literal. Backslash first, then the quote —
@@ -131,11 +147,13 @@ fn quoted(path: &Path) -> String {
 }
 
 /// The profile, built per call. Seatbelt is last-match-wins: the blanket
-/// write-deny lands first, then the carve-outs. All three paths arrive already
-/// canonicalized.
-fn profile(home: &Path, tmp: &Path, workspace: &Path, write: bool) -> String {
+/// write-deny lands first, then the carve-outs, then the credential denies —
+/// which must come **last**, because the cwd can enclose them. All three paths
+/// arrive already canonicalized.
+fn profile(home: &Path, tmp: &Path, cwd: &Path, write: bool) -> String {
     let denied: Vec<String> =
         SECRET_DIRS.iter().map(|d| format!("(subpath {})", quoted(&home.join(d)))).collect();
+    let denied = denied.join(" ");
     let mut out = String::new();
     out.push_str("(version 1)\n");
     out.push_str("(allow default)\n");
@@ -147,10 +165,16 @@ fn profile(home: &Path, tmp: &Path, workspace: &Path, write: bool) -> String {
     // `2>/dev/null` in a one-liner breaks. To the model that reads as a broken
     // tool, not as a policy.
     out.push_str("(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\") (literal \"/dev/tty\"))\n");
-    out.push_str(&format!("(deny file-read* {})\n", denied.join(" ")));
     if write {
-        out.push_str(&format!("(allow file-write* (subpath {}))\n", quoted(workspace)));
+        out.push_str(&format!("(allow file-write* (subpath {}))\n", quoted(cwd)));
     }
+    // AFTER the cwd allow, both of them. The default cwd is `$HOME`, which
+    // encloses every one of these, so a deny emitted first would be overridden
+    // by the allow above and `~/.ssh` would be writable — and readable — from a
+    // read+write grant. `sandbox_denies_credentials_even_when_the_cwd_is_home`
+    // is what fails if these two lines drift back up.
+    out.push_str(&format!("(deny file-read* {denied})\n"));
+    out.push_str(&format!("(deny file-write* {denied})\n"));
     out
 }
 
@@ -225,18 +249,20 @@ fn render(code: Option<i32>, stdout: &str, stderr: &str) -> String {
 
 /// Run `command` under a macOS seatbelt sandbox. `write` is the user's grant:
 /// false = "read" (nothing outside the process temp dir is writable),
-/// true = "read+write" (the workspace tree is additionally writable).
+/// true = "read+write" (the cwd tree is additionally writable).
+///
+/// `configured_cwd` is the chat session's stored directory; empty means `$HOME`.
 ///
 /// A non-zero exit is a normal `Ok` — the model reads the code and the stderr
-/// and decides what to do. `Err` is a harness failure: no workspace, no
+/// and decides what to do. `Err` is a harness failure: no directory, no
 /// sandbox, or the deadline.
-pub fn run(command: &str, write: bool, configured_workspace: &str) -> Result<String, String> {
-    let workspace = workspace_dir(configured_workspace)?;
+pub fn run(command: &str, write: bool, configured_cwd: &str) -> Result<String, String> {
+    let cwd = cwd_dir(configured_cwd)?;
     let home = home()?;
     let tmp = std::env::temp_dir();
     let tmp = std::fs::canonicalize(&tmp)
         .map_err(|e| format!("cannot resolve temp directory {}: {e}", tmp.display()))?;
-    let profile = profile(&home, &tmp, &workspace, write);
+    let profile = profile(&home, &tmp, &cwd, write);
 
     let mut child = Command::new("/usr/bin/sandbox-exec")
         .arg("-p")
@@ -245,7 +271,7 @@ pub fn run(command: &str, write: bool, configured_workspace: &str) -> Result<Str
         .arg("/bin/sh")
         .arg("-c")
         .arg(command)
-        .current_dir(&workspace)
+        .current_dir(&cwd)
         // an interactive command must read EOF, not block on a tty that is the
         // app's own terminal
         .stdin(Stdio::null())
@@ -311,29 +337,47 @@ pub fn run(command: &str, write: bool, configured_workspace: &str) -> Result<Str
 mod tests {
     use super::*;
 
-    /// A workspace the sandbox rules must actually reach: under `$HOME`, and
+    /// A cwd the sandbox rules must actually reach: under `$HOME`, and
     /// deliberately NOT under `$TMPDIR`, where the temp carve-out would let
-    /// every write through and the test would pass without the workspace rule.
+    /// every write through and the test would pass without the cwd rule.
     fn scratch(tag: &str) -> PathBuf {
-        let dir = home()
-            .unwrap()
-            .join(DEFAULT_WORKSPACE)
-            .join(format!(".bash-test-{}-{tag}", std::process::id()));
-        workspace_dir(dir.to_str().unwrap()).unwrap()
+        let dir =
+            home().unwrap().join("Saturn").join(format!(".bash-test-{}-{tag}", std::process::id()));
+        cwd_dir(dir.to_str().unwrap()).unwrap()
     }
 
     #[test]
-    fn workspace_must_be_absolute_but_a_leading_tilde_expands() {
-        assert!(workspace_dir("relative/dir").unwrap_err().contains("absolute"));
-        assert!(workspace_dir("~sneaky/dir").unwrap_err().contains("absolute"));
-        // the shape the settings placeholder shows the user
-        assert_eq!(workspace_dir("~/Saturn").unwrap(), home().unwrap().join(DEFAULT_WORKSPACE));
+    fn cwd_must_be_absolute_but_a_leading_tilde_expands() {
+        assert!(cwd_dir("relative/dir").unwrap_err().contains("absolute"));
+        assert!(cwd_dir("~sneaky/dir").unwrap_err().contains("absolute"));
+        // the abbreviated spelling the composer stores has to round-trip
+        assert_eq!(cwd_dir("~/Saturn").unwrap(), home().unwrap().join("Saturn"));
+        // nothing configured is the home directory itself
+        assert_eq!(cwd_dir("").unwrap(), home().unwrap());
+        assert_eq!(abbreviate(&home().unwrap()), "~");
+        assert_eq!(abbreviate(&home().unwrap().join("Saturn")), "~/Saturn");
+    }
+
+    /// The default cwd is `$HOME`, which encloses every credential directory.
+    /// The denies therefore have to be emitted after the cwd carve-out, or
+    /// read+write on `~` hands the model `~/.ssh` — the exfiltration path the
+    /// header calls out. Ordering only; the runtime half is the test below.
+    #[test]
+    fn sandbox_denies_credentials_even_when_the_cwd_is_home() {
+        let home = Path::new("/Users/x");
+        let text = profile(home, Path::new("/private/tmp"), home, true);
+        let allow = text.find("(allow file-write* (subpath \"/Users/x\"))").expect("cwd allow");
+        let read = text.find("(deny file-read* ").expect("credential read deny");
+        let write = text.find("(deny file-write* (subpath \"/Users/x/.ssh\")").expect("write deny");
+        assert!(read > allow, "the credential read deny must land after the cwd allow:\n{text}");
+        assert!(write > allow, "the credential write deny must land after the cwd allow:\n{text}");
+        assert!(text.contains("Library/Keychains"), "{text}");
     }
 
     /// The load-bearing test: the write grant is the sandbox, not a flag we
     /// carry around. Home stays unwritable at both settings.
     #[test]
-    fn sandbox_confines_writes_to_the_workspace() {
+    fn sandbox_confines_writes_to_the_cwd() {
         let ws = scratch("writes");
         let ws_arg = ws.to_str().unwrap();
         let escape = home().unwrap().join(format!(".saturn-bash-escape-{}", std::process::id()));
@@ -361,13 +405,14 @@ mod tests {
         let _ = std::fs::remove_file(&escape);
     }
 
-    /// A workspace path is user config interpolated into a quoted scheme
-    /// literal. If it can carry an unescaped `"` it can append its own rules.
+    /// A cwd path is user input interpolated into a quoted scheme literal. If it
+    /// can carry an unescaped `"` it can append its own rules.
     #[test]
-    fn a_quote_in_the_workspace_path_cannot_break_out_of_the_literal() {
+    fn a_quote_in_the_cwd_path_cannot_break_out_of_the_literal() {
         let hostile = PathBuf::from("/tmp/we\"ird\\path\") (allow file-write* (subpath \"/");
         let text = profile(Path::new("/Users/x"), Path::new("/private/tmp"), &hostile, true);
-        let line = text.lines().last().unwrap();
+        // the cwd allow is no longer the last line — the credential denies are
+        let line = text.lines().find(|l| l.contains("we")).unwrap();
         assert_eq!(
             line,
             r#"(allow file-write* (subpath "/tmp/we\"ird\\path\") (allow file-write* (subpath \"/"))"#
@@ -377,6 +422,20 @@ mod tests {
             **b == b'"' && (*i == 0 || line.as_bytes()[i - 1] != b'\\')
         });
         assert_eq!(bare.count(), 2, "{line}");
+    }
+
+    /// The runtime half of the ordering test: the real kernel, the real default
+    /// cwd, the full read+write grant — and `~/.ssh` still refuses both.
+    #[test]
+    fn a_read_write_grant_on_the_home_cwd_still_cannot_touch_credentials() {
+        let probe = home().unwrap().join(".ssh/.saturn-probe");
+        // a leftover from an earlier failing run would make this pass on stale
+        // state — and a run that *does* escape the sandbox is exactly when one
+        // gets left behind
+        std::fs::remove_file(&probe).ok();
+        let out = run(&format!("cat ~/.ssh/* ; echo x > {}", probe.display()), true, "").unwrap();
+        assert!(!out.contains("exit code: 0"), "~/.ssh is reachable from the home cwd: {out}");
+        assert!(!probe.exists(), "~/.ssh is writable from the home cwd");
     }
 
     #[test]

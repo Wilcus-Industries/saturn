@@ -31,7 +31,7 @@ Subsystem detail lives in `docs/` — read the one your task touches, not all of
 - `npm run build` — `next build`, static-exported to `out/` (what Tauri embeds). Not a full app build
 - `npm run lint` — regenerates-and-compares `catalog.json`, then ESLint. **`catalog.json` is generated** from `lib/integrations.ts`; edit a descriptor there and run `node scripts/gen-catalog.mjs` or the check fails
 - `npx tauri build` — the real build: `Saturn.app` + a `.dmg` under `src-tauri/target/release/bundle/`. Unsigned and un-notarized (`docs/open-decisions.md` §3.11)
-- `cd src-tauri && cargo test` — 145 tests, including the 49 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
+- `cd src-tauri && cargo test` — 155 tests, including the 49 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
 - `npx tsc --noEmit` — the frontend's only check beyond ESLint
 
 **No environment variables.** Nothing in `app/`, `lib/` or `src-tauri/` reads
@@ -50,8 +50,8 @@ React 19, Tailwind CSS 4 (no config file — theme and keyframes live in
 time by `next/font` and emitted into the export, which is what lets them load
 under a `default-src 'self'` CSP.
 
-Rust side: `rusqlite` (bundled SQLite) + `sqlite-vec` for vector search,
-`keyring` (apple-native) for secrets, `reqwest` (rustls, blocking **and** async),
+Rust side: `rusqlite` (bundled SQLite, FTS5 compiled in — which is what memory
+search runs on), `keyring` (apple-native) for secrets, `reqwest` (rustls, blocking **and** async),
 `tokio-tungstenite` for the one WebSocket, `serde_json` throughout. Every
 dependency in `src-tauri/Cargo.toml` carries a comment saying why it is there;
 that file is the reference, not this list.
@@ -92,7 +92,12 @@ through the user's MCP servers and their shell directly instead of authoring a
 workflow to call a tool once. **That surface is itself a registry entry** — one
 row of `kind = "saturn"`, so every builtin gets the settings tri-state
 (off / read / read+write) for free and `run_command` can ship off
-(`docs/registry.md`).
+(`docs/registry.md`). There is deliberately no `read_file` / `write_file`:
+`run_command` with `cat`, `sed` and a heredoc already is one, and a shell is the
+tool surface that measures best in practice (mini-swe-agent). Each chat picks a
+**working directory** from its composer — where the shell starts, the only tree
+it may write, and the directory whose `CLAUDE.md` / `AGENTS.md` are loaded into
+the system prompt every turn.
 
 **The frontend is a client.** Every page is `"use client"`, fetches through
 `call()` in `lib/ipc.tsx` (Tauri IPC), and refetches on the app-wide
@@ -118,16 +123,18 @@ or in the named module's header comment.
 - **Graphs and logs only ever carry the `{{var:<uuid>}}` sentinel.** Plaintext substitution happens at exactly two points of consumption: `integrations::execute` and `events::get_event_subscriptions`.
 - **A bot token may only ever appear as `events::fp(token)`.** `EventSubscription` fingerprints it in `Debug` and is deliberately not `Serialize`; `telegram.rs` never formats a `reqwest::Error` (the token rides in the URL path); `gateway.rs`'s connection state holds no token at all.
 - **The shell tool must never become the read path the rest of this list forbids.** `run_command` runs a model-written line on the user's own machine, so `bash.rs`'s seatbelt is what keeps write-only *write-only*: without its `(deny file-read* ~/Library/Keychains)`, `security find-generic-password -s com.wilcus.saturn` enumerates Saturn's own items from inside the sandbox and every rule above is moot. That deny is not redundant with the write deny — measured, `docs/open-decisions.md` §1.7.
+- **The credential denies must be emitted *after* the cwd carve-out.** Seatbelt is last-match-wins and the default working directory is `$HOME`, which encloses `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh` and the keychain — so a deny written before the enclosing `allow file-write*` is an absent rule, and a read+write grant hands the model every credential on the machine. `bash::sandbox_denies_credentials_even_when_the_cwd_is_home` (profile text) and `bash::a_read_write_grant_on_the_home_cwd_still_cannot_touch_credentials` (the real kernel) both fail if the two lines drift back up.
 
 **The shell** (`docs/open-decisions.md` §1.7)
 
 - **The boundary is the kernel's, not a parser's.** Nothing reads the command to decide whether it is safe — `$(...)`, `eval` and a base64 pipe make that unwinnable. `sandbox-exec` applies the policy to the whole process tree, and the command is always an argv element to `/bin/sh -c`, never interpolated into the profile.
 - **Every path in a seatbelt profile must be `canonicalize`d.** Seatbelt matches resolved paths; `$TMPDIR` is a symlink into `/private/var/folders/…`, so a rule written against the `/var/…` spelling matches nothing and the policy is silently absent at runtime.
-- **The read/write grant IS the sandbox.** `access = "read"` emits the profile without the workspace carve-out, so the kernel refuses the write — not a branch in `saturn.rs`. `bash::sandbox_confines_writes_to_the_workspace` and `saturn::the_run_command_grant_reaches_the_sandbox` are what fail if either half regresses.
+- **The read/write grant IS the sandbox.** `access = "read"` emits the profile without the cwd carve-out, so the kernel refuses the write — not a branch in `saturn.rs`. `bash::sandbox_confines_writes_to_the_cwd` and `saturn::the_run_command_grant_reaches_the_sandbox` are what fail if either half regresses.
+- **The working directory belongs to the chat session, not the install.** `saturn_session.cwd` is where `run_command` starts and — with read+write — the only tree it may write; blank means `$HOME`. It is read once per turn in `run_turn` and threaded to both `system_prompt` and `dispatch`, so what the model is *told* its directory is and what the kernel actually enforces cannot disagree. There is no global workspace setting; putting one back reintroduces the disagreement.
 
 **Model calls**
 
-- **The slug picks the provider, and nothing else does.** `providers::resolve` walks `providers::ALL` and strips the matching prefix exactly once — `claude-code/` runs on the local Claude Code server, `omniroute/` on the local OmniRoute gateway, a bare slug on OpenRouter — and it is called *inside* `openrouter::chat_complete` / `stream_chat`, so the URL, the timeout, the body dialect (`provider.extras` gates OpenRouter's own `reasoning` / `modalities`) and the bearer (`runner::model_key`) cannot disagree with the slug a graph stored. Embeddings are the one exception and stay OpenRouter-only: `runner::openrouter_key` is the embeddings key (`docs/open-decisions.md` §1.6).
+- **The slug picks the provider, and nothing else does.** `providers::resolve` walks `providers::ALL` and strips the matching prefix exactly once — `claude-code/` runs on the local Claude Code server, `omniroute/` on the local OmniRoute gateway, a bare slug on OpenRouter — and it is called *inside* `openrouter::chat_complete` / `stream_chat`, so the URL, the timeout, the body dialect (`provider.extras` gates OpenRouter's own `reasoning` / `modalities`) and the bearer (`runner::model_key`) cannot disagree with the slug a graph stored. **No key path bypasses it**: `runner::openrouter_key` is reached only through `model_key`, so an install on a local provider needs no OpenRouter key at all — memory search is a local FTS5 index, not an embedding call (`docs/open-decisions.md` §1.6).
 - **A provider's address is `providers::origin`, never a literal.** The two local providers ship a `default_origin` the user can override; the override lives in a process map seeded from the `setting` table at boot (`main.rs` `load_provider_origins`), because `resolve` is called where no `Store` is in scope. Building a URL from `default_origin` directly is how a graph ends up talking to the wrong port.
 
 **Outbound fetch**

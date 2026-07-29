@@ -31,7 +31,6 @@ export type RegistryEntryRow = {
     emoji: string;
     description: string;
     server_url: string;
-    workspace: string; // saturn builtin row only — '' = the default ~/Saturn
     tools: McpTool[];
     has_token: boolean; // derived — auth_token itself is never selected
     connected: boolean; // derived — oauth tokens themselves are never selected

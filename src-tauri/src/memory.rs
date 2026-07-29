@@ -8,28 +8,30 @@
 //! a panic: these strings are fed back to the model and printed to the run
 //! console, exactly as the TypeScript's `{ error }` results were.
 //!
+//! Search is BM25 over an FTS5 index, not vector similarity. The embedding call
+//! this module used to make was the last thing in the app that *required* an
+//! OpenRouter key — an agent running entirely on a local provider still could not
+//! use its own memory — and it bought semantic recall the rest of the design does
+//! not need: a personal store of short notes, queried by a model that is perfectly
+//! able to phrase a keyword query (`docs/open-decisions.md` §1.6). The cost is
+//! real and accepted: "car" no longer retrieves "automobile".
+//!
+//! What that bought back: no key, no network, no 30 s timeout on the run thread,
+//! no vector width baked into the table, and a search that returns in microseconds
+//! instead of a ~200 ms round trip.
+//!
 //! Two things the hosted version had are gone on purpose:
 //!   - `MAX_MEMORY_ITEMS = 2000`, a per-store cap that existed because Postgres
 //!     had no ANN index here and the store was a tenant's slice of a shared
 //!     table. Stores are uncapped now.
-//!   - the platform-key / credits-ledger fork in `embed`. BYOK only, so the key
-//!     is a parameter and `usage: {include: true}` (whose only consumer was
-//!     per-call cost accounting) is not sent.
-//!
-//! No HNSW index either: `vec0` brute force over tens of thousands of vectors is
-//! single-digit milliseconds, invisible next to the ~200 ms embedding round
-//! trip, and it costs nothing on insert or delete — where an index charges
-//! maintenance on every write. Adding one later is one line in the `create
-//! virtual table` in store.rs; do it when a search is measurably slow, not
-//! before.
+//!   - the platform-key / credits-ledger fork in `embed`, along with `embed`.
 
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use reqwest::blocking::Client;
 use rusqlite::params;
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
 use crate::agent::ToolRef;
 use crate::interpreter::js::{self, J};
@@ -41,24 +43,13 @@ use crate::openrouter::ToolSpec;
 // to drift.
 use crate::registry::is_uuid;
 use crate::runner::civil_from_days;
-use crate::store::{vec_blob, Store};
+use crate::store::Store;
 
-/// 1536 dims — the width baked into `memory_item`'s `float[1536]`. Changing the
-/// model means rebuilding the table, so it is not configurable.
-pub const MEMORY_EMBED_MODEL: &str = "openai/text-embedding-3-small";
 /// Chars per saved item. Bounds what a model can shove into the store in one
 /// call; over-cap is REJECTED rather than truncated so the model summarizes
 /// instead of silently losing the tail.
 pub const MAX_MEMORY_CONTENT: usize = 2000;
 
-/// The vector width the API must return. Asserted before every write — a short
-/// vector from a model swap would corrupt the table quietly, since `vec0` stores
-/// whatever blob it is handed.
-const EMBED_DIMS: usize = 1536;
-const EMBED_URL: &str = "https://openrouter.ai/api/v1/embeddings";
-/// A hung embedding call would otherwise pin a run thread forever; the agent
-/// loop has no timeout of its own.
-const EMBED_TIMEOUT: Duration = Duration::from_secs(30);
 /// Search query length cap — same reason as MAX_MEMORY_CONTENT, and counted in
 /// the same UTF-16 units as every other cap in the interpreter.
 const MAX_QUERY: usize = 1000;
@@ -109,9 +100,9 @@ pub fn memory_tool_specs(memory_id: &str) -> Vec<ToolSpec> {
         spec(
             memory_id,
             MEMORY_TOOL_NAMES[0],
-            "Semantic search over the attached memory store. Returns the most relevant saved items with their ids, content, similarity score, and timestamps.",
+            "Keyword search over the attached memory store. Matches on the words in the query, so name the terms you expect to appear in a saved item rather than asking a question. Returns the best-matching items, most relevant first, with their ids, content and timestamps.",
             vec![
-                param("query", McpToolParamType::String, true, "what to look for"),
+                param("query", McpToolParamType::String, true, "words to look for"),
                 param("limit", McpToolParamType::Number, false, "max results, 1-20, default 5"),
             ],
         ),
@@ -142,12 +133,10 @@ pub fn memory_tool_specs(memory_id: &str) -> Vec<ToolSpec> {
 
 // --- dispatch ---------------------------------------------------------------
 
-/// Executes one memory tool call. `api_key` is the user's OpenRouter key (BYOK,
-/// read from the Keychain by the caller — never here). Errors are values, same
-/// contract as the MCP tool path: the agent loop feeds them back to the model.
+/// Executes one memory tool call. Errors are values, same contract as the MCP
+/// tool path: the agent loop feeds them back to the model.
 pub fn execute_memory_tool(
     store: &Store,
-    api_key: &str,
     memory_id: &str,
     op: &str,
     input: &str,
@@ -164,17 +153,11 @@ pub fn execute_memory_tool(
 
     let args = parse_args(input)?;
 
-    // Embed BEFORE taking the connection guard. `store.conn()` serializes every
-    // reader in the process, so holding it across a ~200 ms round trip would
-    // stall the scheduler and the ingress loops for the length of a network call.
     if op == MEMORY_SEARCH {
         let (query, limit) = search_args(&args)?;
-        let vectors = embed(api_key, &[&query])?;
-        search(store, memory_id, &vectors[0], limit)
+        search(store, memory_id, &query, limit)
     } else if op == MEMORY_SAVE {
-        let content = save_content(&args)?;
-        let vectors = embed(api_key, &[&content])?;
-        save(store, memory_id, &content, &vectors[0])
+        save(store, memory_id, &save_content(&args)?)
     } else {
         forget(store, memory_id, args.get("id").and_then(Value::as_str).unwrap_or(""))
     }
@@ -245,28 +228,34 @@ fn save_content(args: &Map<String, Value>) -> Result<String, String> {
     Ok(content.to_string())
 }
 
-/// KNN over one store. `entry_id` is a partition key, so constraining it
-/// pre-filters the index rather than filtering hits afterwards — and leaving it
-/// off would search every store in the file at once, which is cross-store
-/// leakage straight into the model's context. `k` (not LIMIT) is what vec0 wants
-/// on a KNN query, and it emits rows in ascending `distance` itself.
-fn search(store: &Store, memory_id: &str, embedding: &[f32], limit: i64) -> Result<String, String> {
-    let blob = check_dims(embedding)?;
+/// BM25 over one store. Constraining `entry_id` is not an optimization — it is
+/// UNINDEXED, so SQLite core applies it after the match — but leaving it off
+/// would search every store in the file at once, which is cross-store leakage
+/// straight into the model's context. `order by rank` is FTS5's own relevance
+/// order (ascending bm25, best first).
+///
+/// No `score` in the result: bm25 is an unbounded negative number, not the 0-1
+/// similarity the vector version returned, and normalizing it into one would be
+/// an invented number the model would then reason about. Rank order is the
+/// signal.
+fn search(store: &Store, memory_id: &str, query: &str, limit: i64) -> Result<String, String> {
+    let Some(match_expr) = fts_query(query) else {
+        // nothing tokenizable ("???", "…") — an empty MATCH is a syntax error
+        return Ok(js::stringify(&J::A(Vec::new())));
+    };
     let conn = store.conn();
     let mut stmt = conn
         .prepare(
-            "select rowid, content, created_at, distance from memory_item
-              where embedding match ?1 and entry_id = ?2 and k = ?3",
+            "select rowid, content, created_at from memory_item
+              where memory_item match ?1 and entry_id = ?2
+              order by rank limit ?3",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map(params![blob, memory_id, limit], |r| {
+        .query_map(params![match_expr, memory_id, limit], |r| {
             Ok(J::O(vec![
                 ("id".into(), J::S(r.get::<_, i64>(0)?.to_string())),
                 ("content".into(), J::S(r.get(1)?)),
-                // pgvector gave `1 - (embedding <=> v)`; vec0's cosine `distance`
-                // is the same quantity, so similarity is the same subtraction
-                ("score".into(), J::N(round3(1.0 - r.get::<_, f64>(3)?))),
                 ("created_at".into(), J::S(iso(r.get(2)?))),
             ]))
         })
@@ -274,22 +263,15 @@ fn search(store: &Store, memory_id: &str, embedding: &[f32], limit: i64) -> Resu
         .collect::<Result<Vec<J>, _>>()
         .map_err(|e| e.to_string())?;
     // js::J, not serde_json: this string goes to the model, and serde_json's Map
-    // would alphabetize the keys while ryu would write a score of 1 as "1.0"
+    // would alphabetize the keys
     Ok(js::stringify(&J::A(rows)))
 }
 
-fn save(
-    store: &Store,
-    memory_id: &str,
-    content: &str,
-    embedding: &[f32],
-) -> Result<String, String> {
-    let blob = check_dims(embedding)?;
+fn save(store: &Store, memory_id: &str, content: &str) -> Result<String, String> {
     let conn = store.conn();
     conn.execute(
-        "insert into memory_item (embedding, entry_id, content, created_at)
-         values (?1, ?2, ?3, ?4)",
-        params![blob, memory_id, content, now()],
+        "insert into memory_item (content, entry_id, created_at) values (?1, ?2, ?3)",
+        params![content, memory_id, now()],
     )
     .map_err(|e| e.to_string())?;
     Ok(js::stringify(&J::O(vec![
@@ -318,77 +300,29 @@ fn forget(store: &Store, memory_id: &str, id: &str) -> Result<String, String> {
     Ok(js::stringify(&J::O(vec![("forgotten".into(), J::B(true))])))
 }
 
-/// The last line of defence before a vector reaches the table: `vec0` stores
-/// whatever blob it is given, so a short vector would land as a silently corrupt
-/// row that every later search reads back.
-fn check_dims(embedding: &[f32]) -> Result<Vec<u8>, String> {
-    if embedding.len() != EMBED_DIMS {
-        return Err(format!(
-            "embedding call failed: unexpected vector shape ({} dims, want {EMBED_DIMS})",
-            embedding.len()
-        ));
-    }
-    Ok(vec_blob(embedding))
-}
+// --- the match expression ---------------------------------------------------
 
-// --- embeddings -------------------------------------------------------------
-
-/// Embeds `texts` through OpenRouter's OpenAI-compatible endpoint. Split out
-/// from its callers so every operation is testable without a socket: the
-/// callers take a vector, not a key.
+/// Turns a model-written query into an FTS5 MATCH expression, or `None` when
+/// nothing is left to match on.
 ///
-/// BYOK only — `api_key` is the user's key, passed in. Errors are the
-/// user-renderable strings the TypeScript threw and its callers caught. The
-/// "no key" one names embeddings specifically: chat routes by slug now
-/// (`providers.rs`), so a user on Claude Code alone can have every model call
-/// working and still land here.
-fn embed(api_key: &str, texts: &[&str]) -> Result<Vec<Vec<f32>>, String> {
-    if api_key.is_empty() {
-        return Err("memory needs an OpenRouter key for embeddings: add one in settings".into());
-    }
-    let client = Client::builder()
-        .timeout(EMBED_TIMEOUT)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let res = client
-        .post(EMBED_URL)
-        .header("authorization", format!("Bearer {api_key}"))
-        .json(&json!({ "model": MEMORY_EMBED_MODEL, "input": texts }))
-        .send()
-        .map_err(|e| e.to_string())?;
-
-    let status = res.status();
-    // body first, tolerating junk — the error branch reads it too
-    let body: Option<Value> = res.json().ok();
-
-    if !status.is_success() {
-        let message = body
-            .as_ref()
-            .and_then(|b| b.get("error"))
-            .and_then(|e| e.get("message"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("HTTP {}", status.as_u16()));
-        return Err(format!("embedding call failed: {message}"));
-    }
-
-    let data = body
-        .as_ref()
-        .and_then(|b| b.get("data"))
-        .and_then(Value::as_array)
-        .filter(|d| d.len() == texts.len())
-        .ok_or("embedding call failed: malformed response")?;
-
-    let mut vectors = Vec::with_capacity(data.len());
-    for item in data {
-        let emb = item
-            .get("embedding")
-            .and_then(Value::as_array)
-            .filter(|e| e.len() == EMBED_DIMS && e.iter().all(Value::is_number))
-            .ok_or("embedding call failed: unexpected vector shape")?;
-        vectors.push(emb.iter().map(|n| n.as_f64().unwrap_or(0.0) as f32).collect());
-    }
-    Ok(vectors)
+/// This is not cosmetic. FTS5's MATCH argument is a *query language*, not a
+/// string: `"what's the deploy pipeline?"` is a hard `fts5: syntax error near
+/// "'"`, and `AND`, `OR`, `NOT`, `NEAR`, `*`, `^`, `:`, `-` and `"` are all
+/// operators a model would otherwise trip by accident. So no user or model text
+/// is ever passed through — every alphanumeric run is lifted out and re-emitted
+/// as a quoted term, which cannot carry syntax.
+///
+/// Joined with OR, not FTS5's implicit AND: a natural-language query carries
+/// filler words no saved item contains, and AND would return nothing at all for
+/// most of them. OR plus `order by rank` ranks partial matches instead, which is
+/// the closest BM25 gets to what the vector search used to do.
+fn fts_query(query: &str) -> Option<String> {
+    let terms: Vec<String> = query
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{t}\""))
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" OR "))
 }
 
 // --- settings views ---------------------------------------------------------
@@ -481,14 +415,6 @@ fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
 }
 
-/// `Math.round(x * 1000) / 1000`. `Math.round` breaks ties toward +∞ (i.e.
-/// `floor(x + 0.5)`) while Rust's `f64::round` breaks them away from zero, and a
-/// cosine score can be negative — so -0.0005 would come back as -0.001 here and
-/// 0 in the TypeScript.
-fn round3(x: f64) -> f64 {
-    (x * 1000.0 + 0.5).floor() / 1000.0
-}
-
 /// `Date.prototype.toISOString()` — always UTC, always three fractional digits.
 /// The model reads these timestamps out of search results, so the format is part
 /// of the tool's contract.
@@ -503,6 +429,7 @@ fn iso(ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     const STORE_A: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const STORE_B: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -526,68 +453,66 @@ mod tests {
         (store, dir)
     }
 
-    /// A deterministic stand-in for the API's vector: axis 0 carries the signal,
-    /// so two texts with the same `x` are identical and an orthogonal one sits at
-    /// cosine distance 1. No network anywhere in this module's tests.
-    fn fake_embedding(x: f32, y: f32) -> Vec<f32> {
-        let mut v = vec![0.0f32; EMBED_DIMS];
-        v[0] = x;
-        v[1] = y;
-        v
-    }
-
     #[test]
     fn save_search_forget_round_trip() {
         let (store, dir) = store();
 
-        let saved = save(&store, STORE_A, "the deploy key lives in 1password", &fake_embedding(1.0, 0.0)).unwrap();
+        let saved = save(&store, STORE_A, "the deploy key lives in 1password").unwrap();
         assert!(saved.contains(r#""saved":true"#));
         let id = serde_json::from_str::<Value>(&saved).unwrap()["id"].as_str().unwrap().to_string();
-        save(&store, STORE_A, "unrelated", &fake_embedding(0.0, 1.0)).unwrap();
+        save(&store, STORE_A, "unrelated note about coffee").unwrap();
+        save(&store, STORE_A, "the deploy runbook").unwrap();
 
-        let hits = search(&store, STORE_A, &fake_embedding(1.0, 0.0), 5).unwrap();
+        let hits = search(&store, STORE_A, "deploy key", 5).unwrap();
         // key order is JSON.stringify's, i.e. the order search() writes them —
         // this whole string is what the model reads back
         assert!(hits.starts_with(r#"[{"id":"#), "{hits}");
         let parsed: Value = serde_json::from_str(&hits).unwrap();
-        assert_eq!(parsed.as_array().unwrap().len(), 2);
+        // the coffee note shares no term, so OR does not drag it in
+        assert_eq!(parsed.as_array().unwrap().len(), 2, "{hits}");
+        // and `order by rank` puts the item matching both terms above the one
+        // matching only "deploy" — the whole point of ranking rather than filtering
         assert_eq!(parsed[0]["content"], "the deploy key lives in 1password");
+        assert_eq!(parsed[1]["content"], "the deploy runbook");
         assert_eq!(parsed[0]["id"], id);
-        assert_eq!(parsed[0]["score"], 1.0); // cosine distance 0 → score 1
-        assert_eq!(parsed[1]["score"], 0.0); // orthogonal → distance 1
         assert!(parsed[0]["created_at"].as_str().unwrap().ends_with('Z'));
+        // bm25 is unbounded and negative; emitting it as the old 0-1 "score" would
+        // hand the model a number it would misread
+        assert!(parsed[0].get("score").is_none(), "{hits}");
 
-        // limit is k, and vec0 hands back the nearest first
         let one: Value =
-            serde_json::from_str(&search(&store, STORE_A, &fake_embedding(1.0, 0.0), 1).unwrap()).unwrap();
+            serde_json::from_str(&search(&store, STORE_A, "deploy key", 1).unwrap()).unwrap();
         assert_eq!(one.as_array().unwrap().len(), 1);
         assert_eq!(one[0]["id"], id);
 
         assert_eq!(forget(&store, STORE_A, &id).unwrap(), r#"{"forgotten":true}"#);
         assert_eq!(forget(&store, STORE_A, &id).unwrap_err(), "memory not found");
         let after: Value =
-            serde_json::from_str(&search(&store, STORE_A, &fake_embedding(1.0, 0.0), 5).unwrap()).unwrap();
+            serde_json::from_str(&search(&store, STORE_A, "deploy key", 5).unwrap()).unwrap();
         assert_eq!(after.as_array().unwrap().len(), 1);
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// entry_id is a partition key. Forget it in a query and every store in the
-    /// file is searched at once — another agent's memories land in this agent's
-    /// context. Identical vectors make the leak unmissable if scoping breaks.
+    /// entry_id is UNINDEXED, so nothing scopes a query but the WHERE clause.
+    /// Forget it and every store in the file is searched at once — another agent's
+    /// memories land in this agent's context. Identical text makes the leak
+    /// unmissable if scoping breaks.
     #[test]
-    fn stores_are_isolated_by_partition_key() {
+    fn stores_are_isolated_by_entry_id() {
         let (store, dir) = store();
-        let v = fake_embedding(1.0, 0.0);
-        save(&store, STORE_A, "a-secret", &v).unwrap();
-        let b_saved = save(&store, STORE_B, "b-secret", &v).unwrap();
+        save(&store, STORE_A, "a-secret").unwrap();
+        let b_saved = save(&store, STORE_B, "b-secret").unwrap();
         let b_id = serde_json::from_str::<Value>(&b_saved).unwrap()["id"].as_str().unwrap().to_string();
 
         for (entry, expected) in [(STORE_A, "a-secret"), (STORE_B, "b-secret")] {
-            let hits: Value = serde_json::from_str(&search(&store, entry, &v, 20).unwrap()).unwrap();
+            let hits: Value =
+                serde_json::from_str(&search(&store, entry, "secret", 20).unwrap()).unwrap();
             assert_eq!(hits.as_array().unwrap().len(), 1, "search leaked across stores: {hits}");
             assert_eq!(hits[0]["content"], expected);
         }
+        // the uuid itself is UNINDEXED, so it can never be matched *on*
+        assert_eq!(search(&store, STORE_A, STORE_A, 20).unwrap(), "[]");
 
         // an id lifted from B's results cannot be forgotten through A
         assert_eq!(forget(&store, STORE_A, &b_id).unwrap_err(), "memory not found");
@@ -642,23 +567,44 @@ mod tests {
         );
     }
 
-    /// vec0 stores whatever blob it is handed, so a short vector would land as a
-    /// silently corrupt row instead of an error.
+    /// FTS5's MATCH argument is a query *language*, so a model writing the most
+    /// ordinary question — an apostrophe, a question mark, the word "and" — is a
+    /// hard SQL error unless `fts_query` rebuilds it. Every string below throws
+    /// `fts5: syntax error` if passed through raw.
     #[test]
-    fn a_wrong_dimension_vector_is_refused_not_stored() {
+    fn a_model_written_query_never_reaches_fts5_as_syntax() {
+        assert_eq!(
+            fts_query("what's the deploy pipeline?").unwrap(),
+            r#""what" OR "s" OR "the" OR "deploy" OR "pipeline""#
+        );
+        // operator words survive only because they are quoted into inert terms
+        assert_eq!(fts_query(r#"a AND b* NOT "c""#).unwrap(), r#""a" OR "AND" OR "b" OR "NOT" OR "c""#);
+        assert_eq!(fts_query("  ???  "), None);
+        assert_eq!(fts_query(""), None);
+
         let (store, dir) = store();
-        let err = save(&store, STORE_A, "short", &[1.0, 0.0]).unwrap_err();
-        assert!(err.contains("unexpected vector shape"), "{err}");
-        assert!(search(&store, STORE_A, &[1.0; EMBED_DIMS + 1], 5).is_err());
-        assert!(count_memory_items(&store).unwrap().is_empty(), "the short vector was written anyway");
+        save(&store, STORE_A, "the deploy pipeline runs nightly").unwrap();
+        // punctuation and operator characters are stripped, so the words around
+        // them still find the item
+        for q in ["what's the deploy pipeline?", "^pipeline:", "-deploy", "pipeline*", "NEAR(pipeline)"] {
+            let hits: Value = serde_json::from_str(&search(&store, STORE_A, q, 5).expect(q)).unwrap();
+            assert_eq!(hits.as_array().unwrap().len(), 1, "{q} matched nothing");
+        }
+        // bare operator words are terms like any other: no error, no match
+        assert_eq!(search(&store, STORE_A, "AND OR NOT", 5).unwrap(), "[]");
+        // and a query with nothing tokenizable is an empty result, not an empty
+        // MATCH — which is itself a syntax error
+        for q in ["???", r#"""""#, "…"] {
+            assert_eq!(search(&store, STORE_A, q, 5).unwrap(), "[]", "{q}");
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Everything execute_memory_tool refuses before it would reach the network.
+    /// Everything execute_memory_tool refuses before it touches the table.
     #[test]
-    fn dispatch_guards_run_before_any_embedding_call() {
+    fn dispatch_guards_run_before_any_search() {
         let (store, dir) = store();
-        let call = |id: &str, op: &str, input: &str| execute_memory_tool(&store, "", id, op, input);
+        let call = |id: &str, op: &str, input: &str| execute_memory_tool(&store, id, op, input);
 
         assert_eq!(call("not-a-uuid", "memory_search", "{}").unwrap_err(), "invalid memory id");
         assert_eq!(call(STORE_A, "memory_wipe", "{}").unwrap_err(), "unknown memory operation");
@@ -673,27 +619,20 @@ mod tests {
                 "{junk} should not parse as an argument object"
             );
         }
-        // forget never embeds, so it runs to completion on an empty key
         assert_eq!(call(STORE_A, "memory_forget", r#"{"id":"nope"}"#).unwrap_err(), "invalid memory item id");
         assert_eq!(call(STORE_A, "memory_forget", r#"{"id":"7"}"#).unwrap_err(), "memory not found");
-        // a blank key is the "no key" case, and it is reached before any socket
-        assert_eq!(
-            call(STORE_A, "memory_search", r#"{"query":"x"}"#).unwrap_err(),
-            "memory needs an OpenRouter key for embeddings: add one in settings"
-        );
+        // and the whole surface runs with no key of any kind in scope — this is
+        // what the OpenRouter embedding call used to make impossible
+        assert_eq!(call(STORE_A, "memory_search", r#"{"query":"x"}"#).unwrap(), "[]");
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn timestamps_and_scores_match_the_javascript() {
+    fn timestamps_and_specs_match_the_javascript() {
         // node: new Date(1753382096789).toISOString()
         assert_eq!(iso(1_753_382_096_789), "2025-07-24T18:34:56.789Z");
         assert_eq!(iso(0), "1970-01-01T00:00:00.000Z");
-        // Math.round breaks ties toward +∞, so both of these are what JS prints
-        assert_eq!(round3(0.8765), 0.877);
-        assert_eq!(round3(-0.0005), 0.0);
-        assert_eq!(js::stringify(&J::N(round3(1.0))), "1");
 
         assert!(is_uuid(STORE_A) && is_uuid(&STORE_A.to_uppercase()));
         assert!(!is_uuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa") && !is_uuid(""));

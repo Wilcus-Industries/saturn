@@ -33,7 +33,7 @@ a pool would only buy contention on the same lock one level down.
 | `workflow` | id, name, emoji, description, `graph` (json text), `active`, `last_run_at` (the claim stamp), timestamps |
 | `workflow_run` | `trigger` (cron/manual/event), `status` (running/success/error), `error`, `log` (json array of `ConsoleLine`), `started_at`/`finished_at`. Cascades from `workflow` |
 | `registry_entry` | the user's own node types — see `docs/registry.md` |
-| `memory_item` | a `vec0` virtual table, 1536-dim cosine, partitioned by `entry_id` |
+| `memory_item` | an FTS5 virtual table; BM25 over `content`, scoped by an UNINDEXED `entry_id` |
 | `github_cursor` | per-resource poll cursor + ETag — see `docs/integrations.md` |
 | `saturn_session` | Saturn Agent's chat sessions: id, **unique** name, timestamps |
 | `saturn_message` | one row per message: `session_id`, `role`, `content` (plain text), `parts` (json, display only), `created_at`. Cascades from `saturn_session` |
@@ -57,8 +57,8 @@ column holds one.
 `store.rs` owns the workflow and run queries; `registry.rs` and `memory.rs` keep
 their own SQL next to the code that gives it meaning and share only the
 *connection*. **Hold the connection guard for as short a span as possible** — it
-serializes every reader in the process, and an embedding round trip inside one
-would stall the scheduler for the length of a network call.
+serializes every reader in the process, and a network round trip inside one
+would stall the scheduler for its full length.
 
 ## The list page
 
