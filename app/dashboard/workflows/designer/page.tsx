@@ -13,7 +13,7 @@ import Designer, { type ProviderModels } from "./designer";
 type Workflow = { id: string; name: string; emoji: string; graph: WorkflowGraph };
 
 // lives outside the (shell) route group on purpose — the designer takes over the
-// full screen without the dashboard sidebar. The id rides the query string: a
+// full screen without the dashboard's top bar. The id rides the query string: a
 // static export can't enumerate a dynamic segment.
 function DesignerPage() {
     const id = useSearchParams().get("id") ?? "";

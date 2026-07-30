@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import ConfirmButton from "@/app/dashboard/confirmButton";
 import { ChevronDown } from "@/app/dashboard/icons";
 import { call } from "@/lib/ipc";
+import RunGlyph from "./runGlyph";
 
 // saturn::SessionRow, camelCase over IPC
 export type SessionRow = {
@@ -73,6 +74,9 @@ export default function SessionPicker({
                     (open ? "text-foreground" : "")
                 }
             >
+                {/* closed, the trigger is the only thing the panel header shows —
+                    so it carries the open chat's glyph, same one the rows use */}
+                <RunGlyph id={current} />
                 <span className={compact ? "max-w-24 truncate" : "max-w-48 truncate"}>{name}</span>
                 <ChevronDown
                     aria-hidden
@@ -121,6 +125,7 @@ export default function SessionPicker({
                                     (s.id === current ? "bg-foreground/10" : "")
                                 }
                             >
+                                <RunGlyph id={s.id} />
                                 {editing === s.id ? (
                                     <input
                                         autoFocus

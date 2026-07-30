@@ -259,7 +259,9 @@ fn saturn_send(
     workflow_id: Option<String>,
 ) -> Result<(), String> {
     let store = store.inner().clone();
-    saturn::SATURN_CANCEL.store(false, Ordering::Relaxed);
+    // taken before the thread starts, so a stop pressed while the turn is
+    // spawning still reaches it — and cleared here, never by `saturn_stop`
+    let cancel = saturn::cancel_flag(&session_id);
     std::thread::spawn(move || {
         let frame = |t: &str, d: &str| {
             let _ = app.emit(
@@ -280,7 +282,7 @@ fn saturn_send(
                 nested: false,
             },
             &mut emit,
-            Some(&saturn::SATURN_CANCEL),
+            Some(&cancel),
         );
         if let Err(err) = result {
             frame("e", &err);
@@ -291,13 +293,17 @@ fn saturn_send(
     Ok(())
 }
 
-/// Stops the streaming turn. Cooperative — `stream_chat` checks the flag between
-/// socket reads and `run_turn` between tool calls, so an in-flight request still
-/// finishes before the turn closes out. Always succeeds; stopping nothing is a
-/// no-op.
+/// Stops the turn streaming in ONE session. Cooperative — `stream_chat` checks
+/// the flag between socket reads and `run_turn` between tool calls, so an
+/// in-flight request still finishes before the turn closes out. Always succeeds;
+/// stopping nothing is a no-op.
+///
+/// Per session because a turn keeps running when the user switches chats, so the
+/// one they land on can start its own: a process-wide flag would let either stop
+/// button end both.
 #[tauri::command]
-fn saturn_stop() {
-    saturn::SATURN_CANCEL.store(true, Ordering::Relaxed);
+fn saturn_stop(session_id: String) {
+    saturn::cancel_session(&session_id);
 }
 
 #[tauri::command]
@@ -551,6 +557,11 @@ fn save_skill(
 }
 
 #[tauri::command]
+fn import_skill(store: State<Store>, path: String) -> Result<String, String> {
+    registry::import_skill(&store, std::path::Path::new(&path))
+}
+
+#[tauri::command]
 fn save_memory_store(
     store: State<Store>,
     id: Option<String>,
@@ -801,6 +812,7 @@ fn main() {
             list_registry,
             save_mcp_server,
             save_skill,
+            import_skill,
             save_memory_store,
             save_variable,
             delete_registry_entry,

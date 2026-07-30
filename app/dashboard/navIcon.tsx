@@ -6,8 +6,8 @@ import Spinner from "./spinner";
 
 // nav link icon that swaps to a spinner while the navigation is pending.
 // Must stay a descendant of <Link> — useLinkStatus reads the enclosing Link.
-// The overlay swap keeps the icon box's size, so nothing shifts (and the
-// collapsed sidebar, where the icon is all that's visible, works for free).
+// The overlay swap keeps the icon box's size, so nothing shifts — the top
+// bar's chips do not twitch when a navigation starts.
 export default function NavIcon({ icon: Icon, className }: { icon: IconType; className: string }) {
     const { pending } = useLinkStatus();
 

@@ -101,7 +101,7 @@ function downsample(grid: number[][], f: number): number[][] {
     );
 }
 
-// Two call sites at two sizes (sidebar mark at 4, chat hero at 2), so the
+// Two call sites at two sizes (top bar mark at 4, chat hero at 2), so the
 // downsample is cached per scale rather than run per render — the cached arrays
 // are also stable identities, which is what keeps the useMemo below from
 // rebuilding the t=0 strings and stomping the animated textContent.

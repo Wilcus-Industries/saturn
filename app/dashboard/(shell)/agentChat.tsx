@@ -148,8 +148,10 @@ export default function AgentChat({
 }: {
     // one entry per connected provider; empty = none connected — the composer
     // still renders its fallback list, but the message would fail, so one line
-    // says why
-    models: ProviderModels[];
+    // says why. `undefined` is that list still loading: the transcript never
+    // waits on it (that is a blocking network command), and the line that would
+    // accuse the user of connecting no provider has to wait for the answer.
+    models: ProviderModels[] | undefined;
     workflowId?: string;
     onGraph?: (graph: unknown) => void;
     panel?: boolean;
@@ -322,7 +324,7 @@ export default function AgentChat({
                 )}
             </div>
 
-            {models.length === 0 && (
+            {models?.length === 0 && (
                 <p className={"mx-auto w-full max-w-2xl pb-2 font-mono text-xs text-gray-400"}>
                     <Link href={"/dashboard/settings/"} className={"hover:text-foreground"}>
                         connect a model provider in settings →
@@ -331,7 +333,7 @@ export default function AgentChat({
             )}
 
             <AgentComposer
-                models={models}
+                models={models ?? []}
                 onSend={handleSend}
                 streaming={streaming}
                 onStop={stop}

@@ -17,14 +17,6 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = { title: "Saturn" };
 
-// Sidebar width before first paint. Same trick as a dark-mode flash guard: read
-// the preference synchronously in <head> and stamp <html>, so the CSS in
-// globals.css has it on the very first frame. localStorage replaces the cookie
-// the server used to read — there is no server. Wrapped in try/catch because a
-// blocked storage API must not take the whole app down.
-const SIDEBAR_SCRIPT =
-    `try{if(localStorage.sidebar==="collapsed")document.documentElement.dataset.sidebar="collapsed"}catch(e){}`;
-
 // WebKit's default action for Backspace outside a text field is history-back —
 // and on a Mac keyboard the Delete key IS Backspace. There is no browser chrome
 // here and no page wants it, so it is killed once, globally, rather than in
@@ -46,7 +38,6 @@ export default function RootLayout({
             suppressHydrationWarning
             className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
             <head>
-                <script dangerouslySetInnerHTML={{ __html: SIDEBAR_SCRIPT }} />
                 <script dangerouslySetInnerHTML={{ __html: BACKSPACE_SCRIPT }} />
             </head>
             <body className="min-h-full flex flex-col">

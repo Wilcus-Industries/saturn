@@ -28,6 +28,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::params;
@@ -100,12 +101,39 @@ const MAX_COMPACT_INPUT: usize = 200_000;
 /// `list_runs` default and ceiling.
 const MAX_LIST_RUNS: i64 = 50;
 
-/// The chat's stop button. One flag rather than a map keyed by session id.
+/// The chat's stop button, one flag per session. Keyed rather than process-wide
+/// (which is what `TEST_RUN_CANCEL` still is) because two chats genuinely do
+/// stream at once now: the client caches a transcript per session, so switching
+/// away from a running turn leaves it running, and the composer of the chat you
+/// land on will start its own. A shared flag would make either stop button kill
+/// both turns, and — since `cancel_flag` clears on the way in — make a second
+/// send silently un-stop the first.
 ///
-// ponytail: one process-wide cancel flag, exactly like TEST_RUN_CANCEL — the
-// composer refuses a second send while streaming and is the only surface that
-// can start one. Key it by session id if two chats ever stream at once.
-pub static SATURN_CANCEL: AtomicBool = AtomicBool::new(false);
+/// An entry per session sent to this process, never removed: it is one
+/// `AtomicBool`, and keeping it is what lets `cancel_flag` reset the flag
+/// instead of a stale `true` cancelling the next turn instantly.
+static CANCELS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+
+fn cancels() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+    CANCELS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// This turn's cancel flag, cleared — a stop belongs to the turn that was running
+/// when it was pressed, never to the next one. Call once per turn, at the start.
+pub fn cancel_flag(session_id: &str) -> Arc<AtomicBool> {
+    let mut map = cancels().lock().unwrap_or_else(|e| e.into_inner());
+    let flag = map.entry(session_id.to_string()).or_default();
+    flag.store(false, Ordering::Relaxed);
+    Arc::clone(flag)
+}
+
+/// Stop the turn streaming in one session. Stopping nothing is a no-op — the
+/// session may never have sent, or its turn may already be over.
+pub fn cancel_session(session_id: &str) {
+    if let Some(flag) = cancels().lock().unwrap_or_else(|e| e.into_inner()).get(session_id) {
+        flag.store(true, Ordering::Relaxed);
+    }
+}
 
 // --- sessions ----------------------------------------------------------------
 
@@ -872,6 +900,10 @@ fn dispatch(
     cwd: &str,
     name: &str,
     args: &Value,
+    // this turn's cancel flag, threaded through rather than looked up: the
+    // `run_workflow` arm hands it to the run it starts, so the chat's stop button
+    // stops that run too — and it must be THIS session's flag, not another's
+    cancel: Option<&AtomicBool>,
     emit: &mut dyn FnMut(&str, &str),
 ) -> Result<String, String> {
     // Re-resolved by NAME before anything runs, exactly as `runner.rs` re-checks
@@ -1079,7 +1111,7 @@ fn dispatch(
                 RunTrigger::Manual,
                 None,
                 None,
-                Some(&SATURN_CANCEL),
+                cancel,
             )?;
             let runs = store.list_runs(&id, 1).map_err(|e| e.to_string())?;
             let run = runs.into_iter().next().ok_or("the run left no history row")?;
@@ -1349,7 +1381,7 @@ pub fn run_turn(
                 Err("stopped".to_string())
             } else {
                 match parse_args(&call.arguments) {
-                    Some(args) => dispatch(store, vault, &state, &cwd, &call.name, &args, emit),
+                    Some(args) => dispatch(store, vault, &state, &cwd, &call.name, &args, cancel, emit),
                     None => Err("invalid tool arguments — expected a JSON object".into()),
                 }
             };
@@ -1648,6 +1680,27 @@ mod tests {
         let store = Store::open(&dir.join("saturn.db")).unwrap();
         init(&store).unwrap();
         (store, dir)
+    }
+
+    /// Two chats stream at once as soon as the client stops clearing `streaming`
+    /// on a session switch, so a stop must reach exactly one turn. Also the
+    /// reset: `cancel_flag` is the only thing that clears, and if it stopped
+    /// doing so the next turn in a stopped session would die on its first frame.
+    #[test]
+    fn stopping_one_session_leaves_the_other_running() {
+        let a = cancel_flag("session-a");
+        let b = cancel_flag("session-b");
+
+        cancel_session("session-a");
+        assert!(a.load(Ordering::Relaxed), "the stopped session's turn must unwind");
+        assert!(!b.load(Ordering::Relaxed), "the other session's turn must keep running");
+
+        // stopping a session that never sent is a no-op, not a panic
+        cancel_session("session-never-sent");
+        // and the stopped session's NEXT turn starts uncancelled — same flag,
+        // cleared, which is why nothing has to remove the entry
+        assert!(!cancel_flag("session-a").load(Ordering::Relaxed));
+        assert!(!a.load(Ordering::Relaxed));
     }
 
     /// `create_session(None)` has to find the first FREE "chat N", not
@@ -1981,7 +2034,7 @@ mod tests {
         let doomed = store.create_workflow_with("doomed", "⚙️", "", empty()).unwrap();
         let state = tool_state(&store);
         assert!(
-            dispatch(&store, &vault, &state, "", "delete_workflow", &json!({ "id": doomed.id }), &mut emit)
+            dispatch(&store, &vault, &state, "", "delete_workflow", &json!({ "id": doomed.id }), None, &mut emit)
                 .is_ok()
         );
 
@@ -2011,12 +2064,12 @@ mod tests {
         // ...and naming it anyway is a tool failure, not a delete
         let spared = store.create_workflow_with("spared", "⚙️", "", empty()).unwrap();
         assert_eq!(
-            dispatch(&store, &vault, &state, "", "delete_workflow", &json!({ "id": spared.id }), &mut emit),
+            dispatch(&store, &vault, &state, "", "delete_workflow", &json!({ "id": spared.id }), None, &mut emit),
             Err("tool \"delete_workflow\" is not enabled".into())
         );
         assert!(store.workflow(&spared.id).unwrap().is_some(), "a disabled tool ran anyway");
         // an invented name is the same answer, and never a panic
-        assert!(dispatch(&store, &vault, &state, "", "rm_rf", &json!({}), &mut emit).is_err());
+        assert!(dispatch(&store, &vault, &state, "", "rm_rf", &json!({}), None, &mut emit).is_err());
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -2094,7 +2147,7 @@ mod tests {
         assert_eq!(crate::bash::cwd_dir(&cwd).unwrap(), ws, "the stored cwd must round-trip");
 
         let run = |state: &[registry::McpTool], store: &Store, emit: &mut dyn FnMut(&str, &str)| {
-            dispatch(store, &vault, state, &cwd, "run_command", &json!({ "command": "echo hi > w.txt && cat w.txt" }), emit)
+            dispatch(store, &vault, state, &cwd, "run_command", &json!({ "command": "echo hi > w.txt && cat w.txt" }), None, emit)
         };
 
         // ships off: naming it is a tool failure even though it exists
@@ -2186,7 +2239,7 @@ mod tests {
         let mut emit = |_: &str, _: &str| {};
         let state = tool_state(&store);
         let call = |args: Value, emit: &mut dyn FnMut(&str, &str)| {
-            dispatch(&store, &vault, &state, "", "call_mcp_tool", &args, emit)
+            dispatch(&store, &vault, &state, "", "call_mcp_tool", &args, None, emit)
         };
 
         assert_eq!(

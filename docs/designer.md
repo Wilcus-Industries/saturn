@@ -3,7 +3,7 @@
 > Part of the Saturn docs set indexed in `CLAUDE.md`. Node shapes and the catalog are in `docs/nodes.md`; execution is `docs/workflows.md`.
 
 `/dashboard/workflows/designer/?id=` — full-screen, deliberately **outside** the
-`(shell)` route group so it renders without the sidebar. ~20 components colocate
+`(shell)` route group so it renders without the top bar. ~20 components colocate
 with it.
 
 `page.tsx` fans out four IPC calls (`get_workflow`, `list_registry`,

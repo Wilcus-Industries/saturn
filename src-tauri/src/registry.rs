@@ -41,8 +41,8 @@ pub const MAX_ENTRIES_PER_KIND: i64 = 50;
 pub const MAX_MCP_TOOLS: usize = 40;
 /// Names are rendered on a node box — 60 chars is what the designer lays out.
 pub const MAX_NAME: usize = 60;
-/// A skill's instructions / a memory store's note. Skill text is injected into
-/// the agent's system prompt, so this is also a prompt-budget cap.
+/// A memory store's note. Skills are deliberately uncapped: the instructions
+/// *are* the skill, and a prompt budget is the user's call, not this file's.
 pub const MAX_DESCRIPTION: usize = 2000;
 /// Bearer tokens and variable values. Long enough for a JWT, short enough that
 /// a paste accident is not stored.
@@ -864,8 +864,8 @@ pub fn save_entry(
     description: &str,
 ) -> Result<String, String> {
     let (default_emoji, too_long) = match kind {
-        Kind::Skill => ("⚙️", "Instructions too long"),
-        Kind::Memory => ("🧠", "Note too long"),
+        Kind::Skill => ("⚙️", None),
+        Kind::Memory => ("🧠", Some("Note too long")),
         // mcp and variable carry config and a Keychain secret, and the saturn
         // row is seeded rather than created — they have their own savers and
         // must never take this path.
@@ -878,8 +878,10 @@ pub fn save_entry(
         e => e,
     };
     let description = description.trim();
-    if len16(description) > MAX_DESCRIPTION {
-        return Err(too_long.into());
+    if let Some(too_long) = too_long {
+        if len16(description) > MAX_DESCRIPTION {
+            return Err(too_long.into());
+        }
     }
     match id {
         Some(id) => {
@@ -891,6 +893,58 @@ pub fn save_entry(
             insert_entry(store, kind, &name, emoji, description, &Config::default())
         }
     }
+}
+
+/// Import a skill from a file the user picked in the native open panel — a
+/// `SKILL.md` and friends: optional YAML front matter for the name, the body as
+/// the instructions. Reading happens here rather than in the frontend because
+/// there is no fs plugin and no reason to add one for a single read.
+pub fn import_skill(store: &Store, path: &std::path::Path) -> Result<String, String> {
+    // a skill is prose; anything this size is a mispick, and it would land in
+    // the database and in every prompt that grants it
+    if std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) > MAX_SKILL_FILE {
+        return Err("File too large".into());
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    let (name, body) = skill_from_text(&text, path);
+    save_entry(store, Kind::Skill, None, &name, "", body)
+}
+
+/// 1 MiB of instructions is already far past any prompt budget.
+const MAX_SKILL_FILE: u64 = 1 << 20;
+
+/// Name from front matter, else the file name — with `SKILL.md` taking the
+/// directory's name, which is how the convention spells it.
+fn skill_from_text<'a>(text: &'a str, path: &std::path::Path) -> (String, &'a str) {
+    let (front, body) = split_front_matter(text);
+    let name = front
+        .and_then(|f| f.lines().find_map(|l| l.trim().strip_prefix("name:")))
+        .map(|v| v.trim().trim_matches(['"', '\'']).to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| file_name(path));
+    (name, body.trim())
+}
+
+fn split_front_matter(text: &str) -> (Option<&str>, &str) {
+    let Some(rest) = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n")) else {
+        return (None, text);
+    };
+    match rest.find("\n---") {
+        // past the closing fence's own line, so the body never starts with `---`
+        Some(i) => (Some(&rest[..i]), rest[i + 1..].split_once('\n').map_or("", |(_, b)| b)),
+        None => (None, text),
+    }
+}
+
+fn file_name(path: &std::path::Path) -> String {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    if stem.eq_ignore_ascii_case("skill") {
+        if let Some(dir) = path.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()) {
+            return dir.to_string();
+        }
+    }
+    if stem.is_empty() { "skill".into() } else { stem.to_string() }
 }
 
 /// Port of `saveVariable`. Mode (`secret`) is fixed at creation: the edit
@@ -1124,6 +1178,42 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.0).ok();
         }
+    }
+
+    #[test]
+    fn a_skill_file_names_itself_from_front_matter_then_from_the_path() {
+        let p = std::path::Path::new("/tmp/ponytail/SKILL.md");
+        let (name, body) =
+            skill_from_text("---\nname: Ponytail\ndescription: x\n---\n\nbe lazy\n", p);
+        assert_eq!((name.as_str(), body), ("Ponytail", "be lazy"));
+
+        // no front matter: SKILL.md takes the directory, anything else its stem
+        let (name, body) = skill_from_text("be lazy\n", p);
+        assert_eq!((name.as_str(), body), ("ponytail", "be lazy"));
+        let (name, _) = skill_from_text("be lazy", std::path::Path::new("/tmp/caveman.md"));
+        assert_eq!(name, "caveman");
+
+        // an unterminated fence is content, not metadata
+        let (name, body) = skill_from_text("---\nname: nope", p);
+        assert_eq!((name.as_str(), body), ("ponytail", "---\nname: nope"));
+    }
+
+    #[test]
+    fn importing_a_skill_file_saves_one_uncapped_entry() {
+        let t = Tmp::new();
+        let dir = t.0.join("ponytail");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("SKILL.md");
+        std::fs::write(&file, format!("---\nname: Ponytail\n---\n{}", "x".repeat(200_000)))
+            .unwrap();
+
+        let id = import_skill(&t.1, &file).unwrap();
+        let row = get_user_registry(&t.1, &FakeVault::default()).unwrap().into_iter().find(|r| r.id == id).unwrap();
+        assert_eq!((row.kind.as_str(), row.name.as_str()), ("skill", "Ponytail"));
+        assert_eq!(len16(&row.description), 200_000);
+
+        std::fs::write(&file, "y".repeat((MAX_SKILL_FILE + 1) as usize)).unwrap();
+        assert_eq!(import_skill(&t.1, &file), Err("File too large".into()));
     }
 
     fn https_ok(_: &str) -> Result<(), String> {
@@ -1545,7 +1635,8 @@ mod tests {
             save_entry(store, Kind::Skill, None, &"x".repeat(61), "", ""),
             Err("Name is required (max 60 chars)".into())
         );
-        assert_eq!(save_entry(store, Kind::Skill, None, "s", "", &"x".repeat(2001)), Err("Instructions too long".into()));
+        // skills are uncapped: the instructions *are* the skill
+        assert!(save_entry(store, Kind::Skill, None, "s", "", &"x".repeat(200_001)).is_ok());
         assert_eq!(save_entry(store, Kind::Memory, None, "m", "", &"x".repeat(2001)), Err("Note too long".into()));
         assert_eq!(save_entry(store, Kind::Skill, Some("nope"), "s", "", ""), Err("Invalid id".into()));
         assert_eq!(
@@ -1553,7 +1644,8 @@ mod tests {
             Err("Value is required".into())
         );
 
-        for i in 0..MAX_ENTRIES_PER_KIND {
+        // one skill row exists already, from the uncapped-instructions case above
+        for i in 1..MAX_ENTRIES_PER_KIND {
             save_entry(store, Kind::Skill, None, &format!("s{i}"), "", "").unwrap();
         }
         assert_eq!(

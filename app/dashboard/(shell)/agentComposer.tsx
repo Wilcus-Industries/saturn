@@ -5,7 +5,7 @@ import { DEFAULT_MODEL } from "@/lib/agent";
 import { ArrowUp, ChevronDown, Folder, Stop } from "@/app/dashboard/icons";
 import ModelLogo from "@/app/dashboard/workflows/designer/modelLogo";
 import { call } from "@/lib/ipc";
-import { getSessionId, subscribe } from "./agentChatStore";
+import { getDraft, getSessionId, setDraft, subscribe } from "./agentChatStore";
 // type-only import — compile-erased, safe in a client component
 import type { ProviderModels } from "@/app/dashboard/workflows/designer/designer";
 
@@ -66,7 +66,10 @@ export default function AgentComposer({
     streaming: boolean;
     onStop: () => void;
 }) {
-    const [value, setValue] = useState("");
+    // the textarea owns the value while mounted; the store keeps the copy that
+    // outlives this mount, per session — a route change unmounts the whole
+    // composer and switching chats has to swap drafts, not merge them
+    const [value, setValue] = useState(getDraft);
     const [model, setModel] = useState(DEFAULT_MODEL);
     const [reasoning, setReasoning] = useState<string>(DEFAULT_EFFORT);
     const [open, setOpen] = useState(false);
@@ -83,6 +86,13 @@ export default function AgentComposer({
     const sessionId = useSyncExternalStore(subscribe, getSessionId, () => "");
     const [cwd, setCwd] = useState("");
     const [cwdError, setCwdError] = useState("");
+
+    // swap in the new chat's draft. Not merged with the cwd effect below: that
+    // one bails on a blank session and this still has to clear the box.
+    useEffect(() => {
+        /* eslint-disable-next-line react-hooks/set-state-in-effect -- the draft belongs to a session id that is only known after mount */
+        setValue(getDraft());
+    }, [sessionId]);
 
     useEffect(() => {
         if (!sessionId) return;
@@ -178,19 +188,28 @@ export default function AgentComposer({
 
     const empty = value.trim() === "";
 
-    function resize() {
+    // grow with the content. Driven off `value` rather than onInput so a draft
+    // restored on mount or on a chat switch gets its height too, instead of
+    // arriving as a one-row box with a scrollbar.
+    const resize = useCallback(() => {
         const el = textareaRef.current;
         if (!el) return;
         el.style.height = "auto";
-        el.style.height = `${el.scrollHeight}px`;
-    }
+        if (value !== "") el.style.height = `${el.scrollHeight}px`;
+    }, [value]);
+    useEffect(resize, [resize]);
 
     function submit() {
         if (empty || streaming) return;
         onSend(value.trim(), model, reasoning);
-        setValue("");
-        const el = textareaRef.current;
-        if (el) el.style.height = "auto";
+        write("");
+    }
+
+    // the box and the store move together — the store copy is the one that
+    // survives this component being unmounted by a route change
+    function write(next: string) {
+        setValue(next);
+        setDraft(next);
     }
 
     function pick(id: string) {
@@ -246,8 +265,7 @@ export default function AgentComposer({
                         "max-h-40 w-full resize-none overflow-y-auto bg-transparent p-1 " +
                         "font-mono text-sm outline-none placeholder:text-gray-400"
                     }
-                    onChange={(e) => setValue(e.target.value)}
-                    onInput={resize}
+                    onChange={(e) => write(e.target.value)}
                     onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();

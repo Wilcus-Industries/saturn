@@ -416,9 +416,11 @@ pub fn execute_run(
     // Only the event path seeds this; cron passes None, and a manual (designer
     // test) run seeds itself below. An event node with no entry evaluates to "".
     event_payloads: Option<HashMap<String, String>>,
-    // the designer's stop button. Only `test_run` passes one — a cron or event
-    // run has no UI to press it from.
-    cancel: Option<&'static AtomicBool>,
+    // the designer's stop button, or the chat's when the run was started by the
+    // `run_workflow` tool. A cron or event run has no UI to press either from and
+    // passes None. Not `'static`: the chat's flag is one entry of a per-session
+    // map, and the `thread::scope` below is exactly what makes that borrow fine.
+    cancel: Option<&AtomicBool>,
 ) -> Result<String, String> {
     let graph: Graph = serde_json::from_value(wf.graph.clone())
         .map_err(|e| format!("workflow graph is malformed: {e}"))?;

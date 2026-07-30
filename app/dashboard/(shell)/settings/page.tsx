@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import ConfirmButton from "@/app/dashboard/confirmButton";
 import EntryModal from "@/app/dashboard/entryModal";
+import { Download } from "@/app/dashboard/icons";
 import McpLogo from "@/app/dashboard/mcpLogo";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import { faviconDomain, type RegistryEntryRow } from "@/lib/registry";
@@ -37,6 +38,47 @@ function AutostartToggle({ enabled, onChanged }: { enabled: boolean; onChanged: 
                 />
                 start Saturn when I log in
             </label>
+            {error && <p className={"font-mono text-xs text-red-400"}>{error}</p>}
+        </>
+    );
+}
+
+// import a skill from a file instead of pasting one in: the native open panel
+// (`plugin:dialog|open`, same one-invoke call the composer's cwd chip makes),
+// then Rust reads the file — front matter for the name, the body as the
+// instructions.
+function ImportSkillButton({ onSaved }: { onSaved: () => void }) {
+    const [error, setError] = useState<string | null>(null);
+
+    return (
+        <>
+            <button
+                type={"button"}
+                onClick={async () => {
+                    setError(null);
+                    try {
+                        const picked = await call<string | null>("plugin:dialog|open", {
+                            options: {
+                                multiple: false,
+                                filters: [{ name: "Skill", extensions: ["md", "markdown", "txt"] }],
+                            },
+                        });
+                        // null is a cancelled panel, not a failure
+                        if (typeof picked !== "string") return;
+                        await call("import_skill", { path: picked });
+                    } catch (err) {
+                        setError(err instanceof Error ? err.message : "Import failed");
+                        return;
+                    }
+                    onSaved();
+                }}
+                className={`flex items-center gap-2 self-start border border-dashed
+                    border-foreground/30 px-3 py-1.5 font-mono text-sm text-gray-400
+                    transition-colors duration-200 hover:border-foreground hover:text-foreground`}
+            >
+                <Download className={"h-3.5 w-3.5"} />
+                import skill
+            </button>
             {error && <p className={"font-mono text-xs text-red-400"}>{error}</p>}
         </>
     );
@@ -223,7 +265,10 @@ export default function Settings() {
                             </div>
                         ))}
 
-                        <EntryModal kind={"skill"} onSaved={reload} />
+                        <div className={"flex flex-wrap items-center gap-3"}>
+                            <EntryModal kind={"skill"} onSaved={reload} />
+                            <ImportSkillButton onSaved={reload} />
+                        </div>
                     </section>
 
                     {/* the central GitHub App is gone — one fine-grained read-only

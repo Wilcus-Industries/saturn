@@ -20,7 +20,7 @@
 }
 
 /* No rubber-band. This is a window, not a web page: WKWebView's elastic
-   overscroll drags the whole document — sticky sidebar included — past the
+   overscroll drags the whole document — the sticky top bar included — past the
    window edge on a trackpad flick. */
 html {
   overscroll-behavior: none;
@@ -30,15 +30,6 @@ body {
   background: var(--background);
   color: var(--foreground);
 }
-
-/* Sidebar collapse, without a first-paint flash. The cookie that used to make
-   the server render the right width is gone with the server, so a blocking
-   script in <head> stamps data-sidebar on <html> from localStorage before the
-   first paint and these rules key off it. Width and label opacity are CSS-only
-   so nothing reflows on hydration; the toggle's own icon and aria-expanded come
-   from React state, which settles in the first effect (no layout shift). */
-html[data-sidebar="collapsed"] [data-sidebar-rail] { width: 4rem; } /* = w-16 */
-html[data-sidebar="collapsed"] [data-sidebar-label] { opacity: 0; }
 
 /* Agent page — hero drifts in on load, composer follows a beat later. */
 @keyframes agent-enter {

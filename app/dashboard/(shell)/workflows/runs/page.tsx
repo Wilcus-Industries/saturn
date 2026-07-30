@@ -7,7 +7,7 @@ import { LINE_STYLES } from "@/app/dashboard/workflows/designer/console";
 import { call, type ConsoleLine, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import { relativeTime } from "../workflowCard";
 
-// run history for one workflow; lives inside (shell) so it gets the sidebar,
+// run history for one workflow; lives inside (shell) so it gets the top bar,
 // unlike the shell-less designer at /dashboard/workflows/designer.
 type RunRow = {
     id: string;

@@ -179,11 +179,11 @@ or in the named module's header comment.
 
 - No dynamic route segments: a segment whose values are user-created uuids cannot be prerendered. Ids ride the query string (`?id=`), which means `useSearchParams` and therefore a `Suspense` boundary on every page that reads one.
 - `trailingSlash: true`, and every internal href must carry the slash — Tauri's asset protocol does no extensionless fallback, so a reload at a slash-less path finds no file.
-- No cookies, no request headers, no `revalidatePath`. Preferences that used cookies (sidebar width) use `localStorage` plus a `<head>` script.
+- No cookies, no request headers, no `revalidatePath`. The shell keeps no UI preference at all now that the collapsible sidebar is gone — a `<head>` script plus `localStorage` is the pattern if one comes back (`docs/ui.md`).
 
 ## Conventions
 
-- Components colocate with the route that uses them (e.g. `app/dashboard/sidebar.tsx`); only cross-cutting code goes in `lib/`.
+- Components colocate with the route that uses them (e.g. `app/dashboard/topBar.tsx`); only cross-cutting code goes in `lib/`.
 - Every Rust command returns `Result<T, String>`; `lib/ipc.tsx` `call()` normalizes the rejection into an `Error`. Expected user-facing failures are `Err(String)`, never a panic.
 - Animations respect `prefers-reduced-motion` throughout.
 - Rust modules carry their reasoning in a `//!` header. That is the durable location for subsystem detail — `docs/` indexes and connects, it does not duplicate.

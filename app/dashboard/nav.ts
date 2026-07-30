@@ -1,6 +1,6 @@
 import { Comments, Database, DiagramProject, Gear, Robot } from "./icons";
 
-// the sidebar's destinations.
+// the top bar's destinations.
 // Hrefs carry a trailing slash to match `trailingSlash: true`: every route is
 // exported as `<dir>/index.html`, and Tauri's asset protocol does no
 // extensionless fallback, so a reload at a slash-less path finds no file.

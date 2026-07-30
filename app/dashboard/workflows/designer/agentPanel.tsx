@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import AgentChat from "@/app/dashboard/(shell)/agentChat";
 import SessionPicker, { type SessionRow } from "@/app/dashboard/(shell)/agent/sessionPicker";
+import { useEnsureSession } from "@/app/dashboard/(shell)/agent/useEnsureSession";
 import { getSessionId, setSession, subscribe } from "@/app/dashboard/(shell)/agentChatStore";
 import { call, useAsync } from "@/lib/ipc";
 // type-only import — compile-erased, so the designer ⇄ panel import cycle
@@ -40,23 +41,16 @@ export default function AgentPanel({
     const [width, setWidth] = useState(400);
     const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-    // the same ensure-a-session effect as (shell)/agent/page.tsx, because either
-    // surface can be the first one a session is needed on (a hard reload lands
-    // straight here with an empty module store). The `some(...)` guard is what
-    // makes the handoff work: arriving mid-stream the session is already set, so
-    // nothing calls setSession and the streaming transcript is left alone.
+    // the same hook (shell)/agent/page.tsx runs, because either surface can be
+    // the first one a session is needed on — a hard reload lands straight here
+    // with an empty module store. Its already-in-the-list guard is what makes the
+    // handoff work: arriving mid-stream the session is already set, so nothing
+    // calls setSession and the streaming transcript is left alone.
     const { data: sessions, reload } = useAsync(loadSessions);
     const sessionId = useSyncExternalStore(subscribe, getSessionId, noSession);
-    useEffect(() => {
-        if (!sessions) return;
-        if (sessions.length === 0) {
-            void call("saturn_create_session", { name: null }).then(reload);
-            return;
-        }
-        if (sessions.some((s) => s.id === sessionId)) return;
-        const saved = localStorage.getItem("saturnSession");
-        void setSession(sessions.find((s) => s.id === saved)?.id ?? sessions[0].id);
-    }, [sessions, sessionId, reload]);
+    useEnsureSession(sessions, reload);
+    // only the picker needs the session LIST; the chat needs the id it renders,
+    // and gating it on the fetch too is what blanked a live turn on every remount
     const ready = sessions && sessionId;
 
     return (
@@ -112,7 +106,7 @@ export default function AgentPanel({
                 </button>
             </div>
             <div className={"min-h-0 flex-1 overflow-hidden"}>
-                {ready && (
+                {sessionId && (
                     <AgentChat panel workflowId={workflowId} models={models} onGraph={onGraph} />
                 )}
             </div>
