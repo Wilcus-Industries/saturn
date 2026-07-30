@@ -17,15 +17,23 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = { title: "Saturn" };
 
-// WebKit's default action for Backspace outside a text field is history-back —
-// and on a Mac keyboard the Delete key IS Backspace. There is no browser chrome
-// here and no page wants it, so it is killed once, globally, rather than in
-// every keydown handler. In <head> and not an effect because a keypress during
-// the hydration window would still navigate; capture phase so it lands before
-// any handler, but preventDefault alone — propagation continues, so the
-// designer's own Backspace/Delete branch still deletes the selection.
-const BACKSPACE_SCRIPT =
-    `addEventListener("keydown",function(e){var t=e.target||{};if(e.key==="Backspace"&&!t.isContentEditable&&!/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||""))e.preventDefault()},true)`;
+// Two WebKit default actions that no page here wants, killed once instead of in
+// every handler. Same shape for both: <head> and not an effect, because an event
+// during the hydration window would still fire the default; capture phase so it
+// lands before any handler; preventDefault only, so propagation — and the
+// designer's own Backspace/Delete branch — still runs.
+//
+// Backspace outside a text field is history-back, and on a Mac keyboard the
+// Delete key IS Backspace — there is no browser chrome here, so there is nothing
+// to go back to. The WebView's context menu is the same kind of leak: Reload and
+// Inspect Element on a right-click are not part of this app. Both are gated on
+// the same "target is not a text field" test, so a real input keeps Backspace and
+// its native Cut/Copy/Paste/Look Up menu.
+const EDITABLE = `function(t){return t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||"")}`;
+const DEFAULTS_SCRIPT =
+    `(function(){var editable=${EDITABLE};` +
+    `addEventListener("keydown",function(e){if(e.key==="Backspace"&&!editable(e.target||{}))e.preventDefault()},true);` +
+    `addEventListener("contextmenu",function(e){if(!editable(e.target||{}))e.preventDefault()},true)})()`;
 
 export default function RootLayout({
                                        children,
@@ -38,7 +46,7 @@ export default function RootLayout({
             suppressHydrationWarning
             className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
             <head>
-                <script dangerouslySetInnerHTML={{ __html: BACKSPACE_SCRIPT }} />
+                <script dangerouslySetInnerHTML={{ __html: DEFAULTS_SCRIPT }} />
             </head>
             <body className="min-h-full flex flex-col">
                 {children}
