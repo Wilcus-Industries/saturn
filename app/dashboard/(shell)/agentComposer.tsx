@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DEFAULT_MODEL } from "@/lib/agent";
-import { ArrowUp, ChevronDown, Folder, Stop } from "@/app/dashboard/icons";
+import { ArrowUp, ChevronDown, CodeBranch, Folder, Stop } from "@/app/dashboard/icons";
 import ModelLogo from "@/app/dashboard/workflows/designer/modelLogo";
 import { call } from "@/lib/ipc";
 import { getDraft, getSessionId, setDraft, subscribe } from "./agentChatStore";
@@ -102,6 +102,10 @@ export default function AgentComposer({
     const sessionId = useSyncExternalStore(subscribe, getSessionId, () => "");
     const [cwd, setCwd] = useState("");
     const [cwdError, setCwdError] = useState("");
+    // the branch in that directory, or "" when it is not a repository. Two
+    // worktrees of one repo clip to nearly the same path in the chip above, and
+    // this is what tells them apart.
+    const [branch, setBranch] = useState("");
 
     // swap in the new chat's draft. Not merged with the cwd effect below: that
     // one bails on a blank session and this still has to clear the box.
@@ -118,6 +122,10 @@ export default function AgentComposer({
             // a directory that will not resolve is the chip's own problem to
             // show, not a reason to break the composer
             .catch(() => void (live && setCwd("")));
+        // same trip, same guard: a missing branch just means no line
+        void call<string>("saturn_branch", { sessionId })
+            .then((b) => void (live && setBranch(b)))
+            .catch(() => void (live && setBranch("")));
         return () => void (live = false);
     }, [sessionId]);
 
@@ -139,6 +147,7 @@ export default function AgentComposer({
             if (typeof picked !== "string") return;
             await call("saturn_set_cwd", { sessionId, cwd: picked });
             setCwd(await call<string>("saturn_cwd", { sessionId }));
+            setBranch(await call<string>("saturn_branch", { sessionId }));
         } catch (err) {
             setCwdError(err instanceof Error ? err.message : "could not set the directory");
         }
@@ -584,6 +593,21 @@ export default function AgentComposer({
                     <span className={"truncate"}>{cwd ? shortPath(cwd) : "…"}</span>
                 </button>
             </div>
+
+            {/* the branch in that directory, subordinate to the chip above it —
+                a line the eye skips until it needs it. Absent entirely outside a
+                repository rather than shown empty: there is nothing to say. */}
+            {branch && (
+                <div
+                    className={
+                        "-mt-1 flex min-w-0 items-center justify-end gap-1.5 px-1 " +
+                        "font-mono text-[10px] text-gray-400"
+                    }
+                >
+                    <CodeBranch aria-hidden className={"h-2.5 w-2.5 shrink-0"} />
+                    <span className={"truncate"}>{branch}</span>
+                </div>
+            )}
         </form>
     );
 }

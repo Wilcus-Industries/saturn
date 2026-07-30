@@ -3,7 +3,7 @@ import type { SVGProps } from "react";
 // The fifteen glyphs the app uses, inlined rather than carried by an icon package.
 // Path data copied verbatim from the upstream sets: Font Awesome 6 Free (solid,
 // CC-BY-4.0) for everything but RobotLine, which is Remix Icon's
-// ri-robot-2-line (Apache-2.0).
+// ri-robot-2-line (Apache-2.0), and CodeBranch, which is drawn here (see it).
 //
 // Sizing keeps the old library's semantics: 1em square attributes, overridable
 // by any h-*/w-* class (CSS beats presentational attributes), fill currentColor.
@@ -87,6 +87,19 @@ export const Stop = icon(
 export const Folder = icon(
     "0 0 512 512",
     "M64 480L448 480c35.3 0 64-28.7 64-64l0-256c0-35.3-28.7-64-64-64L288 96c-10.1 0-19.6-4.7-25.6-12.8L243.2 57.6C231.1 41.5 212.1 32 192 32L64 32C28.7 32 0 60.7 0 96L0 416c0 35.3 28.7 64 64 64z",
+);
+
+// the branch line under it: a trunk with two commits and a fork to a third.
+// The one glyph here that is NOT traced from a set — it is three bars and three
+// circles at exact coordinates, which is why it survives being drawn at 10px
+// where Font Awesome's `code-branch` (thin strokes, donut nodes) fills in.
+//
+// Every subpath winds the same way on purpose. Fill is nonzero, so a circle
+// wound against the bar it overlaps subtracts instead of merging, and each node
+// renders with a notch bitten out of it — hence sweep 1, not 0, on all six arcs.
+export const CodeBranch = icon(
+    "0 0 448 512",
+    "M64 80h32v352H64zM80 240h288v32H80zM352 80h32v192h-32zM28 80a52 52 0 1 1 104 0a52 52 0 1 1-104 0zM28 432a52 52 0 1 1 104 0a52 52 0 1 1-104 0zM316 80a52 52 0 1 1 104 0a52 52 0 1 1-104 0z",
 );
 
 // arrow into a tray — the settings page's import-a-skill button, which opens the

@@ -249,6 +249,14 @@ no `sessionId` prop; it reads `getSessionId()` off `agentChatStore` through
 `useSyncExternalStore`, which is what makes the chip correct in both of
 `AgentChat`'s mount points without threading anything through `agentChat.tsx`.
 
+Underneath it sits the **branch line** — `saturn_branch`, read on the same trip
+as `saturn_cwd` and again after a pick. The chip above clips a path to its last
+two segments, which is exactly what two worktrees of one repository have in
+common, so the branch is what tells the user which tree the shell is pointed at.
+It is `""` outside a repository and the line is then absent entirely rather than
+shown empty. Nothing watches for an external `git checkout`: the value is read
+when the session or the directory changes and not otherwise.
+
 ## There is no invalidation bus
 
 23 `revalidatePath` calls did not become 23 event channels. A mutation the user
