@@ -225,6 +225,16 @@ Prefs (`agentModel`, `agentEffort`, `saturnSession`) are `localStorage` read in 
 mount effect rather than the `<head>`-script pattern — none of them shifts
 layout, and the composer already enters on a delay.
 
+An empty chat shows three **starter prompts** in a bordered box directly above the
+input. They live in `agentComposer.tsx` rather than in the hero overlay for two
+reasons: the hero is `pointer-events-none`, and `setDraft` does not `emit()`, so a
+chip anywhere else could write the draft and the composer would never re-render.
+Inside the composer a click is one call to the `write()` that already backs the
+textarea — it **prefills and focuses, it does not send**. `agentChat.tsx` passes
+the box its className (`suggest`), not a boolean, so it carries the hero's own
+`agent-enter`/`agent-exit`: a click leaves both on screen, and the first real send
+takes the planet and the prompts out together on one curve.
+
 The composer's third chip, the **working directory**, is deliberately not one of
 them. It sits at the right end of the same row as the model and effort chips
 (`ml-auto` is the whole of that alignment, so it lands under the send button),

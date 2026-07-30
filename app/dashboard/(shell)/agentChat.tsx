@@ -162,6 +162,9 @@ export default function AgentChat({
     // message; `heroExiting` keeps it mounted for one exit animation past that
     const [heroExiting, setHeroExiting] = useState(false);
     const heroVisible = messages.length === 0 || heroExiting;
+    // shared with the composer's starter box so the two can never drift out of
+    // step — they enter and leave as one thing
+    const heroAnim = heroVisible ? (heroExiting ? "agent-exit" : "agent-enter") : "";
 
     const router = useRouter();
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -304,22 +307,13 @@ export default function AgentChat({
                         className={
                             "pointer-events-none absolute inset-0 -mt-4 flex flex-col items-center " +
                             "justify-center gap-8 md:-mt-8 " +
-                            (heroExiting ? "agent-exit" : "agent-enter")
+                            heroAnim
                         }
                     >
                         <AsciiSaturn scale={2} sizeClass={"text-[min(9px,2vw)]"} />
-                        <div className={"flex flex-col items-center gap-2 text-center"}>
-                            <h1
-                                className={
-                                    "font-mono " + (panel ? "text-lg" : "text-2xl md:text-3xl")
-                                }
-                            >
-                                Say hello to Saturn Agent
-                            </h1>
-                            <p className={"font-mono text-sm text-gray-400"}>
-                                Ask about your workflows, runs, and memory — or just say hi.
-                            </p>
-                        </div>
+                        <h1 className={"font-mono " + (panel ? "text-lg" : "text-2xl md:text-3xl")}>
+                            Say hello to Saturn Agent
+                        </h1>
                     </div>
                 )}
             </div>
@@ -337,6 +331,7 @@ export default function AgentChat({
                 onSend={handleSend}
                 streaming={streaming}
                 onStop={stop}
+                suggest={heroAnim}
             />
         </div>
     );

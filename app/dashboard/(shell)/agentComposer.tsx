@@ -27,6 +27,16 @@ const FALLBACK_MODELS: ProviderModels[] = [
 const DEFAULT_EFFORT = "medium";
 const MAX_LISTED = 120;
 
+// empty-chat starters — one per thing the agent is actually for: authoring a
+// graph, acting on the working directory through run_command, and scheduling.
+// They prefill the box rather than send: the first two are worth a read before
+// they run, and the third names a schedule the user will want to change.
+const SUGGESTIONS = [
+    "Create a Discord bot workflow that connects Saturn Agent to a Discord bot",
+    "Explain the code in my working directory",
+    "Build a workflow that runs every morning and sends me a summary",
+];
+
 // mirrors the agent node's reasoning select (executeAgentTurn allowlist)
 const REASONING_LEVELS = ["off", "low", "medium", "high"] as const;
 
@@ -60,11 +70,17 @@ export default function AgentComposer({
     onSend,
     streaming,
     onStop,
+    suggest,
 }: {
     models: ProviderModels[];
     onSend: (text: string, model: string, reasoning: string) => void;
     streaming: boolean;
     onStop: () => void;
+    // the starter box's animation class, or "" for don't render it. A className
+    // rather than a boolean so the chips ride the hero's own entrance and exit —
+    // a click only prefills, so they outlive it and leave with the planet on the
+    // first real send instead of popping out a beat early.
+    suggest?: string;
 }) {
     // the textarea owns the value while mounted; the store keeps the copy that
     // outlives this mount, per session — a route change unmounts the whole
@@ -248,6 +264,41 @@ export default function AgentComposer({
                 submit();
             }}
         >
+            {/* starter prompts — an empty chat only. Clicking one fills the box
+                and focuses it; the send is still the user's. */}
+            {suggest && (
+                <div className={"flex flex-col border border-foreground/15 " + suggest}>
+                    {SUGGESTIONS.map((s) => (
+                        <button
+                            key={s}
+                            type={"button"}
+                            title={s}
+                            onClick={() => {
+                                write(s);
+                                textareaRef.current?.focus();
+                            }}
+                            className={
+                                "group flex cursor-pointer items-center gap-2 border-b " +
+                                "border-foreground/15 px-3 py-2 text-left font-mono text-xs " +
+                                "text-gray-400 transition-colors duration-200 last:border-b-0 " +
+                                "hover:bg-foreground/5 hover:text-foreground"
+                            }
+                        >
+                            <span className={"min-w-0 flex-1 truncate"}>{s}</span>
+                            <span
+                                aria-hidden
+                                className={
+                                    "shrink-0 opacity-0 transition-opacity duration-200 " +
+                                    "group-hover:opacity-100"
+                                }
+                            >
+                                →
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+
             <div
                 className={
                     "flex items-end gap-2 border border-foreground/15 bg-background p-2 " +
