@@ -355,6 +355,14 @@ fn saturn_cwd(store: State<Store>, session_id: String) -> Result<String, String>
     Ok(bash::abbreviate(&bash::cwd_dir(&stored)?))
 }
 
+/// The branch checked out in that same directory, for the line under the chip.
+/// Blank when the directory is not a repository — the composer then shows no
+/// line at all, so this never has to invent a placeholder.
+#[tauri::command]
+fn saturn_branch(store: State<Store>, session_id: String) -> Result<String, String> {
+    Ok(bash::branch(&saturn::session_cwd(&store, &session_id)))
+}
+
 /// Store the folder the user picked. The picker only ever hands back a real
 /// directory, but this is an IPC command like any other and the length and shape
 /// checks are the trust boundary — `bash::valid_cwd` owns the shape rule so the
@@ -808,6 +816,7 @@ fn main() {
             saturn_get_messages,
             saturn_save_tools,
             saturn_cwd,
+            saturn_branch,
             saturn_set_cwd,
             has_openrouter_key,
             set_openrouter_key,

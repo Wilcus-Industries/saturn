@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DEFAULT_MODEL } from "@/lib/agent";
-import { ArrowUp, ChevronDown, Folder, Stop } from "@/app/dashboard/icons";
+import { ArrowUp, ChevronDown, CodeBranch, Folder, Stop } from "@/app/dashboard/icons";
 import ModelLogo from "@/app/dashboard/(shell)/workflows/designer/modelLogo";
 import { call } from "@/lib/ipc";
 import { getDraft, getSessionId, setDraft, subscribe } from "./agentChatStore";
@@ -26,6 +26,16 @@ const FALLBACK_MODELS: ProviderModels[] = [
 
 const DEFAULT_EFFORT = "medium";
 const MAX_LISTED = 120;
+
+// empty-chat starters — one per thing the agent is actually for: authoring a
+// graph, acting on the working directory through run_command, and scheduling.
+// They prefill the box rather than send: the first two are worth a read before
+// they run, and the third names a schedule the user will want to change.
+const SUGGESTIONS = [
+    "Create a Discord bot workflow that connects Saturn Agent to a Discord bot",
+    "Explain the code in my working directory",
+    "Build a workflow that runs every morning and sends me a summary",
+];
 
 // mirrors the agent node's reasoning select (executeAgentTurn allowlist)
 const REASONING_LEVELS = ["off", "low", "medium", "high"] as const;
@@ -60,11 +70,17 @@ export default function AgentComposer({
     onSend,
     streaming,
     onStop,
+    suggest,
 }: {
     models: ProviderModels[];
     onSend: (text: string, model: string, reasoning: string) => void;
     streaming: boolean;
     onStop: () => void;
+    // the starter box's animation class, or "" for don't render it. A className
+    // rather than a boolean so the chips ride the hero's own entrance and exit —
+    // a click only prefills, so they outlive it and leave with the planet on the
+    // first real send instead of popping out a beat early.
+    suggest?: string;
 }) {
     // the textarea owns the value while mounted; the store keeps the copy that
     // outlives this mount, per session — a route change unmounts the whole
@@ -86,6 +102,10 @@ export default function AgentComposer({
     const sessionId = useSyncExternalStore(subscribe, getSessionId, () => "");
     const [cwd, setCwd] = useState("");
     const [cwdError, setCwdError] = useState("");
+    // the branch in that directory, or "" when it is not a repository. Two
+    // worktrees of one repo clip to nearly the same path in the chip above, and
+    // this is what tells them apart.
+    const [branch, setBranch] = useState("");
 
     // swap in the new chat's draft. Not merged with the cwd effect below: that
     // one bails on a blank session and this still has to clear the box.
@@ -102,6 +122,10 @@ export default function AgentComposer({
             // a directory that will not resolve is the chip's own problem to
             // show, not a reason to break the composer
             .catch(() => void (live && setCwd("")));
+        // same trip, same guard: a missing branch just means no line
+        void call<string>("saturn_branch", { sessionId })
+            .then((b) => void (live && setBranch(b)))
+            .catch(() => void (live && setBranch("")));
         return () => void (live = false);
     }, [sessionId]);
 
@@ -123,6 +147,7 @@ export default function AgentComposer({
             if (typeof picked !== "string") return;
             await call("saturn_set_cwd", { sessionId, cwd: picked });
             setCwd(await call<string>("saturn_cwd", { sessionId }));
+            setBranch(await call<string>("saturn_branch", { sessionId }));
         } catch (err) {
             setCwdError(err instanceof Error ? err.message : "could not set the directory");
         }
@@ -248,6 +273,41 @@ export default function AgentComposer({
                 submit();
             }}
         >
+            {/* starter prompts — an empty chat only. Clicking one fills the box
+                and focuses it; the send is still the user's. */}
+            {suggest && (
+                <div className={"flex flex-col border border-foreground/15 " + suggest}>
+                    {SUGGESTIONS.map((s) => (
+                        <button
+                            key={s}
+                            type={"button"}
+                            title={s}
+                            onClick={() => {
+                                write(s);
+                                textareaRef.current?.focus();
+                            }}
+                            className={
+                                "group flex cursor-pointer items-center gap-2 border-b " +
+                                "border-foreground/15 px-3 py-2 text-left font-mono text-xs " +
+                                "text-gray-400 transition-colors duration-200 last:border-b-0 " +
+                                "hover:bg-foreground/5 hover:text-foreground"
+                            }
+                        >
+                            <span className={"min-w-0 flex-1 truncate"}>{s}</span>
+                            <span
+                                aria-hidden
+                                className={
+                                    "shrink-0 opacity-0 transition-opacity duration-200 " +
+                                    "group-hover:opacity-100"
+                                }
+                            >
+                                →
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+
             <div
                 className={
                     "flex items-end gap-2 border border-foreground/15 bg-background p-2 " +
@@ -533,6 +593,21 @@ export default function AgentComposer({
                     <span className={"truncate"}>{cwd ? shortPath(cwd) : "…"}</span>
                 </button>
             </div>
+
+            {/* the branch in that directory, subordinate to the chip above it —
+                a line the eye skips until it needs it. Absent entirely outside a
+                repository rather than shown empty: there is nothing to say. */}
+            {branch && (
+                <div
+                    className={
+                        "-mt-1 flex min-w-0 items-center justify-end gap-1.5 px-1 " +
+                        "font-mono text-[10px] text-gray-400"
+                    }
+                >
+                    <CodeBranch aria-hidden className={"h-2.5 w-2.5 shrink-0"} />
+                    <span className={"truncate"}>{branch}</span>
+                </div>
+            )}
         </form>
     );
 }

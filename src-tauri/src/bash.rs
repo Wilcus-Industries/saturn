@@ -128,6 +128,34 @@ pub fn abbreviate(dir: &Path) -> String {
     }
 }
 
+/// The git branch checked out in a session's directory, or `""` when there
+/// isn't one — not a repository, no `git`, a resolve failure. The composer shows
+/// it under the cwd chip, because two worktrees of one repo render as nearly the
+/// same clipped path and the branch is what tells them apart.
+///
+/// This is **not** a second `run` and must not grow into one: the argv is fixed,
+/// nothing the model or the user wrote is ever interpolated into it, and the
+/// command only reads. It sits here because this module already owns the
+/// question "what directory is this session in" — `branch` is a property of that
+/// same resolved directory, so it shares `cwd_dir`'s `~/` expansion rather than
+/// keeping a second copy of the rule.
+///
+/// `--abbrev-ref` is blank-proof inside a repository: a detached HEAD comes back
+/// as the literal `HEAD`, which is worth showing and costs no fallback path.
+pub fn branch(configured: &str) -> String {
+    let Ok(dir) = cwd_dir(configured) else { return String::new() };
+    let Ok(out) = Command::new("git")
+        .args(["-C", &dir.to_string_lossy(), "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+    else {
+        return String::new();
+    };
+    if !out.status.success() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
 /// A path as a seatbelt string literal. Backslash first, then the quote —
 /// escaping the quote first would leave the backslash it introduced to be
 /// escaped again, doubling it. This is the one place user config becomes policy
@@ -356,6 +384,15 @@ mod tests {
         assert_eq!(cwd_dir("").unwrap(), home().unwrap());
         assert_eq!(abbreviate(&home().unwrap()), "~");
         assert_eq!(abbreviate(&home().unwrap().join("Saturn")), "~/Saturn");
+    }
+
+    /// The composer's branch line. This crate is checked out from git, so it can
+    /// ask about itself; `/usr` is the control that a directory with no
+    /// repository above it reports nothing rather than a stale or inherited name.
+    #[test]
+    fn the_branch_is_read_from_a_repository_and_only_from_one() {
+        assert!(!branch(env!("CARGO_MANIFEST_DIR")).is_empty());
+        assert_eq!(branch("/usr"), "");
     }
 
     /// The default cwd is `$HOME`, which encloses every credential directory.

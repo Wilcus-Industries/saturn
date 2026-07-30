@@ -4,14 +4,13 @@
 
 ## Routes
 
-Eight pages, all statically exported. `trailingSlash: true`, so every route emits
+Seven pages, all statically exported. `trailingSlash: true`, so every route emits
 as `<dir>/index.html` and every internal href must carry the slash — Tauri's
 asset protocol does no extensionless fallback.
 
 | route | file | shell | id |
 |---|---|---|---|
 | `/dashboard/agent/` | `(shell)/agent/page.tsx` | yes | — |
-| `/dashboard/sessions/` | `(shell)/sessions/page.tsx` | yes | — |
 | `/dashboard/workflows/` | `(shell)/workflows/page.tsx` | yes | — |
 | `/dashboard/workflows/runs/?id=` | `(shell)/workflows/runs/page.tsx` | yes | query |
 | `/dashboard/workflows/designer/?id=` | `(shell)/workflows/designer/page.tsx` | yes | query |
@@ -64,7 +63,7 @@ it decides on `usePathname()` which of its two lower children is showing:
 exactly one is `display:none` — which is why the designer needs no height calc of
 its own, just `flex-1` in the `h-dvh` column. There is no responsive branch: the
 window has a `minWidth` of 768 (`tauri.conf.json`), so the bar is unconditional.
-`nav.ts` holds the five destinations and `isActive`, and normalizes trailing
+`nav.ts` holds the four destinations and `isActive`, and normalizes trailing
 slashes on both sides — `usePathname()` reports what is actually in the address
 bar, which is slash-terminated on a hard load but whatever href was pushed after
 a client navigation.
@@ -136,8 +135,9 @@ and the `<aside>` docked beside the designer canvas
 width local and never persisted). Both render the same `agentChat.tsx` and drive the same
 four session commands, but switch chats differently: the page uses
 `agent/sessionSidebar.tsx`, a collapsible column down the window's left edge
-(double-click the open chat to rename; collapsed it is a 2.5rem rail of status
-glyphs alone, remembered in `localStorage` under `saturnChatRail`), while the
+(the open chat carries a pencil and a delete — double-click is the pencil's
+mouse shortcut; collapsed it is a 2.5rem rail of status glyphs alone, remembered
+in `localStorage` under `saturnChatRail`), while the
 panel keeps the `agent/sessionPicker.tsx` dropdown (`compact`) — a column does
 not fit a 300px aside.
 
@@ -170,12 +170,10 @@ up with". The second is every freshly created chat — the creator selects it
 before the refetch lands — and firing on it is what threw the user back to
 `sessions[0]` the instant they pressed `+ new chat`.
 
-`/dashboard/sessions/` is the third surface onto the same rows: the four session
-commands again, plus the message count `list_sessions` now returns and a jump
-that sets the store's session before navigating. It exists because a chat is no
-longer only something you talk in — an `agent` node with a `session` chip wired
-writes into one every run (`docs/nodes.md`), and those need somewhere to be read,
-renamed and deleted.
+There used to be a third surface, `/dashboard/sessions/` — a flat list with the
+same four commands plus a message count. It is gone: the sidebar and the
+dropdown each drive all four, so it was a duplicate list, and `SessionRow` lost
+the `messages` count that existed only to fill its one extra column.
 
 **Rust owns the stream.** `saturn_send` returns the moment the turn is spawned
 and pushes frames:
@@ -249,6 +247,16 @@ Prefs (`agentModel`, `agentEffort`, `saturnSession`) are `localStorage` read in 
 mount effect rather than the `<head>`-script pattern — none of them shifts
 layout, and the composer already enters on a delay.
 
+An empty chat shows three **starter prompts** in a bordered box directly above the
+input. They live in `agentComposer.tsx` rather than in the hero overlay for two
+reasons: the hero is `pointer-events-none`, and `setDraft` does not `emit()`, so a
+chip anywhere else could write the draft and the composer would never re-render.
+Inside the composer a click is one call to the `write()` that already backs the
+textarea — it **prefills and focuses, it does not send**. `agentChat.tsx` passes
+the box its className (`suggest`), not a boolean, so it carries the hero's own
+`agent-enter`/`agent-exit`: a click leaves both on screen, and the first real send
+takes the planet and the prompts out together on one curve.
+
 The composer's third chip, the **working directory**, is deliberately not one of
 them. It sits at the right end of the same row as the model and effort chips
 (`ml-auto` is the whole of that alignment, so it lands under the send button),
@@ -262,6 +270,14 @@ wrapper over that one invoke and `lib/ipc.tsx` already is one. The composer take
 no `sessionId` prop; it reads `getSessionId()` off `agentChatStore` through
 `useSyncExternalStore`, which is what makes the chip correct in both of
 `AgentChat`'s mount points without threading anything through `agentChat.tsx`.
+
+Underneath it sits the **branch line** — `saturn_branch`, read on the same trip
+as `saturn_cwd` and again after a pick. The chip above clips a path to its last
+two segments, which is exactly what two worktrees of one repository have in
+common, so the branch is what tells the user which tree the shell is pointed at.
+It is `""` outside a repository and the line is then absent entirely rather than
+shown empty. Nothing watches for an external `git checkout`: the value is read
+when the session or the directory changes and not otherwise.
 
 ## There is no invalidation bus
 

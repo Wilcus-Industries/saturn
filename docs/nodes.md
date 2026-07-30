@@ -235,8 +235,8 @@ remembers.
 
 ### Chats (the `session` port)
 
-A chat chip is a `saturn_session` row — the same conversations the sessions page
-lists and Saturn Agent talks in — and the **only catalog entry whose subject is
+A chat chip is a `saturn_session` row — the same conversations Saturn Agent
+talks in — and the **only catalog entry whose subject is
 not a `registry_entry`**. `saturn::session_catalog` builds them Rust-side and
 `lib/registry.ts`'s `sessionEntry` mirrors it; both have to be merged wherever
 `by_key` is assembled (`main.rs` `validate_graph`, `runner::execute_run`,
