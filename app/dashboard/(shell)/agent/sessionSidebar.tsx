@@ -2,7 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import ConfirmButton from "@/app/dashboard/confirmButton";
-import { ChevronDown } from "@/app/dashboard/icons";
+import { ChevronDown, Pencil } from "@/app/dashboard/icons";
 import { call } from "@/lib/ipc";
 import { getRunning, subscribe } from "../agentChatStore";
 import RunGlyph from "./runGlyph";
@@ -78,6 +78,12 @@ export default function SessionSidebar({
             return !o;
         });
 
+    // the pencil and the double-click open the same inline input
+    const edit = (s: SessionRow) => {
+        setDraft(s.name);
+        setEditing(s.id);
+    };
+
     // a label that is only there when the column is wide enough for it.
     // pointer-events-none matters: a faded-out `delete` is still a click target.
     const label = `${FADE} ${open ? "opacity-100 delay-100" : "pointer-events-none opacity-0"}`;
@@ -145,9 +151,29 @@ export default function SessionSidebar({
                                         autoFocus
                                         value={draft}
                                         aria-label={"Chat name"}
+                                        // This input has to occupy the exact box
+                                        // the label it replaces sat in, or the
+                                        // rest of the list jumps on rename. Two
+                                        // rules, both measured:
+                                        //
+                                        // No border and no px — an `outline` is
+                                        // painted outside the box and costs no
+                                        // layout, where a border plus padding
+                                        // pushed the name 5px right and grew the
+                                        // row. But the offset has to be NEGATIVE:
+                                        // at the default 0 the outline still
+                                        // spills 1px past the row top and bottom,
+                                        // which is the field reading 2px taller
+                                        // than the row it lives in.
+                                        //
+                                        // `h-6` IS the display button's height —
+                                        // its `py-1` (8px) around a text-xs line
+                                        // box (16px). Without it the input is
+                                        // 16px and the row collapses. Change one,
+                                        // change both.
                                         className={
-                                            "my-1 mr-2 min-w-0 flex-1 border border-foreground/15 " +
-                                            "bg-transparent px-1 font-mono text-xs outline-none"
+                                            "mr-2 h-6 min-w-0 flex-1 bg-transparent font-mono " +
+                                            "text-xs outline-1 -outline-offset-1 outline-foreground/30"
                                         }
                                         onChange={(e) => setDraft(e.target.value)}
                                         onBlur={() => setEditing(null)}
@@ -179,13 +205,10 @@ export default function SessionSidebar({
                                         aria-pressed={active}
                                         aria-busy={busy}
                                         onClick={() => onPick(s.id)}
-                                        // mouse-only rename: /dashboard/sessions/
-                                        // is the keyboard path and has all four
-                                        // commands
+                                        // the mouse shortcut for the pencil
+                                        // beside it, which is the keyboard path
                                         onDoubleClick={() => {
-                                            if (!active) return;
-                                            setDraft(s.name);
-                                            setEditing(s.id);
+                                            if (active) edit(s);
                                         }}
                                         className={
                                             "flex min-w-0 flex-1 cursor-pointer items-center py-1 " +
@@ -201,11 +224,27 @@ export default function SessionSidebar({
                                         </span>
                                     </button>
 
-                                    {/* only the open chat offers its delete — one
+                                    {/* only the open chat offers these — one pair
                                         per row would be a column of nothing but
-                                        delete links */}
+                                        action glyphs */}
                                     {active && (
-                                        <span className={`shrink-0 pr-2 ${label}`}>
+                                        <span
+                                            className={
+                                                `flex shrink-0 items-center gap-2 pr-2 ${label}`
+                                            }
+                                        >
+                                            <button
+                                                type={"button"}
+                                                aria-label={"rename"}
+                                                title={"rename"}
+                                                onClick={() => edit(s)}
+                                                className={
+                                                    "cursor-pointer text-gray-400 transition-colors " +
+                                                    "hover:text-foreground"
+                                                }
+                                            >
+                                                <Pencil />
+                                            </button>
                                             <ConfirmButton
                                                 sizeClass={"text-xs"}
                                                 onConfirm={() =>

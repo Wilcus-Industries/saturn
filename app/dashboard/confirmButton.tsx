@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Trash } from "./icons";
 
 // two-step inline confirm: first click arms, second calls `onConfirm`; disarms
 // after 3s. Shared by every delete in the shell and the designer.
+//
+// Only the disarmed state is an icon. The armed one stays the word `confirm?`,
+// deliberately: a bin that turns into another bin is not a state change anyone
+// reads, and this is the click that destroys something.
 //
 // The caller owns what confirming does and what happens afterwards, because no
 // two want the same thing: the settings page reports a failure at the top of the
@@ -30,10 +35,15 @@ export default function ConfirmButton({
         return (
             <button
                 type={"button"}
+                // the glyph is aria-hidden and the word is gone, so the button
+                // would otherwise have no accessible name at all
+                aria-label={"delete"}
+                title={"delete"}
                 onClick={() => setArmed(true)}
                 className={`font-mono ${sizeClass} text-gray-400 hover:text-red-500`}
             >
-                delete
+                {/* 1em, so it still tracks whatever `sizeClass` the caller passed */}
+                <Trash />
             </button>
         );
     }

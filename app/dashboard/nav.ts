@@ -1,4 +1,4 @@
-import { Comments, Database, DiagramProject, Gear, Robot } from "./icons";
+import { Database, DiagramProject, Gear, Robot } from "./icons";
 
 // the top bar's destinations.
 // Hrefs carry a trailing slash to match `trailingSlash: true`: every route is
@@ -8,7 +8,6 @@ export const NAV = [
     // /dashboard/agent/, not /dashboard/: isActive matches on a segment boundary,
     // so a base of "/dashboard" would light this tab on every page in the shell.
     { label: "Agent", href: "/dashboard/agent/", icon: Robot },
-    { label: "Sessions", href: "/dashboard/sessions/", icon: Comments },
     { label: "Workflows", href: "/dashboard/workflows/", icon: DiagramProject },
     { label: "Memory", href: "/dashboard/memory/", icon: Database },
     { label: "Settings", href: "/dashboard/settings/", icon: Gear },

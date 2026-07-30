@@ -12,7 +12,6 @@ export type SessionRow = {
     name: string;
     createdAt: number;
     updatedAt: number;
-    messages: number; // stored turns — only the sessions page shows it
 };
 
 // Chat switcher for both Saturn surfaces: the dashboard page's header row and
@@ -131,9 +130,18 @@ export default function SessionPicker({
                                         autoFocus
                                         value={draft}
                                         aria-label={"Chat name"}
+                                        // outline over border, no px, negative
+                                        // offset — same reason as
+                                        // sessionSidebar.tsx: none of it costs
+                                        // layout, so the input sits on the pixels
+                                        // the option label just left instead of
+                                        // shifting the row. No height here: this
+                                        // row's padding is on the wrapper, so the
+                                        // input's natural text-xs line box is
+                                        // already the button's 16px.
                                         className={
-                                            "min-w-0 flex-1 border border-foreground/15 bg-transparent " +
-                                            "px-1 font-mono text-xs outline-none"
+                                            "min-w-0 flex-1 bg-transparent font-mono " +
+                                            "text-xs outline-1 -outline-offset-1 outline-foreground/30"
                                         }
                                         onChange={(e) => setDraft(e.target.value)}
                                         onBlur={() => setEditing(null)}
