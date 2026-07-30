@@ -269,10 +269,6 @@ pub struct SessionRow {
     pub name: String,
     pub created_at: i64,
     pub updated_at: i64,
-    /// stored turns — the sessions page's only column the picker doesn't show.
-    /// A correlated subquery rather than a second command: every caller that
-    /// lists sessions is already paying for the row.
-    pub messages: i64,
 }
 
 /// One stored turn as the chat re-renders it. `content` is the plain text (the
@@ -293,9 +289,8 @@ pub fn list_sessions(store: &Store) -> Result<Vec<SessionRow>, String> {
     let conn = store.conn();
     let mut stmt = conn
         .prepare(
-            "select id, name, created_at, updated_at,
-                    (select count(*) from saturn_message m where m.session_id = s.id)
-               from saturn_session s order by updated_at desc",
+            "select id, name, created_at, updated_at
+               from saturn_session order by updated_at desc",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -305,7 +300,6 @@ pub fn list_sessions(store: &Store) -> Result<Vec<SessionRow>, String> {
                 name: r.get(1)?,
                 created_at: r.get(2)?,
                 updated_at: r.get(3)?,
-                messages: r.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -324,7 +318,6 @@ pub fn create_session(store: &Store, name: Option<&str>) -> Result<SessionRow, S
         },
         created_at: now(),
         updated_at: now(),
-        messages: 0,
     };
     insert_session(store, &row)?;
     Ok(row)
@@ -1707,7 +1700,7 @@ Config fields hold literal strings. A field with "overriddenBy" is ignored when 
 Grant chips — one MCP server node per registered server, one skill node per skill, one memory node per registered memory store. They have NO flow ports and are NOT executable on their own: a server node has a single value output "tool", a skill node a single value output "skill", a memory node a single value output "memory". That output connects nowhere except an agent's matching grant port ("tool" → agent "tools", "skill" → agent "skills", "memory" → agent "memory"); wiring it there grants the agent that server's tools / that skill / that memory store. Chips are never run or evaluated as values — the grant resolves statically from the node type. MCP tools therefore run only through agents.
 A server node grants every enabled tool that passes the read/write gate (off or write-mismatched tools are silently skipped; the grantable list is each catalog entry's "tools" field). Optional config.exclude — a JSON array of tool names AS A STRING (e.g. "[\"delete_file\"]") — withholds specific tools from the grant: unknown names are ignored, and tools discovered later are granted automatically unless excluded. Old per-tool keys ("mcp:<entryId>:<toolName>") no longer exist — they render as inert "(deleted)" placeholders and grant nothing.
 ## Chat nodes (keys "session:<uuid>")
-Grant chips like the ones above, one per Saturn Agent chat (the sessions the user manages at /dashboard/sessions/ and talks to in the app). No flow ports, a single value output "session", and it connects nowhere except an agent's "session" port. Wiring one makes that agent's conversation PERSIST: the chat's prior turns are prepended to every run's transcript, and each run appends its prompt and reply to the same chat — so a scheduled agent remembers the last run, and the user can read (and answer) it in the app. The port takes a SINGLE edge; without one an agent node starts from nothing every run, which is what you usually want for a one-shot summarizer. Chats are created in the app, never by a graph: use an existing one from get_catalog's yourEntries.
+Grant chips like the ones above, one per Saturn Agent chat (the sessions the user manages and talks to in Saturn Agent). No flow ports, a single value output "session", and it connects nowhere except an agent's "session" port. Wiring one makes that agent's conversation PERSIST: the chat's prior turns are prepended to every run's transcript, and each run appends its prompt and reply to the same chat — so a scheduled agent remembers the last run, and the user can read (and answer) it in the app. The port takes a SINGLE edge; without one an agent node starts from nothing every run, which is what you usually want for a one-shot summarizer. Chats are created in the app, never by a graph: use an existing one from get_catalog's yourEntries.
 A memory node connects ONLY to an agent's "memory" port, and that port takes a SINGLE edge — one memory store per agent (wiring a second memory node replaces the first). At runtime the attached store gives the agent three built-in tools it calls itself — memory_search (semantic recall), memory_save (store a durable fact) and memory_forget (delete an item by id) — and injects the store's name into the system prompt. These three occupy tool slots, so an agent with a memory store attached can be granted at most 17 MCP tools (the tool cap is 20).
 
 ## Variable nodes (keys "variable:<uuid>")
@@ -2023,7 +2016,6 @@ mod tests {
         assert_eq!(stored.len(), 4);
         assert_eq!((stored[2].role.as_str(), stored[2].content.as_str()), ("user", "and now?"));
         assert_eq!(stored[3].parts[0]["text"], result.2.as_str());
-        assert_eq!(list_sessions(&store).unwrap()[0].messages, 4);
 
         // no catalog ⇒ the chip resolves as deleted ⇒ no history, no append
         let values = run(None);

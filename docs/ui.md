@@ -4,14 +4,13 @@
 
 ## Routes
 
-Eight pages, all statically exported. `trailingSlash: true`, so every route emits
+Seven pages, all statically exported. `trailingSlash: true`, so every route emits
 as `<dir>/index.html` and every internal href must carry the slash — Tauri's
 asset protocol does no extensionless fallback.
 
 | route | file | shell | id |
 |---|---|---|---|
 | `/dashboard/agent/` | `(shell)/agent/page.tsx` | yes | — |
-| `/dashboard/sessions/` | `(shell)/sessions/page.tsx` | yes | — |
 | `/dashboard/workflows/` | `(shell)/workflows/page.tsx` | yes | — |
 | `/dashboard/workflows/runs/?id=` | `(shell)/workflows/runs/page.tsx` | yes | query |
 | `/dashboard/workflows/designer/?id=` | `workflows/designer/page.tsx` | **no** | query |
@@ -42,7 +41,7 @@ screen with no top bar. Its ~20 colocated components moved with it when
 one 3rem bar across the window — the ascii mark, then a chip per destination —
 and `<main>` under it as the only scroller. There is no responsive branch: the
 window has a `minWidth` of 768 (`tauri.conf.json`), so the bar is unconditional.
-`nav.ts` holds the five destinations and `isActive`, and normalizes trailing
+`nav.ts` holds the four destinations and `isActive`, and normalizes trailing
 slashes on both sides — `usePathname()` reports what is actually in the address
 bar, which is slash-terminated on a hard load but whatever href was pushed after
 a client navigation.
@@ -114,8 +113,9 @@ and the `<aside>` docked beside the designer canvas
 width local and never persisted). Both render the same `agentChat.tsx` and drive the same
 four session commands, but switch chats differently: the page uses
 `agent/sessionSidebar.tsx`, a collapsible column down the window's left edge
-(double-click the open chat to rename; collapsed it is a 2.5rem rail of status
-glyphs alone, remembered in `localStorage` under `saturnChatRail`), while the
+(the open chat carries a pencil and a delete — double-click is the pencil's
+mouse shortcut; collapsed it is a 2.5rem rail of status glyphs alone, remembered
+in `localStorage` under `saturnChatRail`), while the
 panel keeps the `agent/sessionPicker.tsx` dropdown (`compact`) — a column does
 not fit a 300px aside.
 
@@ -148,12 +148,10 @@ up with". The second is every freshly created chat — the creator selects it
 before the refetch lands — and firing on it is what threw the user back to
 `sessions[0]` the instant they pressed `+ new chat`.
 
-`/dashboard/sessions/` is the third surface onto the same rows: the four session
-commands again, plus the message count `list_sessions` now returns and a jump
-that sets the store's session before navigating. It exists because a chat is no
-longer only something you talk in — an `agent` node with a `session` chip wired
-writes into one every run (`docs/nodes.md`), and those need somewhere to be read,
-renamed and deleted.
+There used to be a third surface, `/dashboard/sessions/` — a flat list with the
+same four commands plus a message count. It is gone: the sidebar and the
+dropdown each drive all four, so it was a duplicate list, and `SessionRow` lost
+the `messages` count that existed only to fill its one extra column.
 
 **Rust owns the stream.** `saturn_send` returns the moment the turn is spawned
 and pushes frames:
