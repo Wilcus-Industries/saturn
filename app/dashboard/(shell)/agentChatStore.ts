@@ -156,6 +156,19 @@ function patchLast(id: string, fn: (m: Assistant) => void) {
 // NDJSON stream used, so this is unchanged. Every payload parse is guarded: a
 // malformed frame is dropped, never thrown, so the stream survives it.
 function apply(sid: string, t: string, d: string) {
+    // Nested turns only (a `saturn-agent` node): nothing in this window called
+    // `send()`, so the optimistic user+assistant echo never happened and every
+    // later frame would have no assistant row to land in. This frame IS that
+    // echo — and the only thing that lights the working indicator for a turn
+    // the user started from Discord rather than the composer.
+    if (t === "u") {
+        const s = slots.get(sid);
+        if (!s) return;
+        s.messages = [...s.messages, { role: "user", content: d }, { role: "assistant", parts: [] }];
+        s.streaming = true;
+        emit();
+        return;
+    }
     if (t === "r" || t === "c") {
         const kind = t === "r" ? "reasoning" : "text";
         patchLast(sid, (m) => {

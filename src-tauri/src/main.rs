@@ -289,6 +289,12 @@ fn saturn_send(
         }
         // always, on every path: the composer clears `streaming` on nothing else
         let _ = app.emit("saturn-done", json!({ "sessionId": session_id }));
+        // a turn mutates the user's data behind their back — workflows, the
+        // registry, its own chat name — and nothing awaited those the way an IPC
+        // mutation is awaited, so the pages have to be told once the turn is over.
+        // AFTER `saturn-done`: that is what clears `streaming`, and `reload` in
+        // agentChatStore.ts no-ops on a slot still marked mid-stream
+        let _ = app.emit("data-changed", ());
     });
     Ok(())
 }

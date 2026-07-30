@@ -31,7 +31,7 @@ Subsystem detail lives in `docs/` — read the one your task touches, not all of
 - `npm run build` — `next build`, static-exported to `out/` (what Tauri embeds). Not a full app build
 - `npm run lint` — regenerates-and-compares `catalog.json`, then ESLint. **`catalog.json` is generated** from `lib/integrations.ts`; edit a descriptor there and run `node scripts/gen-catalog.mjs` or the check fails
 - `npx tauri build` — the real build: `Saturn.app` + a `.dmg` under `src-tauri/target/release/bundle/`. Unsigned and un-notarized (`docs/open-decisions.md` §3.11)
-- `cd src-tauri && cargo test` — 155 tests, including the 49 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
+- `cd src-tauri && cargo test` — 162 tests, including the 49 golden interpreter fixtures and the 30 validator cases in `fixtures/validation.json`. **The only test suite** — there is none for TypeScript
 - `npx tsc --noEmit` — the frontend's only check beyond ESLint
 
 **No environment variables.** Nothing in `app/`, `lib/` or `src-tauri/` reads
@@ -82,7 +82,7 @@ map threaded through designer and interpreter alike.
 
 **Saturn Agent is the front door.** The window opens at `/dashboard/agent/`, and
 the same chat docks beside the designer canvas. `src-tauri/src/saturn.rs` owns
-all of it — the persisted sessions, the 17-tool surface it drives Saturn's own
+all of it — the persisted sessions, the 18-tool surface it drives Saturn's own
 data with, and the turn loop that streams over `saturn-delta` / `saturn-done`.
 Every tool wraps a `store`/`registry`/`workflow`/`runner` entry point that
 already exists; the same loop runs behind the `saturn-agent` canvas node. It is

@@ -26,7 +26,7 @@
 //! blocking reqwest client. Callers must be on a plain std thread, never a tokio
 //! worker (`main.rs::saturn_send` spawns one, exactly as `test_run` does).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -135,6 +135,44 @@ pub fn cancel_session(session_id: &str) {
     }
 }
 
+/// Sessions with a turn in flight. One turn per chat: two share a transcript and
+/// one `saturn-delta` stream, so their deltas interleave into a single assistant
+/// row and the second turn's `u` frame splits the first one's reply off from the
+/// row it was landing in.
+///
+/// Entries are removed on drop, unlike `CANCELS` — this one is a claim, and a
+/// leaked entry would wedge the chat for the life of the process.
+static IN_FLIGHT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn in_flight() -> &'static Mutex<HashSet<String>> {
+    IN_FLIGHT.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Releases the claim wherever the turn ended — `run_turn` returns early on a
+/// dozen paths and each one has to give the chat back.
+pub struct TurnGuard(String);
+
+impl Drop for TurnGuard {
+    fn drop(&mut self) {
+        in_flight().lock().unwrap_or_else(|e| e.into_inner()).remove(&self.0);
+    }
+}
+
+/// Claim a chat for one turn, or refuse. Held by the CALLER, not by `run_turn`:
+/// a refusal must not reach the stream, and `runner.rs`'s close-out emits
+/// `saturn-done` — which is the one thing that clears `streaming` on the turn
+/// already running. So the claim has to be taken before the first frame, not
+/// inside the function that writes them.
+///
+/// The chat composer needs no call of its own: it is blocked client-side by the
+/// same `streaming` flag the `u` frame sets, so it cannot be the second turn.
+pub fn claim_turn(session_id: &str) -> Result<TurnGuard, String> {
+    if !in_flight().lock().unwrap_or_else(|e| e.into_inner()).insert(session_id.to_string()) {
+        return Err("that chat already has a turn running".into());
+    }
+    Ok(TurnGuard(session_id.to_string()))
+}
+
 // --- sessions ----------------------------------------------------------------
 
 /// Owned here, not in `store.rs`'s `SCHEMA` — `github.rs`'s cursor table set the
@@ -172,17 +210,27 @@ pub fn init(store: &Store) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// The session's working directory, as stored — `""` means `$HOME`, which
-/// `bash::cwd_dir` resolves. Fails open to `""` for the same reason
-/// `entry_config` does: a missing row must leave the shell on the default
-/// rather than fail the turn.
-pub fn session_cwd(store: &Store, session_id: &str) -> String {
+/// The chat's label and working directory — the two things `run_turn` states in
+/// the system prompt, read together because one connection guard is the whole
+/// point of the "hold it for as short a span as possible" rule. The name is what
+/// makes `rename_chat`'s "leave a name the user chose alone" rule checkable
+/// rather than a request the model has no way to evaluate.
+///
+/// The directory is stored as typed — `""` means `$HOME`, which `bash::cwd_dir`
+/// resolves. Both fail open to `""` for the same reason `entry_config` does: a
+/// missing row must leave the shell on the default rather than fail the turn.
+fn session_name_cwd(store: &Store, session_id: &str) -> (String, String) {
     store
         .conn()
-        .query_row("select cwd from saturn_session where id = ?1", [session_id], |r| {
-            r.get::<_, String>(0)
+        .query_row("select name, cwd from saturn_session where id = ?1", [session_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
         })
         .unwrap_or_default()
+}
+
+/// The session's working directory alone — the cwd picker's read.
+pub fn session_cwd(store: &Store, session_id: &str) -> String {
+    session_name_cwd(store, session_id).1
 }
 
 /// Store the directory the user picked. Validated through `bash::valid_cwd`
@@ -704,6 +752,7 @@ const POLICY: &[(&str, Option<bool>, bool)] = &[
     ("run_workflow", Some(false), true),
     ("memory_save", Some(false), true),
     ("memory_forget", Some(false), true),
+    ("rename_chat", Some(false), true),
     // off / read / read+write
     ("call_mcp_tool", None, true),
     ("run_command", None, false),
@@ -877,6 +926,13 @@ fn all_specs(nested: bool) -> Vec<ToolSpec> {
             vec![param("command", T::String, true, "the shell command line to run")]),
     ];
     if !nested {
+        // `rename_chat` is dropped when nested for its own reason, not the
+        // recursion one: a `saturn-agent` node's session is bound by NAME
+        // (`runner.rs`'s `session_by_name`), so a turn that renames it orphans
+        // the node onto a fresh empty chat on every run after this one.
+        specs.push(spec(TOOL_ENTRY, "rename_chat",
+            &format!("Rename the chat this turn is running in — it is yours to name while it is still called \"chat N\". Give it a short specific title once you know what it is about. Max {MAX_SESSION_NAME} characters, and it must not collide with another chat's name. This only changes the label in the user's sidebar, so a name the user chose themselves is theirs — do not overwrite one unless they ask."),
+            vec![param("name", T::String, true, "the new chat name")]));
         specs.push(spec(TOOL_ENTRY, "run_workflow",
             "Execute a workflow now, exactly like a scheduled run (real MCP tool calls, real model calls, real messages sent) and return the console log. Fires every event node in the graph with a sample payload. Recorded in the run history with trigger 'manual'.",
             vec![id()]));
@@ -898,6 +954,9 @@ fn dispatch(
     // parameter rather than a lookup here so a 60s command is not holding the
     // connection guard every other reader in the process is queued behind
     cwd: &str,
+    // the chat being renamed by `rename_chat` — the turn's own session, never
+    // one the model names
+    session_id: &str,
     name: &str,
     args: &Value,
     // this turn's cancel flag, threaded through rather than looked up: the
@@ -929,6 +988,11 @@ fn dispatch(
     match name {
         n if crate::memory::MEMORY_TOOL_NAMES.contains(&n) => {
             crate::memory::execute_memory_tool(store, MEMORY_ID, n, &args.to_string())
+        }
+
+        "rename_chat" => {
+            rename_session(store, session_id, &text("name"))?;
+            json_out(&json!({ "ok": true }))
         }
 
         "list_workflows" => {
@@ -1284,16 +1348,16 @@ pub fn run_turn(
     // read once, off the connection, and used twice: the system prompt states it
     // and loads the project's own instruction files out of it, and `dispatch`
     // hands it to the sandbox as `run_command`'s cwd and write carve-out.
-    let cwd = session_cwd(store, req.session_id);
-    let system = system_prompt(req, &cwd);
+    let (name, cwd) = session_name_cwd(store, req.session_id);
+    let system = system_prompt(req, &name, &cwd);
     // ONE read of the user's grants for the whole turn, off the connection and
     // done before any socket. `tool_specs` decides what is offered and
     // `dispatch` re-checks what is called, both against this same list.
     let mut state = tool_state(store);
     if req.nested {
-        // the recursion guard has to reach `dispatch` too, not just the offered
+        // both nested drops have to reach `dispatch` too, not just the offered
         // specs: the model can name a tool it was never offered.
-        state.retain(|t| t.name != "run_workflow");
+        state.retain(|t| t.name != "run_workflow" && t.name != "rename_chat");
     }
     let defs = build_tool_defs(&tool_specs(&state, req.nested)).defs;
 
@@ -1381,7 +1445,7 @@ pub fn run_turn(
                 Err("stopped".to_string())
             } else {
                 match parse_args(&call.arguments) {
-                    Some(args) => dispatch(store, vault, &state, &cwd, &call.name, &args, cancel, emit),
+                    Some(args) => dispatch(store, vault, &state, &cwd, req.session_id, &call.name, &args, cancel, emit),
                     None => Err("invalid tool arguments — expected a JSON object".into()),
                 }
             };
@@ -1487,8 +1551,17 @@ fn project_instructions(cwd: &str) -> String {
     out
 }
 
-fn system_prompt(req: &TurnRequest, cwd: &str) -> String {
+fn system_prompt(req: &TurnRequest, name: &str, cwd: &str) -> String {
     let mut system = SATURN_SYSTEM.to_string();
+    // Only when the tool is actually offered — a nested turn is told nothing
+    // about a name it cannot change (`all_specs`).
+    if !req.nested {
+        system.push_str(&format!(
+            "\nThis chat is called \"{name}\". While that is still a default \"chat N\", call \
+             rename_chat with a short specific title as soon as you know what the chat is about. \
+             Any other name is one the user chose: leave it alone unless they ask."
+        ));
+    }
     let shown = crate::bash::cwd_dir(cwd)
         .map_or_else(|_| cwd.to_string(), |d| crate::bash::abbreviate(&d));
     system.push_str(&format!(
@@ -1741,6 +1814,22 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// One turn per chat, and the claim has to come BACK on every exit — a
+    /// leaked entry wedges that chat until the process restarts, which is the
+    /// failure a plain `insert`/`remove` pair invites and `Drop` forecloses.
+    #[test]
+    fn a_chat_holds_one_turn_at_a_time() {
+        let held = claim_turn("s1").unwrap();
+        // `.err()`, not `unwrap_err()` — a guard whose whole job is Drop has no
+        // business deriving Debug for one assert
+        assert_eq!(claim_turn("s1").err().unwrap(), "that chat already has a turn running");
+        // the guard is per chat, not global: a second chat still streams
+        let other = claim_turn("s2").unwrap();
+        drop(held);
+        assert!(claim_turn("s1").is_ok(), "the claim must be released on drop");
+        drop(other);
+    }
+
     /// The window re-sent upstream is the LAST MAX_AGENT_MESSAGES turns in
     /// chronological order. `order by id desc limit N` reversed is the only way
     /// to get that; `order by id asc limit N` would hand the model the oldest
@@ -1965,8 +2054,9 @@ mod tests {
     }
 
     /// The tool surface is what the model can reach, so its shape is a contract:
-    /// `nested` must drop `run_workflow` (that omission IS the recursion guard),
-    /// the three memory tools must always be present, and every name must
+    /// `nested` must drop `run_workflow` (that omission IS the recursion guard)
+    /// and `rename_chat` (the node's session is bound by name), the three memory
+    /// tools must always be present, and every name must
     /// survive `build_tool_defs` unmangled — a renamed tool is one `dispatch`
     /// answers "unknown tool" to on every call.
     ///
@@ -1976,10 +2066,10 @@ mod tests {
     /// `POLICY` must also answer for every builtin — a spec with no row in it
     /// silently defaults to "on, read+write, all three positions".
     #[test]
-    fn the_tool_surface_is_stable_and_nesting_drops_run_workflow() {
+    fn the_tool_surface_is_stable_and_nesting_drops_two_tools() {
         let (store, dir) = store();
         let state = tool_state(&store);
-        assert_eq!(state.len(), 17, "every builtin belongs in the settings list");
+        assert_eq!(state.len(), 18, "every builtin belongs in the settings list");
         assert_eq!(state.len(), POLICY.len(), "POLICY and all_specs must list the same tools");
         for t in &state {
             assert!(POLICY.iter().any(|(n, _, _)| *n == t.name), "{} has no policy row", t.name);
@@ -1997,18 +2087,21 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let top = names(false);
-        assert_eq!(top.len(), 16, "{top:?}");
+        assert_eq!(top.len(), 17, "{top:?}");
         for want in [
             "list_workflows", "get_workflow", "create_workflow", "update_workflow",
             "delete_workflow", "get_catalog", "get_docs", "validate_graph", "save_graph",
             "list_runs", "list_registry", "call_mcp_tool", "run_workflow",
-            "memory_search", "memory_save", "memory_forget",
+            "memory_search", "memory_save", "memory_forget", "rename_chat",
         ] {
             assert!(top.contains(&want.to_string()), "{want} is missing from {top:?}");
         }
         let nested = names(true);
         assert!(!nested.contains(&"run_workflow".to_string()), "nesting must drop run_workflow");
-        assert_eq!(nested.len(), top.len() - 1);
+        // a saturn-agent node's session is bound by name — renaming it orphans
+        // the node onto a fresh chat on the next run
+        assert!(!nested.contains(&"rename_chat".to_string()), "nesting must drop rename_chat");
+        assert_eq!(nested.len(), top.len() - 2);
         // memory tools route by name, so they must be exactly the ones
         // execute_memory_tool answers to
         for name in crate::memory::MEMORY_TOOL_NAMES {
@@ -2034,7 +2127,7 @@ mod tests {
         let doomed = store.create_workflow_with("doomed", "⚙️", "", empty()).unwrap();
         let state = tool_state(&store);
         assert!(
-            dispatch(&store, &vault, &state, "", "delete_workflow", &json!({ "id": doomed.id }), None, &mut emit)
+            dispatch(&store, &vault, &state, "", "", "delete_workflow", &json!({ "id": doomed.id }), None, &mut emit)
                 .is_ok()
         );
 
@@ -2059,17 +2152,27 @@ mod tests {
             .map(|d| d.function.name)
             .collect::<Vec<_>>();
         assert!(!offered.contains(&"delete_workflow".to_string()), "{offered:?}");
-        assert_eq!(offered.len(), 15, "only delete_workflow left");
+        assert_eq!(offered.len(), 16, "only delete_workflow left");
 
         // ...and naming it anyway is a tool failure, not a delete
         let spared = store.create_workflow_with("spared", "⚙️", "", empty()).unwrap();
         assert_eq!(
-            dispatch(&store, &vault, &state, "", "delete_workflow", &json!({ "id": spared.id }), None, &mut emit),
+            dispatch(&store, &vault, &state, "", "", "delete_workflow", &json!({ "id": spared.id }), None, &mut emit),
             Err("tool \"delete_workflow\" is not enabled".into())
         );
         assert!(store.workflow(&spared.id).unwrap().is_some(), "a disabled tool ran anyway");
         // an invented name is the same answer, and never a panic
-        assert!(dispatch(&store, &vault, &state, "", "rm_rf", &json!({}), None, &mut emit).is_err());
+        assert!(dispatch(&store, &vault, &state, "", "", "rm_rf", &json!({}), None, &mut emit).is_err());
+
+        // rename_chat takes only a name — the session is the turn's own, passed
+        // by `run_turn` and not nameable by the model
+        let chat = create_session(&store, None).unwrap();
+        let mut rename = |id: &str, name: &str| {
+            dispatch(&store, &vault, &state, "", id, "rename_chat", &json!({ "name": name }), None, &mut emit)
+        };
+        assert!(rename(&chat.id, "picked a name").is_ok());
+        assert_eq!(list_sessions(&store).unwrap()[0].name, "picked a name");
+        assert!(rename(&chat.id, " ").is_err(), "a blank name is a tool failure");
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -2093,16 +2196,23 @@ mod tests {
         };
 
         // no files: the directory is stated, and nothing claims instructions
-        let bare = system_prompt(&req, cwd);
+        let bare = system_prompt(&req, "chat 1", cwd);
         assert!(bare.contains("working directory for this chat"), "{bare}");
         assert!(!bare.contains("instruction files are at the root"), "{bare}");
+
+        // the chat's own name is stated, because that is the only way the model
+        // can tell a default it may replace from a title the user chose — and a
+        // nested turn, which has no rename_chat, is told nothing about either
+        assert!(bare.contains("This chat is called \"chat 1\""), "{bare}");
+        let nested = TurnRequest { nested: true, ..req };
+        assert!(!system_prompt(&nested, "chat 1", cwd).contains("rename_chat"));
 
         // every spelling is read, and each is labelled with the name it came
         // from — an unlabelled concatenation reads as one contradictory file
         std::fs::write(dir.join("CLAUDE.md"), "prefer tabs").unwrap();
         std::fs::write(dir.join("AGENTS.md"), "run the linter").unwrap();
         std::fs::write(dir.join("AGENT.md"), "  ").unwrap();
-        let loaded = system_prompt(&req, cwd);
+        let loaded = system_prompt(&req, "chat 1", cwd);
         assert!(loaded.contains("--- CLAUDE.md ---\nprefer tabs"), "{loaded}");
         assert!(loaded.contains("--- AGENTS.md ---\nrun the linter"), "{loaded}");
         assert!(!loaded.contains("AGENT.md"), "a whitespace-only file is not a block: {loaded}");
@@ -2147,7 +2257,7 @@ mod tests {
         assert_eq!(crate::bash::cwd_dir(&cwd).unwrap(), ws, "the stored cwd must round-trip");
 
         let run = |state: &[registry::McpTool], store: &Store, emit: &mut dyn FnMut(&str, &str)| {
-            dispatch(store, &vault, state, &cwd, "run_command", &json!({ "command": "echo hi > w.txt && cat w.txt" }), None, emit)
+            dispatch(store, &vault, state, &cwd, "", "run_command", &json!({ "command": "echo hi > w.txt && cat w.txt" }), None, emit)
         };
 
         // ships off: naming it is a tool failure even though it exists
@@ -2213,7 +2323,7 @@ mod tests {
         let rows = registry::get_user_registry(&store, &vault).unwrap();
         let row = rows.iter().find(|r| r.id == TOOLS_ID).expect("the saturn row must be seeded");
         assert_eq!(row.kind, "saturn");
-        assert_eq!(row.tools.len(), 17, "settings reads the merged list off list_registry");
+        assert_eq!(row.tools.len(), 18, "settings reads the merged list off list_registry");
         assert_eq!(rows[0].id, TOOLS_ID, "created_at 0 pins Saturn first in settings");
         assert!(!registry::build_user_catalog(&rows).values().any(|e| e.category == "saturn"));
 
@@ -2221,8 +2331,8 @@ mod tests {
         registry::set_saturn_tools(&store, registry::parse_tools("[]").unwrap()).unwrap();
         let rows = registry::get_user_registry(&store, &vault).unwrap();
         let row = rows.iter().find(|r| r.id == TOOLS_ID).unwrap();
-        assert_eq!(row.tools.len(), 17);
-        assert_eq!(tool_state(&store).len(), 17);
+        assert_eq!(row.tools.len(), 18);
+        assert_eq!(tool_state(&store).len(), 18);
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -2239,7 +2349,7 @@ mod tests {
         let mut emit = |_: &str, _: &str| {};
         let state = tool_state(&store);
         let call = |args: Value, emit: &mut dyn FnMut(&str, &str)| {
-            dispatch(&store, &vault, &state, "", "call_mcp_tool", &args, None, emit)
+            dispatch(&store, &vault, &state, "", "", "call_mcp_tool", &args, None, emit)
         };
 
         assert_eq!(
