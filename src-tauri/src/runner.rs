@@ -470,15 +470,37 @@ pub fn execute_run(
     // the tool surface — that is the recursion guard: a workflow run cannot start
     // another workflow run.
     //
-    // ponytail: the turn's deltas go nowhere — the run console gets the final
-    // text (interpreter::exec_saturn) and the session transcript gets all of it.
-    // Upgrade to streaming into the console if a long turn looks frozen.
+    // The turn streams to the chat window exactly as a typed one does — same
+    // `saturn-delta`/`saturn-done` vocabulary `saturn_send` emits — because it
+    // writes into a session the user may have open right now. The "u" frame
+    // opens it: nothing in the webview called this turn, so the optimistic
+    // user+assistant echo that `send()` does never happened, and without it
+    // every later frame has no assistant row to land in.
+    //
+    // Which is also why the claim comes FIRST, before any frame: the user may
+    // already be mid-turn in that very chat, and a second stream into it would
+    // interleave two replies in one row — then close both out with one
+    // `saturn-done`.
+    //
+    // ponytail: the deltas still don't reach the run console — the console gets
+    // the final text (interpreter::exec_saturn). Stream there too if a long turn
+    // looks frozen in the designer.
     let saturn = |turn: &crate::interpreter::SaturnTurn| {
         let session_id = match turn.chat {
             Some(id) => id.to_string(),
             None => crate::saturn::session_by_name(store, turn.session)?,
         };
-        crate::saturn::run_turn(
+        let _claim = crate::saturn::claim_turn(&session_id)?;
+        let mut emit = |t: &str, d: &str| {
+            if let Some(app) = app {
+                let _ = app.emit(
+                    "saturn-delta",
+                    json!({ "sessionId": session_id, "t": t, "d": d }),
+                );
+            }
+        };
+        emit("u", turn.prompt);
+        let out = crate::saturn::run_turn(
             store,
             vault,
             &crate::saturn::TurnRequest {
@@ -491,9 +513,19 @@ pub fn execute_run(
                 workflow_id: Some(&wf.id),
                 nested: true,
             },
-            &mut |_, _| {},
+            &mut emit,
             cancel,
-        )
+        );
+        // the red line on a failed turn, then the close-out: `streaming` in
+        // agentChatStore.ts clears on `saturn-done` and on nothing else, so it
+        // must fire on every path or the chat spins forever
+        if let Err(err) = &out {
+            emit("e", err);
+        }
+        if let Some(app) = app {
+            let _ = app.emit("saturn-done", json!({ "sessionId": session_id }));
+        }
+        out
     };
     // the `agent` node's session port: a chat chip's prior turns in, this run's
     // exchange back out. Same store the chat window reads, so a persisted agent

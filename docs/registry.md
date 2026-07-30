@@ -50,6 +50,20 @@ the sandbox holds, what was measured rather than assumed, and its known ceilings
 `call_mcp_tool` reads its third position the same way: granted `read`, it refuses
 a target tool the user themselves classified `read+write`.
 
+`rename_chat` is the one builtin that acts on the chat itself: it renames the
+session the turn is running in (never one the model names), so a chat that opens
+as `chat 3` ends up called what it is about. The system prompt states the chat's
+current name and asks the model to scope the rename to a default one — a title
+the user typed is theirs. That is a request, not a guard: refusing a non-default
+name outright would also refuse "rename this chat to X", which is the one case
+the user definitely meant. Switch the tool off in settings and the names stay
+`chat N`; there is no other auto-naming path.
+
+It is also the second tool `nested` drops, alongside `run_workflow` — a
+`saturn-agent` node without a chat chip binds its session **by name**
+(`saturn::session_by_name`), so a nested turn that renamed itself would orphan
+the node onto a fresh empty chat on every run after that one.
+
 `registry_entry` is `(id, kind, name, emoji, description, config, created_at,
 updated_at)`. The five sparse kind-specific columns the Postgres schema had
 (`server_url`, `tools`, `oauth`, `auth_token`, `secret`) collapsed into one

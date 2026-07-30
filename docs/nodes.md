@@ -264,7 +264,8 @@ the next run would re-send.
 ### The `saturn-agent` node
 
 The `agent` node's shape in its own black `gateway` category, but it **is** Saturn
-Agent: Saturn's own system prompt, its 17 tools and its one memory store. No
+Agent: Saturn's own system prompt, its 18 tools (less the two `nested` drops
+below) and its one memory store. No
 `system` port and no grant ports beyond the chat it runs in — that is the point. A
 custom prompt would make it an `agent` node with extra steps.
 
@@ -318,14 +319,25 @@ in one graph: a chat chip and a model node feed a node whose `config.session` an
 `saturn-agent.json` — untouched since before the ports — is the other half: it
 wires neither, so it still binds by those same config keys.
 
-The node's turn runs with `nested: true`, which **drops `run_workflow` from the
-tool surface** — from the offered specs *and* from the state `dispatch` re-checks
-against, because a model can name a tool it was never offered. That is the
-recursion guard: a workflow run cannot start another workflow run. `run_command`
-is deliberately NOT dropped — a shell command cannot recurse, and `bash.rs`'s
-sandbox is the same boundary whether a person or a node asked. Everything else,
-memory included, is the chat's surface exactly, including the user's own
-off / read / read+write grants (`docs/registry.md`, kind `saturn`).
+The node's turn runs with `nested: true`, which **drops two tools from the
+surface** — from the offered specs *and* from the state `dispatch` re-checks
+against, because a model can name a tool it was never offered. `run_workflow` is
+the recursion guard: a workflow run cannot start another workflow run.
+`rename_chat` is the binding guard: the node get-or-creates its session by NAME,
+so a turn that renamed its own chat would leave the next run building a fresh
+empty one under the old name. `run_command` is deliberately NOT dropped — a
+shell command cannot recurse, and `bash.rs`'s sandbox is the same boundary
+whether a person or a node asked. Everything else, memory included, is the
+chat's surface exactly, including the user's own off / read / read+write grants
+(`docs/registry.md`, kind `saturn`).
+
+The turn also **streams into the chat window**, on the same
+`saturn-delta`/`saturn-done` frames a typed turn uses, because it is writing
+into a session the user may have open. `runner.rs` opens the stream with a `u`
+frame — the user echo the composer would have made — and claims the chat first
+(`saturn::claim_turn`): one turn per chat, or two replies interleave into one
+assistant row. A chat already streaming refuses the node, and the run fails with
+that message rather than corrupting what is on screen.
 
 Because the node binds a session by name, it inherits **that session's working
 directory** — `run_command` in a headless run starts where the same chat's
