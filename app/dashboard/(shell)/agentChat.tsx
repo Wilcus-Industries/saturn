@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import AsciiSaturn from "@/app/dashboard/asciiSaturn";
-import type { ProviderModels } from "@/app/dashboard/workflows/designer/designer";
+import type { ProviderModels } from "@/app/dashboard/(shell)/workflows/designer/designer";
 import AgentComposer from "./agentComposer";
 // the transcript lives in module state so it survives this component being
 // unmounted by the dashboard → designer navigation, and so the module-scope

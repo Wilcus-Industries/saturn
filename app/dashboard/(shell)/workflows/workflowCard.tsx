@@ -4,6 +4,7 @@ import Link from "next/link";
 import ConfirmButton from "@/app/dashboard/confirmButton";
 import { call } from "@/lib/ipc";
 import ActiveToggle from "./activeToggle";
+import { closeDesigner } from "./designer/openStore";
 import LinkSpinner from "./linkSpinner";
 import WorkflowModal from "./workflowModal";
 
@@ -96,12 +97,19 @@ export default function WorkflowCard({
             >
                 <WorkflowModal workflow={workflow} onSaved={onChanged} />
                 {/* delete_workflow is idempotent and a failure leaves nothing
-                    the user could act on, so either way the list refetches */}
+                    the user could act on, so either way the list refetches.
+                    closeDesigner because the designer may be holding THIS
+                    workflow, hidden behind this very page — left mounted it
+                    would retry its autosave against a row that no longer
+                    exists, forever. No-ops for any other id. */}
                 <ConfirmButton
                     onConfirm={() =>
                         call("delete_workflow", { id: workflow.id })
                             .catch(() => {})
-                            .then(onChanged)
+                            .then(() => {
+                                closeDesigner(workflow.id);
+                                onChanged();
+                            })
                     }
                 />
             </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { ProviderModels } from "@/app/dashboard/workflows/designer/designer";
+import type { ProviderModels } from "@/app/dashboard/(shell)/workflows/designer/designer";
 import { call, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import AgentChat from "../agentChat";
 import { getSessionId, setSession, subscribe } from "../agentChatStore";

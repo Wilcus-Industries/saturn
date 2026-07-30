@@ -545,7 +545,44 @@ are user-created uuids cannot exist. The three that did were moved:
 The alternative was an SPA-fallback rewrite, which Tauri's asset protocol does not
 do. Cost: every page reading an id needs `useSearchParams`, which forces a Suspense
 boundary under static export. `app/dashboard/workflows/[id]/` was renamed to
-`designer/` on disk, so ~20 colocated designer components moved with it.
+`designer/` on disk, so ~20 colocated designer components moved with it, and
+again into `(shell)/` when the designer rejoined the shell (§2.11). The URLs in
+the table are unaffected by that second move — a route group adds no URL segment.
+
+### 2.11 The designer is kept mounted and hidden, not cached — DECIDED
+
+It used to live outside the `(shell)` group and paint its own full-screen chrome,
+which meant opening a workflow hid the top bar and felt like leaving the app. It
+now renders under the bar like everything else. What made that more than a
+directory move is the second half of the requirement: switching to another nav
+tab and back must leave the editor untouched.
+
+An App Router page is unmounted on every navigation, so a route cannot satisfy
+that. Two options:
+
+- **Cache the state.** Lift the reducer history, the canvas viewport, the
+  selection, the console buffer and the panel width into a module store keyed by
+  workflow id and reseed on remount. Every one of those is a separate hoist, and
+  each is a chance for the restored copy to disagree with the live one.
+- **Never unmount.** Mount the designer in `(shell)/layout.tsx` — a layout
+  survives its children changing — and toggle `display:none`. Nothing to hoist,
+  nothing to reseed, because nothing is ever lost.
+
+The second, and the graph was already safe either way (autosave debounces and
+flushes on unmount), so this buys the *ephemeral* state specifically.
+
+The price is real and worth stating: a mounted-but-hidden component still holds
+`window` listeners. That is what the `active` prop is for, and it is not
+optional — the canvas's space-as-pan handler calls `preventDefault()` on the
+space bar, so an ungated hidden designer swallows space across the whole app.
+`docs/designer.md` lists the three gated listeners. The other cost is that the
+layout now imports the designer, so its chunk parses on every dashboard page;
+over the asset protocol that is a few ms and not worth a `next/dynamic` seam.
+
+Consequences elsewhere: the top bar's Workflows chip has to point at the open
+editor (leaving is a hide, so the chip is the way back), and both delete sites —
+the designer's own topbar and the list card — must call `closeDesigner(id)`, or a
+hidden designer retries `save_workflow` against a deleted row forever.
 
 ### 2.7 There is no invalidation bus, and that is the point
 

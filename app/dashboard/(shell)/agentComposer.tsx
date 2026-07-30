@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DEFAULT_MODEL } from "@/lib/agent";
 import { ArrowUp, ChevronDown, Folder, Stop } from "@/app/dashboard/icons";
-import ModelLogo from "@/app/dashboard/workflows/designer/modelLogo";
+import ModelLogo from "@/app/dashboard/(shell)/workflows/designer/modelLogo";
 import { call } from "@/lib/ipc";
 import { getDraft, getSessionId, setDraft, subscribe } from "./agentChatStore";
 // type-only import — compile-erased, safe in a client component
-import type { ProviderModels } from "@/app/dashboard/workflows/designer/designer";
+import type { ProviderModels } from "@/app/dashboard/(shell)/workflows/designer/designer";
 
 // shown when no provider is connected, or every fetch degraded to [] — the
 // selector still renders (the send would fail, and the chat says why above)

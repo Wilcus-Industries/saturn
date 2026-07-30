@@ -121,6 +121,8 @@ function useWindowDrag(
 }
 
 export default function Designer({
+    active,
+    openNonce,
     workflow,
     userCatalog,
     variables,
@@ -128,6 +130,15 @@ export default function Designer({
     githubLinked,
     onRegistryChange,
 }: {
+    // this designer is the surface the user is looking at. False means the host
+    // has it display:none behind another nav tab — it stays mounted (that is the
+    // whole point, see `openStore.ts`), but a hidden editor must not answer the
+    // keyboard, so every `window` key listener below is gated on this.
+    active: boolean;
+    // bumped every time the designer route is arrived at, including an arrival
+    // at the workflow already open — which no longer remounts anything, so it is
+    // the only way the handoff effect can tell that it happened.
+    openNonce: number;
     workflow: { id: string; name: string; emoji: string; graph: WorkflowGraph };
     userCatalog: CatalogEntry[];
     // secret variables for the toolbox's pinned split (name + has-value only)
@@ -267,18 +278,24 @@ export default function Designer({
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     }, []);
 
-    // the embedded Saturn Agent panel. Open state and width are never persisted
-    // — they die with the page, like the console.
+    // the embedded Saturn Agent panel. Open state and width are never persisted,
+    // like the console — but they now outlive a nav tab switch, because the host
+    // hides this subtree instead of unmounting it. They die with the workflow.
     const [agentOpen, setAgentOpen] = useState(false);
     // arriving from the dashboard chat's "open in designer" chip: the
     // conversation itself lives in module state (agentChatStore), still
     // streaming if the turn hadn't finished — all that crosses is the intent to
     // show it here. An effect, not a lazy useState initializer: reading an
     // external store during render would desync hydration.
+    //
+    // Keyed on `openNonce` as well as the id, and that is not belt-and-braces:
+    // a second "open in designer →" for the workflow ALREADY on screen changes
+    // no id and remounts nothing, so without the nonce this effect would never
+    // re-run and the panel would stay shut.
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot read of an external store; a lazy initializer would desync hydration
         if (takeHandoff(workflow.id)) setAgentOpen(true);
-    }, [workflow.id]);
+    }, [workflow.id, openNonce]);
 
     // the agent saved a graph for THIS workflow: adopt it as one undo step and
     // mark it saved (Rust already persisted it, so the autosave must not
@@ -992,8 +1009,14 @@ export default function Designer({
     };
 
     // one window keydown handler; re-attached each render so it always sees
-    // fresh state (cheap, avoids a ref dance)
+    // fresh state (cheap, avoids a ref dance).
+    //
+    // `active` is what keeps it off the window while the host has this designer
+    // display:none behind another tab. It is a window listener, not a subtree
+    // one, so hiding the DOM does not stop it firing — Cmd+Z on the settings
+    // page would undo a graph edit nobody can see.
     useEffect(() => {
+        if (!active) return;
         const onKeyDown = (e: KeyboardEvent) => {
             const key = e.key.toLowerCase();
             const mod = e.metaKey || e.ctrlKey;
@@ -1067,7 +1090,9 @@ export default function Designer({
     });
 
     return (
-        <div className={"flex h-dvh flex-col bg-background"}>
+        // fills the slot the shell layout gives it, beside <main> rather than
+        // inside it — h-dvh would be the whole window and overrun the top bar
+        <div className={"flex min-h-0 flex-1 flex-col bg-background"}>
             <Topbar
                 workflowId={workflow.id}
                 emoji={workflow.emoji}
@@ -1098,6 +1123,7 @@ export default function Designer({
                 />
                 <Canvas
                     ref={canvasRef}
+                    active={active}
                     graph={present}
                     graphRef={graphRef}
                     byKey={byKey}
@@ -1137,6 +1163,7 @@ export default function Designer({
 
             {consoleLines !== null && (
                 <ConsolePanel
+                    active={active}
                     lines={consoleLines}
                     height={consoleHeight}
                     onResize={setConsoleHeight}

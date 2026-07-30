@@ -151,6 +151,7 @@ type Gesture =
       };
 
 export default function Canvas({
+    active,
     graph,
     graphRef,
     byKey,
@@ -179,6 +180,9 @@ export default function Canvas({
     onToggleAgent,
     ref,
 }: {
+    // the designer this canvas belongs to is the visible one. See the space-pan
+    // effect below — the only thing here that reaches past the canvas element.
+    active: boolean;
     graph: WorkflowGraph;
     // live mirror for the memoized Node's gesture handlers
     graphRef: RefObject<WorkflowGraph>;
@@ -266,6 +270,11 @@ export default function Canvas({
         }
         if (minX === Infinity) return;
         const rect = el.getBoundingClientRect();
+        // a display:none ancestor measures 0×0, which would fit the graph to
+        // nothing and pin the zoom at ZOOM_MIN. The host only ever mounts a
+        // designer while it is visible, so this cannot fire today — it is one
+        // line of insurance against that ordering changing.
+        if (rect.width === 0) return;
         const pad = 48;
         const zoom = Math.min(
             FIT_MAX_ZOOM,
@@ -339,7 +348,14 @@ export default function Canvas({
     // the same way the designer's key handlers do (skip while typing in a form
     // control) and preventDefault stops space from scrolling/activating while
     // it's claimed for panning.
+    //
+    // `active` gates it because this is the sharpest of the designer's window
+    // listeners: it calls preventDefault on the SPACE BAR. A designer left
+    // mounted-but-hidden behind another nav tab would eat every space press in
+    // the app — scroll, button activation, the lot — for a canvas nobody can
+    // see. Hiding the DOM does not unhook a window listener; this does.
     useEffect(() => {
+        if (!active) return;
         const isSpace = (e: KeyboardEvent) => e.code === "Space" || e.key === " ";
         const typing = (t: EventTarget | null) =>
             t instanceof HTMLInputElement ||
@@ -366,8 +382,14 @@ export default function Canvas({
         return () => {
             window.removeEventListener("keydown", onKeyDown);
             window.removeEventListener("keyup", onKeyUp);
+            // a space still held as this designer is hidden never sees its
+            // keyup — the listener above is what would have caught it — so drop
+            // the modifier on the way out rather than coming back with pan
+            // latched on and the cursor stuck in `grab`
+            spaceRef.current = false;
+            setSpaceHeld(false);
         };
-    }, []);
+    }, [active]);
 
     // Empty-canvas pointerdowns arrive here (nodes, ports and config inputs
     // stopPropagation on button 0; middle button bubbles from anywhere). Gesture

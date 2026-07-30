@@ -2,12 +2,34 @@
 
 > Part of the Saturn docs set indexed in `CLAUDE.md`. Node shapes and the catalog are in `docs/nodes.md`; execution is `docs/workflows.md`.
 
-`/dashboard/workflows/designer/?id=` — full-screen, deliberately **outside** the
-`(shell)` route group so it renders without the top bar. ~20 components colocate
-with it.
+`/dashboard/workflows/designer/?id=` — inside the `(shell)` group, under the
+dashboard top bar. ~20 components colocate with it.
 
-`page.tsx` fans out four IPC calls (`get_workflow`, `list_registry`,
-`list_models`, `has_github_pat`) and passes the results to
+**It is not mounted by its route.** `page.tsx` only writes `?id=` into
+`openStore.ts`; `(shell)/layout.tsx` renders `host.tsx`, which is what holds the
+designer. A route is unmounted on every navigation and this subtree is where the
+undo history, the canvas viewport, the selection, the console and the agent
+panel's width live — so switching nav tabs sets `display:none` on it instead, and
+everything is exactly where it was on the way back. `openStore.ts` has the full
+argument, `docs/ui.md` the shell side.
+
+Two things fall out of staying mounted:
+
+- **`active`** — false while hidden, threaded host → `designer.tsx` → `canvas.tsx`
+  and `console.tsx`. Hiding DOM does not unhook a `window` listener, and this
+  component owns three: the keydown ladder below, the canvas's space-as-pan
+  modifier (which `preventDefault`s the space bar — a hidden designer would eat
+  it app-wide), and the console's stick-to-bottom, which measures `scrollHeight`
+  and would read 0. Anything reaching past this subtree gets the gate; the
+  pointer-driven measurements do not need it, since no pointer event reaches a
+  hidden node.
+- **`openNonce`** — bumped on every arrival at the route, including an arrival at
+  the workflow already open. That case used to be impossible and is now ordinary
+  (the chat's "open in designer →" for a workflow the hidden designer holds), and
+  it remounts nothing, so it is the only signal the handoff effect gets.
+
+`host.tsx` fans out five IPC calls (`get_workflow`, `list_registry`,
+`saturn_list_sessions`, `list_models`, `has_github_pat`) and passes the results to
 `designer.tsx`, keyed on the workflow id so switching workflows remounts rather
 than re-renders — the graph seeds a reducer at mount. It passes
 `useAsync(..., { live: false })`: a background cron run firing `data-changed`
@@ -222,10 +244,13 @@ in-flight HTTP request or model call finishes first.
 `agentPanel.tsx` docks Saturn Agent beside the canvas — the same chat as
 `/dashboard/agent/`, sharing its conversation through module state
 (`docs/ui.md`). Open state and width live in `designer.tsx` and are never
-persisted, the same call the console panel makes. Arriving from the dashboard
-chat's "open in designer →", `takeHandoff(workflow.id)` opens it in an effect,
-not a lazy `useState` initializer — reading an external store during render
-desyncs hydration.
+persisted, the same call the console panel makes; they outlive a nav tab switch
+only because nothing unmounts, and die with the workflow. Arriving from the
+dashboard chat's "open in designer →", `takeHandoff(workflow.id)` opens it in an
+effect, not a lazy `useState` initializer — reading an external store during
+render desyncs hydration. That effect is keyed on `openNonce` as well as the id,
+because the workflow being handed off is now often the one already open and an
+id that does not change re-runs nothing.
 
 A `save_graph` targeting **this** workflow arrives as a `g` frame and is adopted
 by `handleAgentGraph`: `replaceGraph` (one undo step, so Cmd+Z restores whatever
