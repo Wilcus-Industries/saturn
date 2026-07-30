@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback } from "react";
-import { LINE_STYLES } from "@/app/dashboard/workflows/designer/console";
+import { LINE_STYLES } from "@/app/dashboard/(shell)/workflows/designer/console";
 import { call, type ConsoleLine, ErrorNote, Loading, useAsync } from "@/lib/ipc";
 import { relativeTime } from "../workflowCard";
 
-// run history for one workflow; lives inside (shell) so it gets the top bar,
-// unlike the shell-less designer at /dashboard/workflows/designer.
+// run history for one workflow. An ordinary (shell) route, unlike the designer
+// next door, which the layout mounts and hides rather than routing to.
 type RunRow = {
     id: string;
     trigger: "cron" | "manual" | "event";

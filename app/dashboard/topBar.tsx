@@ -1,8 +1,14 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import AsciiSaturn from "@/app/dashboard/asciiSaturn";
+import {
+    getOpen,
+    serverOpen,
+    subscribe,
+} from "@/app/dashboard/(shell)/workflows/designer/openStore";
 import { NAV, isActive } from "./nav";
 import NavIcon from "./navIcon";
 
@@ -18,8 +24,18 @@ import NavIcon from "./navIcon";
 // subtracts this bar, so the height is a flat number here rather than something
 // that grows to fit its content; change it and change
 // `(shell)/agent/page.tsx`'s calc with it.
+// the one chip with a moving destination — matched by value against NAV's href
+const WORKFLOWS = "/dashboard/workflows/";
+
 export default function TopBar() {
     const pathname = usePathname();
+    // the workflow the designer currently holds, if any. The chips are the only
+    // way back to it: leaving the designer for another tab hides it rather than
+    // closing it (`(shell)/layout.tsx`), so "Workflows" has to mean "the editor
+    // you had open" while one is open, and the plain list otherwise. Read from
+    // the store rather than remembered here, so deleting that workflow — from
+    // the designer OR the list — takes the chip back to the list by itself.
+    const { id: openId } = useSyncExternalStore(subscribe, getOpen, serverOpen);
 
     return (
         <header
@@ -48,10 +64,16 @@ export default function TopBar() {
                 {NAV.map((item) => {
                     const { label, href, icon: Icon } = item;
                     const active = isActive(pathname, item);
+                    // `key` stays the static href — the destination moves, the
+                    // chip doesn't
+                    const to =
+                        openId && href === WORKFLOWS
+                            ? `${WORKFLOWS}designer/?id=${openId}`
+                            : href;
                     return (
                         <Link
                             key={href}
-                            href={href}
+                            href={to}
                             aria-current={active ? "page" : undefined}
                             className={`flex shrink-0 items-center gap-1.5 rounded-full
                                 border border-foreground/15 px-3 py-1.5 font-mono text-xs

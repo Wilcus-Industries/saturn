@@ -63,7 +63,7 @@ the HTTP server and why.
 ## Architecture map
 
 **The graph is the product.** A workflow is a node graph (`graph` json on the
-`workflow` row) authored in the full-screen designer and executed by one
+`workflow` row) authored in the designer canvas and executed by one
 interpreter (`src-tauri/src/interpreter.rs`) that is pure graph-walking with
 every side effect passed in as a parameter. That seam is what makes the port
 checkable: `fixtures/expected/` drives the same walk with deterministic stubs.
@@ -174,6 +174,7 @@ or in the named module's header comment.
 - A node box must never carry its frame as a real CSS `border` — ports anchor on the border box and every marker would shift inward. Paint frames with the `nodeFrame.tsx` inset overlay.
 - Resolve node colors through `entryStyles(entry)`, never by indexing `CATEGORY_STYLES` with `entry.category`.
 - `Node` and per-edge paths are memoized and read live state through refs — a new per-render prop on `Node` kills the memo.
+- **The designer is mounted by `(shell)/layout.tsx`, not by its route** — switching nav tabs hides it (`display:none`) so its undo history, viewport, selection, console and panel width survive; its `page.tsx` only writes `?id=` into `openStore.ts` (`docs/open-decisions.md` §2.11). Two things follow and both break silently. Every `window` listener the subtree owns must be gated on the `active` prop — a hidden `canvas.tsx` still `preventDefault`s the space bar, app-wide. And every `delete_workflow` caller must `closeDesigner(id)`, or the hidden editor retries `save_workflow` against a deleted row forever; there are two such sites, `designer/topbar.tsx` and `workflowCard.tsx`.
 
 **Static export**
 

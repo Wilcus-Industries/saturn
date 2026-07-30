@@ -13,7 +13,7 @@ asset protocol does no extensionless fallback.
 | `/dashboard/agent/` | `(shell)/agent/page.tsx` | yes | — |
 | `/dashboard/workflows/` | `(shell)/workflows/page.tsx` | yes | — |
 | `/dashboard/workflows/runs/?id=` | `(shell)/workflows/runs/page.tsx` | yes | query |
-| `/dashboard/workflows/designer/?id=` | `workflows/designer/page.tsx` | **no** | query |
+| `/dashboard/workflows/designer/?id=` | `(shell)/workflows/designer/page.tsx` | yes | query |
 | `/dashboard/memory/` | `(shell)/memory/page.tsx` | yes | — |
 | `/dashboard/memory/store/?id=` | `(shell)/memory/store/page.tsx` | yes | query |
 | `/dashboard/settings/` | `(shell)/settings/page.tsx` | yes | — |
@@ -31,15 +31,37 @@ cannot be enumerated. The cost is that every page reading an id calls
 §2.6 records the three routes that moved and why an SPA-fallback rewrite was not
 an option.
 
-The designer lives **outside** the `(shell)` group on purpose — it takes the full
-screen with no top bar. Its ~20 colocated components moved with it when
-`workflows/[id]/` was renamed `workflows/designer/`.
+**The designer route renders nothing.** It is the one page in the app that is
+not mounted by its own route: `(shell)/layout.tsx` mounts it, and
+`(shell)/workflows/designer/page.tsx` is reduced to reading `?id=` and handing it
+to `designer/openStore.ts`. The reason is that an App Router page is unmounted on
+every navigation, and the designer's undo history, canvas viewport, selection,
+console and agent panel width live nowhere but that subtree — none of it is in
+the database and none of it is worth persisting, so switching nav tabs hides the
+designer (`display:none`) rather than tearing it down. `openStore.ts` carries the
+full argument; the layout cannot read `?id=` itself, because by the time the user
+is on another tab the query string is gone and that is exactly when the designer
+has to stay open.
+
+Two consequences worth knowing before touching either file. **The top bar's
+"Workflows" chip points at the open editor** while there is one — the chip is the
+way back, since leaving is a hide, not a close — and falls back to the list when
+`closeDesigner` clears it (both delete sites call it). And **a hidden designer is
+still mounted**, so every `window` listener it owns is gated on an `active` prop
+threaded from the host; see `docs/designer.md`.
+
+Its ~20 colocated components moved with it when `workflows/[id]/` was renamed
+`workflows/designer/`, and again when it rejoined the shell.
 
 ## Shell
 
 `(shell)/layout.tsx` is `topBar.tsx` + a `max-w-5xl` content column, stacked:
 one 3rem bar across the window — the ascii mark, then a chip per destination —
-and `<main>` under it as the only scroller. There is no responsive branch: the
+and `<main>` under it as the only scroller. It is a **client** component, because
+it decides on `usePathname()` which of its two lower children is showing:
+`<main>` or the designer host (above). They are siblings, never nested, and
+exactly one is `display:none` — which is why the designer needs no height calc of
+its own, just `flex-1` in the `h-dvh` column. There is no responsive branch: the
 window has a `minWidth` of 768 (`tauri.conf.json`), so the bar is unconditional.
 `nav.ts` holds the four destinations and `isActive`, and normalizes trailing
 slashes on both sides — `usePathname()` reports what is actually in the address
@@ -109,7 +131,7 @@ doesn't match its content reads worse than one line admitting what it's doing.
 
 Two surfaces, one conversation: `/dashboard/agent/` — the window's opening url —
 and the `<aside>` docked beside the designer canvas
-(`workflows/designer/agentPanel.tsx`, toggled from the canvas control cluster,
+(`(shell)/workflows/designer/agentPanel.tsx`, toggled from the canvas control cluster,
 width local and never persisted). Both render the same `agentChat.tsx` and drive the same
 four session commands, but switch chats differently: the page uses
 `agent/sessionSidebar.tsx`, a collapsible column down the window's left edge

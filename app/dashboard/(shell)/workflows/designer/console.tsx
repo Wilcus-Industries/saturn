@@ -25,12 +25,17 @@ export default function ConsolePanel({
     onResize,
     onClear,
     onClose,
+    active = true,
 }: {
     lines: ConsoleLine[];
     height: number;
     onResize: (height: number) => void;
     onClear: () => void;
     onClose: () => void;
+    // on screen right now. Defaults true for the runs page, which is a route and
+    // so is only ever mounted while visible; the designer passes it, because it
+    // is hidden rather than unmounted when another nav tab is showing.
+    active?: boolean;
 }) {
     const scrollRef = useRef<HTMLDivElement>(null);
     // stick to the bottom only while the user is already there — scrolling
@@ -40,10 +45,14 @@ export default function ConsolePanel({
     // gesture keeps tracking even when the pointer leaves the handle
     const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
+    // `active` is in the deps, not just guarding the body: a hidden panel
+    // measures scrollHeight 0, so lines landing from a run the user walked away
+    // from would scroll it to the TOP. Skipping while hidden and re-running on
+    // re-show is what puts them back at the newest line.
     useEffect(() => {
         const el = scrollRef.current;
-        if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-    }, [lines]);
+        if (active && el && stickRef.current) el.scrollTop = el.scrollHeight;
+    }, [lines, active]);
 
     return (
         <section

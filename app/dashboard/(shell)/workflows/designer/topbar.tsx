@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import ConfirmButton from "@/app/dashboard/confirmButton";
 import { call } from "@/lib/ipc";
 import type { ValidationIssue } from "@/lib/workflow";
+import { closeDesigner } from "./openStore";
 import PopoverShell from "./popoverShell";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -163,13 +164,19 @@ export default function Topbar({
                     </button>
                 )}
                 {/* the workflow this page is editing no longer exists — leave,
-                    whether or not the (idempotent) delete reported success */}
+                    whether or not the (idempotent) delete reported success.
+                    closeDesigner as well as navigating: leaving is now a hide,
+                    so without it this editor stays mounted and keeps retrying
+                    an autosave against the deleted row */}
                 <ConfirmButton
                     sizeClass={"text-xs"}
                     onConfirm={() =>
                         call("delete_workflow", { id: workflowId })
                             .catch(() => {})
-                            .then(() => router.push("/dashboard/workflows/"))
+                            .then(() => {
+                                closeDesigner(workflowId);
+                                router.push("/dashboard/workflows/");
+                            })
                     }
                 />
             </span>
